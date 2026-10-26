@@ -12,6 +12,8 @@ Model: channels (instruments: the built-in sampler with one or more sample layer
 
 Units: time is integer ticks at 960 per quarter note (in 4/4 a 16th is 240, a beat 960, a bar 3840). Volumes in dB, pan -1..1, velocity 1-127, keys are MIDI numbers (60 = C4). Sample paths are absolute or relative to the project folder.
 
+Sounds: search_samples finds samples in the user's library by words, category, loop, tempo and key, with a description of each sound. Use one-shots as sampler layers; set rootKey from the result's rootKey so pitched samples play in tune, and pitchTracking false for drums. Use loops as audio clips (their tempo must match the song's for now). describe_sample gives full measurements (spectrum bands, attack, pitch, loudness). Paths in results are absolute.
+
 Workflow: get_summary to see the song, get_schema once for exact shapes, edit_project to change it (commands apply atomically; errors name the offending field), render to hear it as numbers (LUFS, peak, onsets), then adjust and re-render. Every edit is undoable; edits made close together form one group that undo reverts in one step.`;
 
 const GROUP_IDLE_MS = 120_000;
@@ -173,6 +175,47 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
       annotations: { readOnlyHint: true },
     },
     ({ path, startSeconds, endSeconds }) => attempt(() => engine.call("analyze", { path, start: startSeconds, end: endSeconds }))
+  );
+
+  server.registerTool(
+    "search_samples",
+    {
+      description: "Searches the user's sample library. Every word in query must match the file name, its folders or its category. Results give the path, a description of the sound, category, loop, tempo, key, duration and rootKey (detected pitch) where known.",
+      inputSchema: {
+        query: z.string().optional().describe("Words, e.g. \"dark kick\" or \"vinyl hat\""),
+        category: z.enum(["kick", "snare", "clap", "hat", "cymbal", "tom", "perc", "bass", "synth", "vocal", "fx", "drums", "other"]).optional(),
+        loop: z.boolean().optional().describe("true for loops only, false for one-shots only"),
+        tempo: z.number().optional().describe("BPM; also matches half and double time"),
+        key: z.string().optional().describe("e.g. \"Am\", \"F# minor\""),
+        minDuration: z.number().optional().describe("Seconds"),
+        maxDuration: z.number().optional().describe("Seconds"),
+        limit: z.number().int().min(1).max(100).optional().describe("Default 20"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    (args) => attempt(() => engine.call("library.search", args))
+  );
+
+  server.registerTool(
+    "describe_sample",
+    {
+      description: "Full measurements of one audio file: duration, loudness, attack and decay, spectral centroid and band energy (sub, low, mid, high), detected pitch, onset count and tempo, plus its classification. Works for files outside the library too.",
+      inputSchema: { path: z.string() },
+      annotations: { readOnlyHint: true },
+    },
+    ({ path }) => attempt(() => engine.call("library.describe", { path }))
+  );
+
+  server.registerTool(
+    "sample_library",
+    {
+      description: "Manages the sample library: status (folders, sample count, scan progress), addFolder (indexes a folder and scans it in the background), removeFolder, or scan (rescans changed files).",
+      inputSchema: {
+        action: z.enum(["status", "addFolder", "removeFolder", "scan"]),
+        path: z.string().optional().describe("Folder, for addFolder and removeFolder"),
+      },
+    },
+    ({ action, path }) => attempt(() => engine.call(`library.${action}`, path ? { path } : {}))
   );
 
   server.registerTool(

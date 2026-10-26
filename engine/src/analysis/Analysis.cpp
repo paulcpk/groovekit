@@ -3,7 +3,7 @@
 namespace gk::analysis
 {
 
-Audio loadAudio (const std::filesystem::path& path)
+Audio loadAudio (const std::filesystem::path& path, std::optional<double> maxSeconds)
 {
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
@@ -13,10 +13,18 @@ Audio loadAudio (const std::filesystem::path& path)
     if (reader == nullptr)
         throw std::runtime_error ("Can't read audio file " + path.string());
 
+    auto length = reader->lengthInSamples;
+
+    if (maxSeconds)
+        length = std::min (length, static_cast<juce::int64> (*maxSeconds * reader->sampleRate));
+
+    if (length > std::numeric_limits<int>::max())
+        throw std::runtime_error ("Audio file too long: " + path.string());
+
     Audio audio;
     audio.sampleRate = reader->sampleRate;
-    audio.buffer.setSize (static_cast<int> (reader->numChannels), static_cast<int> (reader->lengthInSamples));
-    reader->read (&audio.buffer, 0, static_cast<int> (reader->lengthInSamples), 0, true, true);
+    audio.buffer.setSize (static_cast<int> (reader->numChannels), static_cast<int> (length));
+    reader->read (&audio.buffer, 0, static_cast<int> (length), 0, true, true);
     return audio;
 }
 

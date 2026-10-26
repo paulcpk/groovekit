@@ -8,6 +8,9 @@ target_sources(gk_engine PRIVATE
     src/api/ApiServer.cpp
     src/compiler/EditCompiler.cpp
     src/effects/BuiltinEffects.cpp
+    src/library/Classifier.cpp
+    src/library/SampleFeatures.cpp
+    src/library/SampleLibrary.cpp
     src/mixer/FaderPlugin.cpp
     src/model/Project.cpp
     src/render/Render.cpp

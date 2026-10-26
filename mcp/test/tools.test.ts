@@ -59,7 +59,7 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
   };
 
   beforeAll(async () => {
-    engineProcess = spawn(enginePath, ["serve", project, "--port", String(port)], { stdio: "ignore" });
+    engineProcess = spawn(enginePath, ["serve", project, "--port", String(port), "--library", join(project, "library.json")], { stdio: "ignore" });
     engine = new EngineClient(`ws://127.0.0.1:${port}`);
 
     for (let i = 0; i < 100; i++) {
@@ -124,6 +124,25 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
   it("reports command errors without changing anything", async () => {
     const result = await call("edit_project", { commands: [{ type: "updateChannel", channel: "ghost", changes: { volumeDb: -3 } }] });
     expect(result.error).toContain('no channel "ghost"');
+  });
+
+  it("indexes and searches a sample folder", async () => {
+    await call("sample_library", { action: "addFolder", path: fixtures });
+
+    for (let i = 0; i < 100; i++) {
+      const status = await call("sample_library", { action: "status" });
+      if (!status.value.progress.running && status.value.progress.samples > 0) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    const kicks = await call("search_samples", { category: "kick" });
+    expect(kicks.value.results.map((r: any) => r.path.split("/").pop())).toEqual(["kick.wav"]);
+
+    const bass = await call("search_samples", { query: "bass" });
+    expect(bass.value.results[0].rootKey).toBe(45);
+
+    const described = await call("describe_sample", { path: bass.value.results[0].path });
+    expect(described.value.features.pitch.key).toBe(45);
   });
 
   it("serves the schema and the effect catalogue", async () => {

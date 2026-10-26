@@ -6,11 +6,14 @@ namespace gk
 {
 
 class EngineContext;
+namespace library { class SampleLibrary; }
 
 /** JSON-RPC 2.0 over any message transport. Lives on the message thread.
 
-    Requests: execute, undo, redo, get, getSummary, getHistory, render, analyze, listEffects, hello.
-    Notifications to clients: "snapshot" on connect, "patch" after every change from any client.
+    Requests: execute, undo, redo, get, getSummary, getHistory, render, analyze, listEffects, hello,
+    and library.folders/addFolder/removeFolder/scan/status/search/describe.
+    Notifications to clients: "snapshot" on connect, "patch" after every change from any client,
+    "libraryProgress" while the sample library scans.
     See docs/protocol.md.
 */
 class ApiHandler
@@ -24,7 +27,7 @@ public:
         Send send;
     };
 
-    ApiHandler (Session&, EngineContext&);
+    ApiHandler (Session&, EngineContext&, library::SampleLibrary* = nullptr);
     ~ApiHandler();
 
     /** Called for every change; the server sends the message to all clients. */
@@ -42,12 +45,16 @@ public:
 private:
     Session& session;
     EngineContext& context;
+    library::SampleLibrary* library;
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
     Send broadcast;
     int listenerId = 0;
     std::string lastOrigin;
     int renderCount = 0;
 
     model::Json render (const model::Json& params);
+    model::Json callLibrary (const std::string& method, const model::Json& params);
+    void startLibraryScan();
 };
 
 } // namespace gk

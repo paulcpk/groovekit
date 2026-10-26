@@ -1,6 +1,7 @@
 #include "TestHelpers.h"
 
 #include "api/ApiHandler.h"
+#include "library/SampleLibrary.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -104,4 +105,45 @@ TEST_CASE ("The API renders and analyses")
 
     r = h.call ("analyze", { { "path", output }, { "start", 0.2 } });
     CHECK (r["result"]["peakDb"].get<double>() < -100);
+}
+
+TEST_CASE ("The API searches the sample library")
+{
+    auto root = test::tempDir() / "api-library";
+    auto index = test::tempDir() / "api-library.json";
+    std::filesystem::remove_all (root);
+    std::filesystem::remove (index);
+    std::filesystem::create_directories (root / "Kicks");
+    std::filesystem::copy_file (test::fixture ("kick.wav"), root / "Kicks" / "Deep Kick.wav");
+    std::filesystem::copy_file (test::fixture ("bass_a2.wav"), root / "Sub A.wav");
+
+    library::SampleLibrary library (index);
+    Session session (Session::createEmptyProject());
+    ApiHandler handler (session, test::getEngineContext(), &library);
+
+    Json response;
+    ApiHandler::Client client;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+
+    auto call = [&] (const std::string& method, Json params)
+    {
+        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        return response;
+    };
+
+    call ("library.addFolder", { { "path", root.string() } });
+    library.waitForScan();
+
+    auto r = call ("library.search", { { "query", "kick" } });
+    REQUIRE (r["result"]["results"].size() == 1);
+    CHECK (r["result"]["results"][0]["category"] == "kick");
+
+    r = call ("library.search", { { "category", "bass" } });
+    REQUIRE (r["result"]["results"].size() == 1);
+    CHECK (r["result"]["results"][0]["rootKey"] == 45);
+
+    r = call ("library.describe", { { "path", (root / "Sub A.wav").string() } });
+    CHECK (r["result"]["features"]["pitch"]["key"] == 45);
+
+    CHECK (call ("library.status", Json::object())["result"]["progress"]["samples"] == 2);
 }

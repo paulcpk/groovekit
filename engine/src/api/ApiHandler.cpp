@@ -4,8 +4,11 @@
 #include "analysis/Analysis.h"
 #include "compiler/EditCompiler.h"
 #include "effects/BuiltinEffects.h"
+#include "library/SampleLibrary.h"
 #include "render/Render.h"
 #include "session/Summary.h"
+
+#include <juce_events/juce_events.h>
 
 namespace gk
 {
@@ -83,8 +86,8 @@ namespace
     }
 }
 
-ApiHandler::ApiHandler (Session& s, EngineContext& c)
-    : session (s), context (c)
+ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l)
+    : session (s), context (c), library (l)
 {
     listenerId = session.addListener ([this] (const Change& change)
     {
@@ -108,6 +111,7 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c)
 
 ApiHandler::~ApiHandler()
 {
+    *alive = false;
     session.removeListener (listenerId);
 }
 
@@ -249,6 +253,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
     if (method == "listEffects")
         return effects::catalogueToJson();
 
+    if (method.starts_with ("library."))
+        return callLibrary (method.substr (8), params);
+
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 }
 
@@ -279,6 +286,100 @@ Json ApiHandler::render (const Json& params)
 
     return { { "path", std::filesystem::absolute (output).string() },
              { "analysis", analysis::analyse (analysis::loadAudio (output)) } };
+}
+
+Json ApiHandler::callLibrary (const std::string& method, const Json& params)
+{
+    if (library == nullptr)
+        throw RpcError (operationFailed, "no sample library is configured");
+
+    auto progressJson = [this]
+    {
+        auto p = library->getProgress();
+        return Json { { "running", p.running }, { "filesFound", p.filesFound }, { "analysed", p.analysed },
+                      { "unchanged", p.unchanged }, { "failed", p.failed }, { "samples", library->size() } };
+    };
+
+    auto folders = [this]
+    {
+        auto list = Json::array();
+
+        for (auto& f : library->getFolders())
+            list.push_back (f.string());
+
+        return list;
+    };
+
+    if (method == "folders" || method == "status")
+        return { { "folders", folders() }, { "progress", progressJson() } };
+
+    if (method == "addFolder")
+    {
+        library->addFolder (readParam<std::string> (params, "path"));
+
+        if (params.value ("scan", true))
+            startLibraryScan();
+
+        return { { "folders", folders() }, { "progress", progressJson() } };
+    }
+
+    if (method == "removeFolder")
+    {
+        library->removeFolder (readParam<std::string> (params, "path"));
+        return { { "folders", folders() }, { "progress", progressJson() } };
+    }
+
+    if (method == "scan")
+    {
+        startLibraryScan();
+        return progressJson();
+    }
+
+    if (method == "search")
+    {
+        library::SampleQuery q;
+        q.text = params.value ("query", "");
+        q.limit = std::clamp (params.value ("limit", 20), 1, 200);
+
+        if (params.contains ("category"))       q.category = readParam<std::string> (params, "category");
+        if (params.contains ("loop"))           q.loop = readParam<bool> (params, "loop");
+        if (params.contains ("key"))            q.key = readParam<std::string> (params, "key");
+        if (auto v = optionalNumber (params, "tempo"))          q.tempo = v;
+        if (auto v = optionalNumber (params, "minDuration"))    q.minDuration = v;
+        if (auto v = optionalNumber (params, "maxDuration"))    q.maxDuration = v;
+
+        auto results = Json::array();
+
+        for (auto& e : library->search (q))
+            results.push_back (library::SampleLibrary::toJson (e, false));
+
+        return { { "results", results }, { "librarySize", library->size() } };
+    }
+
+    if (method == "describe")
+    {
+        auto path = readParam<std::string> (params, "path");
+        auto entry = library->find (path);
+        return library::SampleLibrary::toJson (entry ? *entry : library::SampleLibrary::analyseFile (path), true);
+    }
+
+    throw RpcError (methodNotFound, "unknown method \"library." + method + "\"");
+}
+
+void ApiHandler::startLibraryScan()
+{
+    library->startScan ([this, alive = alive] (const library::SampleLibrary::Progress& p)
+    {
+        Json params { { "running", p.running }, { "filesFound", p.filesFound }, { "analysed", p.analysed },
+                      { "unchanged", p.unchanged }, { "failed", p.failed } };
+
+        // Called on the scan thread: broadcast from the message thread.
+        juce::MessageManager::callAsync ([this, alive, params]
+        {
+            if (*alive && broadcast)
+                broadcast (notification ("libraryProgress", params).dump());
+        });
+    });
 }
 
 } // namespace gk

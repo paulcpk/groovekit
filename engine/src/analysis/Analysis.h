@@ -18,8 +18,8 @@ struct Audio
     double getDurationSeconds() const { return buffer.getNumSamples() / sampleRate; }
 };
 
-/** Throws std::runtime_error if the file can't be read. */
-Audio loadAudio (const std::filesystem::path&);
+/** Reads a file, or its first maxSeconds. Throws std::runtime_error if it can't be read. */
+Audio loadAudio (const std::filesystem::path&, std::optional<double> maxSeconds = {});
 
 /** A time range in seconds (an empty end means "to the end"), optionally limited to one channel. */
 struct Range

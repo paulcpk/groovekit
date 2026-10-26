@@ -30,6 +30,11 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 | `render` | `start?`, `end?` (ticks), `tailSeconds?`, `path?` | `{ path, analysis }` |
 | `analyze` | `path`, `start?`, `end?` (seconds) | `{ peakDb, rmsDb, integratedLufs, onsets, ... }` |
 | `listEffects` | | built-in effects with parameter names, units and ranges |
+| `library.status` | | `{ folders, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
+| `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |
+| `library.scan` | | progress; `libraryProgress` notifications follow |
+| `library.search` | `query?`, `category?`, `loop?`, `tempo?`, `key?`, `minDuration?`, `maxDuration?`, `limit?` | `{ results: [{ path, description, category, loop, tempo?, key?, durationSeconds, rootKey? }], librarySize }` |
+| `library.describe` | `path` | the entry with full `features` and `classification` |
 
 ## Commands
 
