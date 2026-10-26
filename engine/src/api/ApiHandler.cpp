@@ -2,6 +2,7 @@
 
 #include "EngineContext.h"
 #include "analysis/Analysis.h"
+#include "analysis/MixAnalysis.h"
 #include "compiler/EditCompiler.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
@@ -243,11 +244,24 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
     if (method == "render")
         return render (params);
 
+    if (method == "analyzeMix")
+    {
+        RenderOptions options;
+
+        if (auto v = optionalNumber (params, "start"))          options.start = static_cast<model::Ticks> (*v);
+        if (auto v = optionalNumber (params, "end"))            options.end = static_cast<model::Ticks> (*v);
+        if (auto v = optionalNumber (params, "tailSeconds"))    options.tailSeconds = *v;
+
+        const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+        return analysis::analyseMix (context.getEngine(), session.getProject(), { projectDir, tracktion::Edit::forRendering },
+                                     options, projectDir / "renders" / "analysis");
+    }
+
     if (method == "analyze")
     {
         auto audio = analysis::loadAudio (readParam<std::string> (params, "path"));
         return analysis::analyse (analysis::slice (audio, { optionalNumber (params, "start").value_or (0),
-                                                            optionalNumber (params, "end"), {} }));
+                                                            optionalNumber (params, "end"), {} }), true);
     }
 
     if (method == "listEffects")
@@ -285,7 +299,7 @@ Json ApiHandler::render (const Json& params)
     renderToWav (*compiled.edit, session.getProject(), output, options);
 
     return { { "path", std::filesystem::absolute (output).string() },
-             { "analysis", analysis::analyse (analysis::loadAudio (output)) } };
+             { "analysis", analysis::analyse (analysis::loadAudio (output), true) } };
 }
 
 Json ApiHandler::callLibrary (const std::string& method, const Json& params)

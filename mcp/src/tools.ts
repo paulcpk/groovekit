@@ -145,7 +145,7 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
   server.registerTool(
     "render",
     {
-      description: "Renders the song (or bars of it) offline to a 48 kHz WAV and returns its path with peak, RMS, integrated LUFS and onset times. Use this to check levels and timing after changes.",
+      description: "Renders the song (or bars of it) offline to a 48 kHz WAV and returns its path with peak, true peak, RMS, integrated/short-term/momentary LUFS, loudness range, spectral balance (10 bands, dB share), stereo correlation and onset times. Use this to check levels, tone and timing after changes.",
       inputSchema: {
         startBar: z.number().min(1).optional().describe("First bar, 1-based; default the start"),
         endBar: z.number().min(1).optional().describe("Bar to stop before; default the end of the last clip"),
@@ -164,9 +164,28 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
   );
 
   server.registerTool(
+    "analyze_mix",
+    {
+      description: "Renders the mix plus one stem per channel (and per insert with audio clips) and reports: the mix's loudness, true peak, loudness range, spectral balance and stereo image; each source's loudness and share of every frequency band; and masking, i.e. pairs of sources that both carry a big share of the same band (e.g. kick and bass at 60-120 Hz). Slower than render: one render per source.",
+      inputSchema: {
+        startBar: z.number().min(1).optional(),
+        endBar: z.number().min(1).optional(),
+      },
+    },
+    ({ startBar, endBar }) =>
+      attempt(async () => {
+        await engine.connect();
+        return engine.call("analyzeMix", {
+          ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
+          ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
+        });
+      })
+  );
+
+  server.registerTool(
     "analyze_audio",
     {
-      description: "Peak, RMS, integrated LUFS and onsets of an audio file, optionally of a time range (seconds).",
+      description: "The same measurements as render, for any audio file or a time range of it (seconds).",
       inputSchema: {
         path: z.string(),
         startSeconds: z.number().min(0).optional(),

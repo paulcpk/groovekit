@@ -147,3 +147,37 @@ TEST_CASE ("The API searches the sample library")
 
     CHECK (call ("library.status", Json::object())["result"]["progress"]["samples"] == 2);
 }
+
+TEST_CASE ("Mix analysis finds sources that mask each other")
+{
+    Harness h;
+    auto layer = [] (const char* id, const char* sample, bool pitched)
+    {
+        return Json::parse (std::string (R"({ "type": "addChannel", "channel": { "id": ")") + id + R"(", "instrument": { "type": "sampler", "layers": [
+            { "id": "l", "pitchTracking": )" + (pitched ? "true" : "false") + R"(, "rootKey": 45, "sample": ")" + test::fixture (sample).string() + R"(" } ] } } })");
+    };
+
+    h.call ("execute", { { "commands", Json::array ({
+        layer ("bassA", "bass_a2.wav", true),
+        layer ("bassB", "bass_a2.wav", true),
+        layer ("hat", "hat.wav", false),
+        Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [
+            { "channel": "bassA", "start": 0, "length": 960, "key": 45 },
+            { "channel": "bassB", "start": 0, "length": 960, "key": 45 },
+            { "channel": "hat", "start": 0, "length": 120 }, { "channel": "hat", "start": 480, "length": 120 } ] } })"),
+        Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 1920, "pattern": "p" } })"),
+    }) } });
+
+    auto r = h.call ("analyzeMix");
+    REQUIRE (r.contains ("result"));
+    auto& result = r["result"];
+
+    CHECK (result["stems"].size() == 3);
+    CHECK (result["mix"].contains ("truePeakDb"));
+
+    REQUIRE (result["masking"].size() == 1);
+    CHECK (result["masking"][0]["a"] == "bassA");
+    CHECK (result["masking"][0]["b"] == "bassB");
+    CHECK (result["masking"][0]["bands"][0] == "60-120 Hz");
+}

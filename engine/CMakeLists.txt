@@ -4,6 +4,7 @@ add_library(gk_engine STATIC)
 target_sources(gk_engine PRIVATE
     src/EngineContext.cpp
     src/analysis/Analysis.cpp
+    src/analysis/MixAnalysis.cpp
     src/api/ApiHandler.cpp
     src/api/ApiServer.cpp
     src/compiler/EditCompiler.cpp

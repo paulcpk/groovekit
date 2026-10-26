@@ -27,8 +27,9 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 | `get` | `path?`: JSON Pointer into song.json (default: everything) | the value |
 | `getSummary` | | compact overview with bars, note counts and effect chains |
 | `getHistory` | | `{ entries: [{ id, parent?, time, origin, group?, label }], head }` |
-| `render` | `start?`, `end?` (ticks), `tailSeconds?`, `path?` | `{ path, analysis }` |
-| `analyze` | `path`, `start?`, `end?` (seconds) | `{ peakDb, rmsDb, integratedLufs, onsets, ... }` |
+| `render` | `start?`, `end?` (ticks), `tailSeconds?`, `path?` | `{ path, analysis }` (the detailed analysis, as for `analyze`) |
+| `analyze` | `path`, `start?`, `end?` (seconds) | `{ peakDb, truePeakDb, rmsDb, crestDb, integratedLufs, momentaryMaxLufs, shortTermMaxLufs, loudnessRangeLu, spectrum, stereo, onsets }` |
+| `analyzeMix` | `start?`, `end?` (ticks), `tailSeconds?` | `{ mix, bands, stems: [{ source, integratedLufs, peakDb, bandShare }], masking: [{ a, b, bands }] }` |
 | `listEffects` | | built-in effects with parameter names, units and ranges |
 | `library.status` | | `{ folders, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |

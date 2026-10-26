@@ -40,13 +40,48 @@ float peakDb (const Audio&, Range = {});
 /** RMS over the range's channels, in dBFS (a full-scale square wave is 0 dB). */
 float rmsDb (const Audio&, Range = {});
 
+struct LoudnessStats
+{
+    float integrated = silenceDb;       // LUFS, BS.1770-4 gating
+    float momentaryMax = silenceDb;     // loudest 400 ms
+    float shortTermMax = silenceDb;     // loudest 3 s
+    float range = 0;                    // loudness range (LRA, EBU Tech 3342) in LU
+};
+
+LoudnessStats measureLoudness (const Audio&);
+
 /** Integrated loudness per ITU-R BS.1770-4 / EBU R128, in LUFS. Returns silenceDb if everything is gated. */
 float integratedLufs (const Audio&);
+
+/** Peak including inter-sample peaks (4x oversampled), in dBTP. */
+float truePeakDb (const Audio&);
+
+struct SpectrumBand
+{
+    double fromHz, toHz;
+    float db;       // share of the total energy, in dB (0 dB would be everything in this band)
+};
+
+/** Energy in ten bands from 20 Hz to 20 kHz, of the mono mix, relative to the total. */
+std::vector<SpectrumBand> spectralBalance (const Audio&);
+
+/** The same bands as absolute energy (mean power in dB), so different files can be compared. */
+std::vector<SpectrumBand> bandEnergies (const Audio&);
+
+struct StereoStats
+{
+    float correlation = 1;      // 1 mono, 0 unrelated, negative out of phase
+    float lowCorrelation = 1;   // the same below 150 Hz, where it should stay near 1
+    float sideToMidDb = silenceDb;
+};
+
+StereoStats measureStereo (const Audio&);
 
 /** Times (seconds) where the signal rises above thresholdDb after at least minGapSeconds below it. */
 std::vector<double> detectOnsets (const Audio&, float thresholdDb = -40.0f, double minGapSeconds = 0.05);
 
-/** Summary used by the CLI and the render tests. */
-model::Json analyse (const Audio&);
+/** Summary used by the CLI, the API and the render tests. Detailed adds true peak, loudness
+    statistics, spectral balance and stereo measurements. */
+model::Json analyse (const Audio&, bool detailed = false);
 
 } // namespace gk::analysis

@@ -179,7 +179,7 @@ int main (int argc, char* argv[])
         else if (command == "analyze" && args.positional.size() == 2)
         {
             juce::ScopedJuceInitialiser_GUI juce;
-            std::cout << gk::analysis::analyse (gk::analysis::loadAudio (args.positional[1])).dump (2) << "\n";
+            std::cout << gk::analysis::analyse (gk::analysis::loadAudio (args.positional[1]), true).dump (2) << "\n";
             result = 0;
         }
         else if (command == "effects")

@@ -75,3 +75,72 @@ TEST_CASE ("Onsets are found after silence")
     CHECK (onsets[1] == Approx (0.4));
     CHECK (onsets[2] == Approx (0.8));
 }
+
+TEST_CASE ("True peak finds peaks between samples")
+{
+    // 12 kHz at 48 kHz with a 45 degree phase: every sample lands at 0.707 of the real peak.
+    Audio a;
+    a.sampleRate = 48000;
+    a.buffer.setSize (2, 48000);
+
+    for (int i = 0; i < a.buffer.getNumSamples(); ++i)
+        for (int ch = 0; ch < 2; ++ch)
+            a.buffer.setSample (ch, i, static_cast<float> (std::sin (2.0 * juce::MathConstants<double>::pi * 12000.0 * i / 48000.0
+                                                                     + juce::MathConstants<double>::pi / 4)));
+
+    CHECK (peakDb (a) == Approx (-3.01).margin (0.05));
+    CHECK (truePeakDb (a) == Approx (0.0).margin (0.3));
+}
+
+TEST_CASE ("Loudness range reflects quiet and loud passages")
+{
+    auto loud = juce::Decibels::decibelsToGain (-20.0f);
+    auto quiet = juce::Decibels::decibelsToGain (-30.0f);
+    auto a = sine (1000, 40, loud, loud);
+
+    // Alternate 10 s loud, 10 s quiet.
+    for (int i = 0; i < a.buffer.getNumSamples(); ++i)
+        if ((i / 480000) % 2 == 1)
+            for (int ch = 0; ch < 2; ++ch)
+                a.buffer.setSample (ch, i, a.buffer.getSample (ch, i) * quiet / loud);
+
+    auto stats = measureLoudness (a);
+    CHECK (stats.range == Approx (10.0).margin (1.0));
+    CHECK (stats.shortTermMax == Approx (-20.0).margin (0.3));
+    CHECK (stats.momentaryMax == Approx (-20.0).margin (0.3));
+}
+
+TEST_CASE ("Spectral balance puts a tone in its band")
+{
+    auto bands = spectralBalance (sine (100, 2, 0.5f, 0.5f));
+    REQUIRE (bands.size() == 10);
+    CHECK (bands[1].fromHz == 60);
+    CHECK (bands[1].db > -0.5f);
+
+    for (size_t b = 3; b < bands.size(); ++b)
+        CHECK (bands[b].db < -40.0f);
+}
+
+TEST_CASE ("Stereo correlation and width")
+{
+    auto mono = measureStereo (sine (200, 1, 0.5f, 0.5f));
+    CHECK (mono.correlation == Approx (1.0f));
+    CHECK (mono.sideToMidDb == silenceDb);
+
+    auto inverted = measureStereo (sine (200, 1, 0.5f, -0.5f));
+    CHECK (inverted.correlation == Approx (-1.0f));
+    CHECK (inverted.lowCorrelation < -0.9f);
+
+    Audio noise;
+    noise.sampleRate = 48000;
+    noise.buffer.setSize (2, 48000);
+    juce::Random rng (42);
+
+    for (int i = 0; i < noise.buffer.getNumSamples(); ++i)
+        for (int ch = 0; ch < 2; ++ch)
+            noise.buffer.setSample (ch, i, rng.nextFloat() - 0.5f);
+
+    auto wide = measureStereo (noise);
+    CHECK (std::abs (wide.correlation) < 0.05f);
+    CHECK (wide.sideToMidDb == Approx (0.0f).margin (0.5f));
+}
