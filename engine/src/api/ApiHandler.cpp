@@ -7,6 +7,7 @@
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
 #include "live/LiveEngine.h"
+#include "plugins/PluginCatalog.h"
 #include "render/Render.h"
 #include "session/Mastering.h"
 #include "session/Summary.h"
@@ -89,8 +90,8 @@ namespace
     }
 }
 
-ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l, LiveEngine* le)
-    : session (s), context (c), library (l), live (le)
+ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l, LiveEngine* le, PluginCatalog* p)
+    : session (s), context (c), library (l), live (le), plugins (p)
 {
     if (live != nullptr)
         live->onTransportChange = [this] (const LiveEngine::TransportState& t)
@@ -301,6 +302,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
 
     if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio."))
         return callLive (method, params, client);
+
+    if (method.starts_with ("plugins."))
+        return callPlugins (method.substr (8), params);
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 }
@@ -530,6 +534,91 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
     }
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+Json ApiHandler::callPlugins (const std::string& method, const Json& params)
+{
+    if (plugins == nullptr)
+        throw RpcError (operationFailed, "this engine has no plugin catalog");
+
+    auto progressJson = [this]
+    {
+        auto p = plugins->getProgress();
+        return Json { { "running", p.running }, { "scanned", p.scanned }, { "total", p.total }, { "current", p.current },
+                      { "plugins", plugins->getPlugins().size() } };
+    };
+
+    if (method == "status")
+        return progressJson();
+
+    if (method == "scan")
+    {
+        plugins->startScan ([this, alive = alive] (const PluginCatalog::Progress& p)
+        {
+            if (*alive && broadcast)
+                broadcast (notification ("pluginScanProgress", { { "running", p.running }, { "scanned", p.scanned },
+                                                                 { "total", p.total }, { "current", p.current } }).dump());
+        });
+
+        return progressJson();
+    }
+
+    if (method == "list")
+    {
+        const auto words = juce::StringArray::fromTokens (juce::String (params.value ("query", "")), true);
+        const auto instruments = params.contains ("instrument") ? std::optional (readParam<bool> (params, "instrument")) : std::nullopt;
+        auto list = Json::array();
+
+        for (auto& d : plugins->getPlugins())
+        {
+            if (instruments && d.isInstrument != *instruments)
+                continue;
+
+            const auto text = d.name + " " + d.manufacturerName + " " + d.category;
+            bool all = true;
+
+            for (auto& w : words)
+                all = all && text.containsIgnoreCase (w);
+
+            if (all)
+                list.push_back (PluginCatalog::toJson (d));
+        }
+
+        return { { "plugins", list } };
+    }
+
+    if (method == "describe")
+    {
+        auto uid = readParam<std::string> (params, "uid");
+        auto desc = plugins->find (uid);
+
+        if (! desc)
+            throw RpcError (invalidParams, "no plugin \"" + uid + "\"; run plugins.scan first");
+
+        // Load it in a scratch Edit to read its parameters.
+        auto edit = tracktion::Edit::createSingleTrackEdit (context.getEngine(), tracktion::Edit::forExamining);
+        auto plugin = edit->getPluginCache().createNewPlugin (tracktion::ExternalPlugin::xmlTypeName, *desc);
+        auto external = dynamic_cast<tracktion::ExternalPlugin*> (plugin.get());
+
+        if (external == nullptr || external->getAudioPluginInstance() == nullptr)
+            throw RpcError (operationFailed, "couldn't load \"" + desc->name.toStdString() + "\"");
+
+        auto parameters = Json::array();
+
+        for (int i = 0; i < external->getNumAutomatableParameters(); ++i)
+            if (auto p = external->getAutomatableParameter (i))
+                parameters.push_back ({ { "id", p->paramID.toStdString() }, { "name", p->getParameterName().toStdString() },
+                                        { "value", std::round (p->getCurrentNormalisedValue() * 1000.0) / 1000.0 },
+                                        { "text", p->getCurrentValueAsStringWithLabel().toStdString() } });
+
+        auto result = PluginCatalog::toJson (*desc);
+        result["parameters"] = parameters;
+        result["pluginRef"] = { { "format", PluginCatalog::formatName (*desc) }, { "uid", uid }, { "name", desc->name.toStdString() },
+                                { "manufacturer", desc->manufacturerName.toStdString() } };
+        return result;
+    }
+
+    throw RpcError (methodNotFound, "unknown method \"plugins." + method + "\"");
 }
 
 void ApiHandler::startLibraryScan()

@@ -5,6 +5,7 @@ add_executable(gk_tests
     LimiterTests.cpp
     LiveTests.cpp
     ModelTests.cpp
+    PluginTests.cpp
     RenderTests.cpp
     SamplerTests.cpp
     SessionTests.cpp

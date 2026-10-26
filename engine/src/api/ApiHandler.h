@@ -7,14 +7,15 @@ namespace gk
 
 class EngineContext;
 class LiveEngine;
+class PluginCatalog;
 namespace library { class SampleLibrary; }
 
 /** JSON-RPC 2.0 over any message transport. Lives on the message thread.
 
     Requests: execute, undo, redo, get, getSummary, getHistory, render, analyze, analyzeMix, master,
-    listEffects, hello, library.*, and with a live engine transport.*, record.* and audio.*.
+    listEffects, hello, library.*, plugins.*, and with a live engine transport.*, record.* and audio.*.
     Notifications to clients: "snapshot" on connect, "patch" after every change from any client,
-    "libraryProgress" while the sample library scans, "transport" while playing.
+    "libraryProgress" and "pluginScanProgress" while scanning, "transport" while playing.
     See docs/protocol.md.
 */
 class ApiHandler
@@ -28,7 +29,7 @@ public:
         Send send;
     };
 
-    ApiHandler (Session&, EngineContext&, library::SampleLibrary* = nullptr, LiveEngine* = nullptr);
+    ApiHandler (Session&, EngineContext&, library::SampleLibrary* = nullptr, LiveEngine* = nullptr, PluginCatalog* = nullptr);
     ~ApiHandler();
 
     /** Called for every change; the server sends the message to all clients. */
@@ -48,6 +49,7 @@ private:
     EngineContext& context;
     library::SampleLibrary* library;
     LiveEngine* live;
+    PluginCatalog* plugins;
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
     Send broadcast;
     int listenerId = 0;
@@ -57,6 +59,7 @@ private:
     model::Json render (const model::Json& params);
     model::Json callLibrary (const std::string& method, const model::Json& params);
     model::Json callLive (const std::string& method, const model::Json& params, Client&);
+    model::Json callPlugins (const std::string& method, const model::Json& params);
     void startLibraryScan();
 };
 

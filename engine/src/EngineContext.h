@@ -11,8 +11,20 @@ namespace gk
 class EngineContext
 {
 public:
+    struct Options
+    {
+        /** Scan plugins in a child copy of this executable, which must then call
+            runPluginScanChildIfRequested() first thing in main(). */
+        bool outOfProcessPluginScanning = false;
+    };
+
     EngineContext();
+    explicit EngineContext (Options);
     ~EngineContext();
+
+    /** If this process was started as a plugin-scanning child, serves scan requests until the
+        parent goes away (then exits) and never returns. Otherwise returns straight away. */
+    static void runPluginScanChildIfRequested (int argc, char* argv[]);
 
     tracktion::Engine& getEngine();
 

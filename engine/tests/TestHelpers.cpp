@@ -10,6 +10,7 @@ namespace gk::test
 namespace
 {
     std::unique_ptr<EngineContext> context;
+    std::vector<std::function<void()>> shutdownActions;
 
     /** Destroys the engine before static destruction, so JUCE's leak detectors see a clean shutdown. */
     class EngineShutdown : public Catch::EventListenerBase
@@ -19,9 +20,18 @@ namespace
 
         void testRunEnded (const Catch::TestRunStats&) override
         {
+            for (auto& action : shutdownActions)
+                action();
+
+            shutdownActions.clear();
             context.reset();
         }
     };
+}
+
+void atShutdown (std::function<void()> action)
+{
+    shutdownActions.push_back (std::move (action));
 }
 
 EngineContext& getEngineContext()

@@ -5,6 +5,7 @@
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
 #include "live/LiveEngine.h"
+#include "plugins/PluginCatalog.h"
 #include "render/Render.h"
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -104,15 +105,16 @@ Add --verbose to see engine log messages.
 
         const int port = std::stoi (args.get ("--port").value_or ("7878"));
 
-        gk::EngineContext context;
+        gk::EngineContext context ({ .outOfProcessPluginScanning = true });
         auto session = gk::Session::open (std::filesystem::absolute (args.positional[1]));
+        gk::PluginCatalog plugins (context.getEngine(), gk::PluginCatalog::getDefaultListFile());
         gk::library::SampleLibrary library (args.get ("--library").value_or (gk::library::SampleLibrary::getDefaultIndexFile().string()));
         gk::LiveEngine live (context, *session);
 
         if (! args.get ("--no-audio"))
             live.openDefaultAudioDevice();
 
-        gk::ApiHandler handler (*session, context, &library, &live);
+        gk::ApiHandler handler (*session, context, &library, &live, &plugins);
         gk::ApiServer server (handler, port);
         server.start();
 
@@ -148,6 +150,7 @@ Add --verbose to see engine log messages.
         auto project = gk::model::loadProject (song);
 
         gk::EngineContext context;
+        gk::PluginCatalog plugins (context.getEngine(), gk::PluginCatalog::getDefaultListFile());
         auto compiled = gk::compileProject (context.getEngine(), project,
                                             { std::filesystem::absolute (song).parent_path(), tracktion::Edit::forRendering });
         gk::renderToWav (compiled, project, output, options);
@@ -159,6 +162,9 @@ Add --verbose to see engine log messages.
 
 int main (int argc, char* argv[])
 {
+    // A copy of this executable scans plugins for the engine; see EngineContext.
+    gk::EngineContext::runPluginScanChildIfRequested (argc, argv);
+
     StderrLogger logger;
     juce::Logger::setCurrentLogger (&logger);
 

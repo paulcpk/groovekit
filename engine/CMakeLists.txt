@@ -16,6 +16,7 @@ target_sources(gk_engine PRIVATE
     src/mixer/FaderPlugin.cpp
     src/mixer/LimiterPlugin.cpp
     src/model/Project.cpp
+    src/plugins/PluginCatalog.cpp
     src/render/Render.cpp
     src/render/Stretch.cpp
     src/sampler/SampleCache.cpp

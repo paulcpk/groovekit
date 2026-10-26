@@ -368,19 +368,22 @@ struct PluginRef
     std::optional<std::string> manufacturer;
     /** Path of the saved state blob, relative to the project folder. */
     std::optional<std::string> state;
+    /** Parameter id or name to normalized value (0..1), applied after the state. */
+    std::map<std::string, double> params;
 
     bool operator== (const PluginRef&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, PluginRef& out)
 {
-    r.expectObject (j, { "format", "uid", "name", "manufacturer", "state" });
+    r.expectObject (j, { "format", "uid", "name", "manufacturer", "state", "params" });
 
     r.required (j, "format", [&] (const Json& v) { readValue (r, v, out.format); });
     r.required (j, "uid", [&] (const Json& v) { readValue (r, v, out.uid); r.checkMinLength (out.uid, 1); });
     r.required (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.optional (j, "manufacturer", [&] (const Json& v) { readValue (r, v, out.manufacturer.emplace()); });
     r.optional (j, "state", [&] (const Json& v) { readValue (r, v, out.state.emplace()); });
+    r.optional (j, "params", [&] (const Json& v) { readValue (r, v, out.params); });
 }
 
 inline Json toJson (const PluginRef& v)
@@ -395,6 +398,8 @@ inline Json toJson (const PluginRef& v)
 
     if (v.state)
         j["state"] = toJson (*v.state);
+
+    j["params"] = toJson (v.params);
     return j;
 }
 
@@ -706,7 +711,7 @@ inline Json toJson (const AudioClip& v)
     return j;
 }
 
-/** What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id. send: param is level. */
+/** What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id (for plugins: id or name, values normalized 0..1). send: param is level. */
 struct AutomationTarget
 {
     AutomationTargetScope scope;

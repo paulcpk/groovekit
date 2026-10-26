@@ -145,7 +145,13 @@
         "uid": { "description": "JUCE plugin identifier string.", "type": "string", "minLength": 1 },
         "name": { "type": "string" },
         "manufacturer": { "type": "string" },
-        "state": { "description": "Path of the saved state blob, relative to the project folder.", "type": "string" }
+        "state": { "description": "Path of the saved state blob, relative to the project folder.", "type": "string" },
+        "params": {
+          "description": "Parameter id or name to normalized value (0..1), applied after the state.",
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 },
+          "default": {}
+        }
       }
     },
 
@@ -261,7 +267,7 @@
     },
 
     "AutomationTarget": {
-      "description": "What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id. send: param is level.",
+      "description": "What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id (for plugins: id or name, values normalized 0..1). send: param is level.",
       "type": "object",
       "required": ["scope", "param"],
       "additionalProperties": false,

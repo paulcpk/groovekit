@@ -5,6 +5,7 @@
 #include <juce_core/juce_core.h>
 
 #include <filesystem>
+#include <functional>
 #include <unistd.h>
 
 namespace gk::test
@@ -39,6 +40,9 @@ inline std::filesystem::path tempDir()
 
 /** One engine shared by every test in the process. */
 EngineContext& getEngineContext();
+
+/** Runs before the shared engine is destroyed, for objects that need the message thread to go away cleanly. */
+void atShutdown (std::function<void()>);
 
 inline tracktion::Engine& getEngine()
 {

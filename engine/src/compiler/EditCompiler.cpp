@@ -5,6 +5,8 @@
 #include "render/Stretch.h"
 #include "sampler/SamplerPlugin.h"
 
+#include <fstream>
+
 namespace gk
 {
 
@@ -52,7 +54,13 @@ namespace
 
         std::map<Id, mixer::FaderPlugin*> channelFaders, insertFaders;
         std::map<Id, std::map<Id, te::AuxSendPlugin*>> sendPlugins;
-        std::map<Id, std::map<Id, std::pair<te::Plugin*, BuiltinEffectKind>>> effectPlugins;
+        struct EffectInstance
+        {
+            te::Plugin* plugin;
+            std::optional<BuiltinEffectKind> kind;   // empty for hosted plugins
+        };
+
+        std::map<Id, std::map<Id, EffectInstance>> effectPlugins;
         std::map<Id, te::AudioTrack*> audioClipTracks;
 
         //==============================================================================
@@ -156,7 +164,11 @@ namespace
                     }
                     else
                     {
-                        throw std::runtime_error ("Insert \"" + insert.id + "\": plugin effects aren't supported yet");
+                        auto& pe = std::get<PluginEffect> (effect);
+                        auto plugin = createHostedPlugin (pe.plugin, "Insert \"" + insert.id + "\"");
+                        track.pluginList.insertPlugin (plugin, -1, nullptr);
+                        plugin->setEnabled (! pe.bypass);
+                        effectPlugins[insert.id][pe.id] = { plugin.get(), {} };
                     }
                 }
 
@@ -211,7 +223,8 @@ namespace
                 }
                 else
                 {
-                    throw std::runtime_error ("Channel \"" + channel.id + "\": plugin instruments aren't supported yet");
+                    auto& pi = std::get<PluginInstrument> (channel.instrument);
+                    track.pluginList.insertPlugin (createHostedPlugin (pi.plugin, "Channel \"" + channel.id + "\""), -1, nullptr);
                 }
 
                 channelFaders[channel.id] = &addFader (track, channel.volumeDb, channel.pan);
@@ -361,7 +374,18 @@ namespace
                 case AutomationTargetScope::effect:
                 {
                     auto [plugin, kind] = effectPlugins.at (*target.insert).at (*target.effect);
-                    auto [param, info] = effects::findAutomatableParam (*plugin, kind, target.param);
+
+                    if (! kind)
+                    {
+                        auto param = findHostedParam (*plugin, target.param);
+
+                        if (param == nullptr)
+                            throw std::runtime_error ("plugin \"" + plugin->getName().toStdString() + "\" has no parameter \"" + target.param + "\"");
+
+                        return { param, [] (double v) { return static_cast<float> (v); }, 0, 1 };
+                    }
+
+                    auto [param, info] = effects::findAutomatableParam (*plugin, *kind, target.param);
                     return { param, [convert = info->toNative] (double v) { auto f = static_cast<float> (v); return convert != nullptr ? convert (f) : f; },
                              info->min, info->max };
                 }
@@ -415,6 +439,58 @@ namespace
                 latency = std::max (latency, insertLatency (insertId));
 
             return latency;
+        }
+
+        /** A hosted plugin's parameter, by id first, then by name. */
+        static te::AutomatableParameter::Ptr findHostedParam (te::Plugin& plugin, const std::string& key)
+        {
+            for (int pass = 0; pass < 2; ++pass)
+                for (int i = 0; i < plugin.getNumAutomatableParameters(); ++i)
+                    if (auto p = plugin.getAutomatableParameter (i))
+                        if ((pass == 0 ? p->paramID : p->getParameterName()).toStdString() == key)
+                            return p;
+
+            return {};
+        }
+
+        /** Loads a VST3 or AU plugin, then its saved state, then its parameter values. */
+        te::Plugin::Ptr createHostedPlugin (const PluginRef& ref, const std::string& owner)
+        {
+            auto desc = engine.getPluginManager().knownPluginList.getTypeForIdentifierString (ref.uid);
+
+            if (desc == nullptr)
+                throw std::runtime_error (owner + ": plugin \"" + ref.name + "\" (" + toString (ref.format)
+                                          + ") isn't installed or hasn't been scanned yet");
+
+            auto plugin = edit->getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, *desc);
+            auto external = dynamic_cast<te::ExternalPlugin*> (plugin.get());
+
+            if (external == nullptr || external->getAudioPluginInstance() == nullptr)
+                throw std::runtime_error (owner + ": couldn't load \"" + ref.name + "\""
+                                          + (external != nullptr ? ": " + external->getLoadError().toStdString() : std::string()));
+
+            if (ref.state)
+            {
+                std::ifstream in (resolve (*ref.state), std::ios::binary);
+
+                if (! in)
+                    throw std::runtime_error (owner + ": plugin state file not found: " + *ref.state);
+
+                std::vector<char> data ((std::istreambuf_iterator<char> (in)), std::istreambuf_iterator<char>());
+                external->getAudioPluginInstance()->setStateInformation (data.data(), static_cast<int> (data.size()));
+            }
+
+            for (auto& [key, value] : ref.params)
+            {
+                auto param = findHostedParam (*external, key);
+
+                if (param == nullptr)
+                    throw std::runtime_error (owner + ": \"" + ref.name + "\" has no parameter \"" + key + "\"");
+
+                param->setParameter (static_cast<float> (std::clamp (value, 0.0, 1.0)), juce::sendNotification);
+            }
+
+            return plugin;
         }
 
         void createAutomation()

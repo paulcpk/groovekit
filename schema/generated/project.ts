@@ -81,6 +81,8 @@ export interface PluginRef {
   manufacturer?: string;
   /** Path of the saved state blob, relative to the project folder. */
   state?: string;
+  /** Parameter id or name to normalized value (0..1), applied after the state. */
+  params?: Record<string, number>;
 }
 
 export interface PluginInstrument {
@@ -165,7 +167,7 @@ export interface AudioClip {
   sourceTempo?: number;
 }
 
-/** What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id. send: param is level. */
+/** What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id (for plugins: id or name, values normalized 0..1). send: param is level. */
 export interface AutomationTarget {
   scope: AutomationTargetScope;
   channel?: Id;
