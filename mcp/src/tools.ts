@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { EngineClient, ticksPerBar } from "./engine.ts";
-import { commandReference, typeDefinitions } from "./reference.ts";
+import type { Reference } from "./reference.ts";
 
 export const instructions = `GrooveKit is a music production app (a DAW) that you operate through these tools. The human directs; you arrange, mix and master.
 
@@ -62,7 +62,10 @@ export class GroupTracker {
   }
 }
 
-export function registerTools(server: McpServer, engine: EngineClient, groups = new GroupTracker()) {
+/** The agent's tools, on an MCP server (or anything with the same registerTool, like the app's own
+    agent). reference describes the data model and commands (reference-files.ts in Node). */
+export function registerTools(server: McpServer, engine: EngineClient, reference: Reference, groups = new GroupTracker()) {
+  const { commandReference, typeDefinitions } = reference;
   const barToTicks = (bar: number) => Math.round((bar - 1) * ticksPerBar(engine.document));
 
   server.registerTool(

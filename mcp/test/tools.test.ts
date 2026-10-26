@@ -10,6 +10,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { applyPatch, EngineClient } from "../src/engine.ts";
+import { fileReference } from "../src/reference-files.ts";
 import { GroupTracker, instructions, registerTools } from "../src/tools.ts";
 
 const repo = resolve(import.meta.dirname, "..", "..");
@@ -72,7 +73,7 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     }
 
     const server = new McpServer({ name: "groovekit", version: "test" }, { instructions });
-    registerTools(server, engine);
+    registerTools(server, engine, fileReference);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     client = new Client({ name: "test", version: "1" });

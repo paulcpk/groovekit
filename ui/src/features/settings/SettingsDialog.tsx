@@ -4,6 +4,7 @@ import { Dialog } from "@/components/dialog";
 import { Dropdown, DropdownContent, DropdownItem, DropdownTrigger } from "@/components/menu";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
+import { setApiKey, useApiKey } from "@/features/agent/agent";
 import { call, engine, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { ChevronDown } from "lucide-react";
@@ -99,6 +100,8 @@ export function SettingsDialog() {
           </div>
         )}
       </Section>
+
+      <AgentSettings />
 
       <LibrarySettings />
 
@@ -225,6 +228,35 @@ function LibrarySettings() {
           <div className="text-2xs text-faint">A scan of a big library takes a while and some memory. With this off, use Scan now after adding samples.</div>
         </div>
       )}
+    </Section>
+  );
+}
+
+function AgentSettings() {
+  const key = useApiKey((s) => s.key);
+  const [draft, setDraft] = useState("");
+
+  return (
+    <Section title="Agent">
+      <div className="flex flex-col gap-2 text-xs">
+        {key ? (
+          <div className="flex items-center gap-2">
+            <span className="flex-1 text-dim">Anthropic API key <span className="font-mono text-faint">…{key.slice(-4)}</span>, stored on this Mac</span>
+            <Button size="sm" className="bg-control text-fg" onClick={() => setApiKey("")}>Remove</Button>
+          </div>
+        ) : (
+          <form className="flex gap-2" onSubmit={(e) => {
+            e.preventDefault();
+            if (draft.trim()) setApiKey(draft);
+            setDraft("");
+          }}>
+            <input type="password" autoComplete="off" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Anthropic API key (sk-ant-…)" className="h-6 min-w-0 flex-1 rounded-[3px] bg-bg px-1.5 text-xs text-fg outline-none ring-1 ring-line focus:ring-accent" />
+            <Button size="sm" type="submit" disabled={!draft.trim()}>Save</Button>
+          </form>
+        )}
+        <div className="text-2xs text-faint">The agent in the sidebar uses Claude with this key; use is billed to your Anthropic account.</div>
+      </div>
     </Section>
   );
 }

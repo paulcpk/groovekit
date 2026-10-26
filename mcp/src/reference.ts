@@ -1,12 +1,21 @@
-// Builds compact, always-current references for the agent from the schema package.
-
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+// Builds compact, always-current references for the agent from the schema package. The sources
+// are passed in, so this runs both in Node (reference-files.ts reads them) and in the app's web
+// view (which bundles them).
 
 type Schema = Record<string, any>;
 
-function readSchemaFile(name: string): string {
-  return readFileSync(fileURLToPath(import.meta.resolve(`@groovekit/schema/${name}`)), "utf8");
+/** The schema package's files the references are made from. */
+export interface ReferenceSources {
+  protocolSchema: Schema;     // protocol.schema.json
+  projectTypes: string;       // generated/project.ts
+  protocolTypes: string;      // generated/protocol.ts
+}
+
+export interface Reference {
+  /** One line per command: `name { field: Type, optional?: Type } description`. */
+  commandReference(): string;
+  /** The generated TypeScript definitions: the most compact complete description of the data model. */
+  typeDefinitions(which: "project" | "protocol"): string;
 }
 
 function typeName(s: Schema): string {
@@ -17,25 +26,26 @@ function typeName(s: Schema): string {
   return s.type ?? "any";
 }
 
-/** One line per command: `name { field: Type, optional?: Type } description`. */
-export function commandReference(): string {
-  const protocol = JSON.parse(readSchemaFile("protocol.schema.json"));
-  const defs: Record<string, Schema> = protocol.$defs;
-  const lines: string[] = [];
+export function makeReference(sources: ReferenceSources): Reference {
+  return {
+    commandReference() {
+      const defs: Record<string, Schema> = sources.protocolSchema.$defs;
+      const lines: string[] = [];
 
-  for (const alternative of defs.Command.oneOf) {
-    const def = defs[alternative.$ref.split("/").pop()];
-    const fields = Object.entries<Schema>(def.properties)
-      .filter(([name]) => name !== "type")
-      .map(([name, s]) => `${name}${def.required?.includes(name) ? "" : "?"}: ${typeName(s)}`);
+      for (const alternative of defs.Command.oneOf) {
+        const def = defs[alternative.$ref.split("/").pop()];
+        const fields = Object.entries<Schema>(def.properties)
+          .filter(([name]) => name !== "type")
+          .map(([name, s]) => `${name}${def.required?.includes(name) ? "" : "?"}: ${typeName(s)}`);
 
-    lines.push(`- ${def.properties.type.const} { ${fields.join(", ")} }${def.description ? ` - ${def.description}` : ""}`);
-  }
+        lines.push(`- ${def.properties.type.const} { ${fields.join(", ")} }${def.description ? ` - ${def.description}` : ""}`);
+      }
 
-  return lines.join("\n");
-}
+      return lines.join("\n");
+    },
 
-/** The generated TypeScript definitions: the most compact complete description of the data model. */
-export function typeDefinitions(which: "project" | "protocol"): string {
-  return readFileSync(fileURLToPath(import.meta.resolve(`@groovekit/schema/${which}`)), "utf8");
+    typeDefinitions(which) {
+      return which === "project" ? sources.projectTypes : sources.protocolTypes;
+    },
+  };
 }

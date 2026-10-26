@@ -12,6 +12,7 @@ import { ProjectDialog } from "@/features/shell/ProjectDialog";
 import { AudioClipDialog } from "@/features/playlist/AudioClipDialog";
 import { ExportDialog } from "@/features/shell/ExportDialog";
 import { useLiveChannel, useTypingKeyboard } from "@/features/shell/liveInput";
+import { useAgentConversation } from "@/features/agent/AgentPanel";
 import { useShortcuts } from "@/features/shell/shortcuts";
 import { useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -26,6 +27,7 @@ export function App() {
   useShortcuts();
   useDefaultSelection();
   useLiveChannel();
+  useAgentConversation();
   useTypingKeyboard();
 
   return (

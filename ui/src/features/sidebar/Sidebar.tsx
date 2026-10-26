@@ -1,5 +1,5 @@
 import { Tabs } from "@/components/controls";
-import { Activity } from "@/features/history/Activity";
+import { AgentPanel } from "@/features/agent/AgentPanel";
 import { Browser } from "@/features/browser/Browser";
 import { History } from "@/features/history/History";
 import { setUi, useUi, type SidebarTab } from "@/state/ui";
@@ -25,7 +25,7 @@ export function Sidebar() {
       <div className="min-h-0 flex-1">
         {tab === "browser" && <Browser />}
         {tab === "history" && <History />}
-        {tab === "activity" && <Activity />}
+        {tab === "activity" && <AgentPanel />}
       </div>
     </>
   );

@@ -19,6 +19,7 @@ import { parseArgs } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { EngineClient } from "./engine.ts";
+import { fileReference } from "./reference-files.ts";
 import { instructions, registerTools } from "./tools.ts";
 
 const { values } = parseArgs({
@@ -99,7 +100,7 @@ if (engineProcess) {
 }
 
 const server = new McpServer({ name: "groovekit", version: "0.1.0" }, { instructions });
-registerTools(server, engine);
+registerTools(server, engine, fileReference);
 await server.connect(new StdioServerTransport());
 
 const shutdown = () => {
