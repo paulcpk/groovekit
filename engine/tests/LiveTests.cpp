@@ -96,8 +96,7 @@ namespace
                  Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [
                                    { "channel": "beep", "start": 0, "length": 240, "velocity": 127 },
                                    { "channel": "beep", "start": 960, "length": 240, "velocity": 127 } ] } })"),
-                 Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
-                 Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 15360, "pattern": "p" } })") })
+                 Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 15360, "pattern": "p" } })") })
         {
             readValue (r, json, commands.emplace_back());
         }
@@ -157,16 +156,14 @@ TEST_CASE ("Recording an input adds the take to the project")
 
     model::Reader r;
     model::Command c;
-    readValue (r, Json::parse (R"({ "type": "addTrack", "track": { "id": "takes" } })"), c);
-    session->execute ({ c });
-    readValue (r, Json::parse (R"({ "type": "updateTrack", "track": "t", "changes": { "mute": true } })"), c);
+    readValue (r, Json::parse (R"({ "type": "updateTrack", "track": 0, "changes": { "mute": true } })"), c);
     session->execute ({ c });
 
     LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
     auto inputs = live.getInputNames();
     REQUIRE_FALSE (inputs.empty());
 
-    live.startRecording ({ { inputs[0], "master", "takes" } });
+    live.startRecording ({ { inputs[0], "master", 1 } });
     REQUIRE (live.isRecording());
 
     // Audio and messages run while recording, as in the app; Tracktion's own updates mustn't stop the take.
@@ -191,8 +188,10 @@ TEST_CASE ("Recording an input adds the take to the project")
     REQUIRE (it != clips.end());
 
     const auto take = std::get<model::AudioClip> (*it); // a copy: undo below rebuilds the project
-    const auto sample = std::get<model::AudioInstrument> (model::findChannel (session->getProject(), take.channel)->instrument).sample;
-    CHECK (take.track == "takes");
+    const auto& channel = *model::findChannel (session->getProject(), take.channel);
+    const auto sample = model::getClipLayer (channel)->sample;
+    CHECK (take.track == 1);
+    CHECK (channel.group == model::ChannelGroup::arrangement);
     INFO ("sample: " << sample);
     CHECK (sample.starts_with ("recordings/"));
     CHECK (std::filesystem::exists (*session->getProjectDir() / sample));
@@ -256,7 +255,7 @@ TEST_CASE ("Recording sends MIDI clock that starts once and ticks evenly")
         }
     };
 
-    live.startRecording ({ { live.getInputNames()[0], "master", "t" } }, { .addClips = false });
+    live.startRecording ({ { live.getInputNames()[0], "master", 0 } }, { .addClips = false });
     runBlocks (200); // about two seconds
     live.stopRecording();
 
@@ -496,19 +495,18 @@ TEST_CASE ("Solo and mute switch the playing Edit without rebuilding it")
         live.updateNow();
     };
 
-    run (R"({ "type": "addTrack", "track": { "id": "other" } })");
     auto edit = live.getEdit();
 
     live.play();
     CHECK (analysis::peakDb (audio.silence (0.6)) > -12);
 
     // Soloing a track without clips silences the one with the beeps, in the same Edit.
-    run (R"({ "type": "updateTrack", "track": "other", "changes": { "solo": true } })");
+    run (R"({ "type": "updateTrack", "track": 1, "changes": { "solo": true } })");
     CHECK (live.getEdit() == edit);
     audio.silence (0.05);
     CHECK (analysis::peakDb (audio.silence (1.0)) < -90);
 
-    run (R"({ "type": "updateTrack", "track": "other", "changes": { "solo": false } })");
+    run (R"({ "type": "updateTrack", "track": 1, "changes": { "solo": false } })");
     CHECK (live.getEdit() == edit);
     audio.silence (0.05);
     CHECK (analysis::peakDb (audio.silence (1.0)) > -12);

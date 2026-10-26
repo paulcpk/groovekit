@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Audio channel envelope",
   "tempo": 120,
   "channels": [
@@ -7,42 +7,23 @@
       "id": "stereo_beep",
       "name": "stereo_beep",
       "instrument": {
-        "type": "audio",
-        "sample": "../../fixtures/samples/stereo_beep.wav",
-        "envelope": {
-          "attack": 0,
-          "decay": 0,
-          "sustain": 0.5,
-          "release": 0.01
-        }
-      }
+        "type": "sampler",
+        "layers": [
+          {
+            "id": "sample",
+            "sample": "../../fixtures/samples/stereo_beep.wav",
+            "envelope": { "attack": 0, "decay": 0, "sustain": 0.5, "release": 0.01 },
+            "gainDb": -6.0
+          }
+        ]
+      },
+      "group": "arrangement"
     }
   ],
   "patterns": [],
   "playlist": {
-    "tracks": [
-      {
-        "id": "t"
-      }
-    ],
-    "clips": [
-      {
-        "type": "audio",
-        "id": "a",
-        "track": "t",
-        "start": 960,
-        "length": 960,
-        "offset": 0.25,
-        "gainDb": -6,
-        "channel": "stereo_beep"
-      }
-    ]
+    "tracks": [],
+    "clips": [{ "type": "audio", "id": "a", "track": 0, "start": 960, "length": 960, "offset": 0.25, "channel": "stereo_beep" }]
   },
-  "mixer": {
-    "inserts": [
-      {
-        "id": "master"
-      }
-    ]
-  }
+  "mixer": { "inserts": [{ "id": "master" }] }
 }

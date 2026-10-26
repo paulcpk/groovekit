@@ -1,25 +1,36 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Automation",
   "tempo": 120,
   "channels": [
     {
       "id": "tone",
-      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/bass_a2.wav", "pitchTracking": false }] }
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/bass_a2.wav", "pitchTracking": false }]
+      }
     }
   ],
   "patterns": [{ "id": "p", "notes": [{ "channel": "tone", "start": 0, "length": 1920, "velocity": 127 }] }],
   "playlist": {
-    "tracks": [{ "id": "notes" }, { "id": "auto" }],
+    "tracks": [],
     "clips": [
-      { "type": "pattern", "id": "c", "track": "notes", "start": 0, "length": 1920, "pattern": "p" },
+      { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 1920, "pattern": "p" },
       {
-        "type": "automation", "id": "loud", "track": "auto", "start": 0, "length": 960,
+        "type": "automation",
+        "id": "loud",
+        "track": 1,
+        "start": 0,
+        "length": 960,
         "target": { "scope": "insert", "insert": "master", "param": "volume" },
         "points": [{ "time": 0, "value": 0 }]
       },
       {
-        "type": "automation", "id": "quiet", "track": "auto", "start": 960, "length": 960,
+        "type": "automation",
+        "id": "quiet",
+        "track": 1,
+        "start": 960,
+        "length": 960,
         "target": { "scope": "insert", "insert": "master", "param": "volume" },
         "points": [{ "time": 0, "value": -20 }]
       }

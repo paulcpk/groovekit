@@ -59,7 +59,6 @@ namespace
 
         std::string channelPath (const Id& id) const   { return join ("/channels", indexOf ("/channels", id, "channel")); }
         std::string patternPath (const Id& id) const   { return join ("/patterns", indexOf ("/patterns", id, "pattern")); }
-        std::string trackPath (const Id& id) const     { return join ("/playlist/tracks", indexOf ("/playlist/tracks", id, "playlist track")); }
         std::string clipPath (const Id& id) const      { return join ("/playlist/clips", indexOf ("/playlist/clips", id, "clip")); }
         std::string insertPath (const Id& id) const    { return join ("/mixer/inserts", indexOf ("/mixer/inserts", id, "mixer insert")); }
 
@@ -205,7 +204,7 @@ namespace
 
             e.removeAutomation ([&] (const Json& t) { return t.value ("scope", "") == "channel" && t.value ("channel", "") == c.channel; });
 
-            // An audio channel's clips go with it.
+            // So do the audio clips that play it.
             e.removeWhere ("/playlist/clips", [&] (const Json& clip)
             {
                 return clip.value ("type", "") == "audio" && clip.value ("channel", "") == c.channel;
@@ -295,20 +294,51 @@ namespace
                 e.insertAt (notes, toJson (note), {});
         }
 
-        void operator() (const AddTrack& c)
+        /** Moves the clips on tracks from `from` down by `by` (up when negative). */
+        void shiftClips (Lane from, int by)
         {
-            auto item = toJson (c.track);
-            e.ensureUnique ("/playlist/tracks", item, "playlist track");
-            e.insertAt ("/playlist/tracks", std::move (item), c.index);
+            auto& clips = e.array ("/playlist/clips");
+
+            for (size_t i = 0; i < clips.size(); ++i)
+            {
+                const auto track = clips[i].value ("track", 0);
+
+                if (track < from)
+                    continue;
+
+                if (track + by > maxLane)
+                    throw CommandError ("track " + std::to_string (maxLane) + " is the last; its clips can't move further down");
+
+                e.tx.replace (join (join ("/playlist/clips", i), "track"), track + by);
+            }
         }
 
-        void operator() (const UpdateTrack& c)      { e.applyChanges (e.trackPath (c.track), c.changes); }
+        static constexpr Lane maxLane = 999;
+
+        void operator() (const InsertTrack& c)
+        {
+            shiftClips (c.track, 1);
+
+            if (static_cast<size_t> (c.track) < e.array ("/playlist/tracks").size())
+                e.insertAt ("/playlist/tracks", Json::object(), c.track);
+        }
+
+        void operator() (const UpdateTrack& c)
+        {
+            // Tracks before it that have no settings yet get the defaults.
+            while (e.array ("/playlist/tracks").size() <= static_cast<size_t> (c.track))
+                e.insertAt ("/playlist/tracks", Json::object(), {});
+
+            e.applyChanges (join ("/playlist/tracks", static_cast<size_t> (c.track)), c.changes);
+        }
 
         void operator() (const RemoveTrack& c)
         {
-            auto path = e.trackPath (c.track);
-            e.removeWhere ("/playlist/clips", [&] (const Json& clip) { return clip.value ("track", "") == c.track; });
-            e.tx.remove (path);
+            e.removeWhere ("/playlist/clips", [&] (const Json& clip) { return clip.value ("track", 0) == c.track; });
+            shiftClips (c.track + 1, -1);
+
+            if (static_cast<size_t> (c.track) < e.array ("/playlist/tracks").size())
+                e.tx.remove (join ("/playlist/tracks", static_cast<size_t> (c.track)));
         }
 
         void operator() (const AddClip& c)
@@ -343,7 +373,6 @@ namespace
 
             e.reroute ("/channels", "insert", c.insert, masterInsertId, any);
             e.reroute ("/mixer/inserts", "output", c.insert, masterInsertId, any);
-            e.reroute ("/playlist/tracks", "insert", c.insert, masterInsertId, any);
 
             auto& inserts = e.array ("/mixer/inserts");
 
@@ -471,9 +500,9 @@ std::string describeCommand (const Command& command)
         else if constexpr (std::is_same_v<T, AddNotes>)         return "Add " + std::to_string (c.notes.size()) + " notes to " + c.pattern;
         else if constexpr (std::is_same_v<T, RemoveNotes>)      return "Remove notes from " + c.pattern;
         else if constexpr (std::is_same_v<T, SetNotes>)         return "Set " + c.channel + " notes in " + c.pattern;
-        else if constexpr (std::is_same_v<T, AddTrack>)         return "Add track " + c.track.id;
-        else if constexpr (std::is_same_v<T, UpdateTrack>)      return "Update track " + c.track;
-        else if constexpr (std::is_same_v<T, RemoveTrack>)      return "Remove track " + c.track;
+        else if constexpr (std::is_same_v<T, InsertTrack>)      return "Insert track " + std::to_string (c.track + 1);
+        else if constexpr (std::is_same_v<T, UpdateTrack>)      return "Update track " + std::to_string (c.track + 1);
+        else if constexpr (std::is_same_v<T, RemoveTrack>)      return "Remove track " + std::to_string (c.track + 1);
         else if constexpr (std::is_same_v<T, AddClip>)          return "Add clip " + getClipId (c.clip);
         else if constexpr (std::is_same_v<T, UpdateClip>)       return "Update clip " + c.clip;
         else if constexpr (std::is_same_v<T, RemoveClip>)       return "Remove clip " + c.clip;

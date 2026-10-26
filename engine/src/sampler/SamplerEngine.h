@@ -112,15 +112,20 @@ public:
 
     void prepare (double sampleRate, int maxBlockSize);
 
-    /** Swaps the playing configuration. Voices keep playing when the layers still play the same
-        samples (so envelopes and the filter can be changed while a note sounds); otherwise
-        they're silenced. Call off the audio thread. */
+    /** Swaps the playing configuration. A voice keeps playing when its layer still plays the
+        same part of the same sample (so envelopes and the filter can change while a note
+        sounds); otherwise it fades out like a stolen voice, from the previous configuration,
+        which is kept until the next swap. Call off the audio thread. */
     void setConfig (std::shared_ptr<const Config>);
 
     /** Adds this block's output to the first two channels of buffer. Events must be sorted by offset. */
     void process (juce::AudioBuffer<float>&, int startSample, int numSamples, const std::vector<MidiEvent>&);
 
     void allNotesOff();
+
+    /** Moves the filter away from the config's values (automation). Call on the audio thread,
+        before process; setConfig goes back to the config's values. */
+    void setFilterControls (float cutoff, float resonance, float envelopeAmount);
 
     int getNumActiveVoices() const;
 
@@ -147,11 +152,14 @@ private:
 
     juce::CriticalSection configLock;
     std::shared_ptr<const Config> config;
+    /** The configuration before, which voices fading out of it still read. */
+    std::shared_ptr<const Config> retired;
     std::vector<Voice> voices;
     double sampleRate = 48000;
     int stealFadeSamples = 144;
     int edgeFadeSamples = 48;
     uint64_t nextAge = 0;
+    float filterCutoff = 20000.0f, filterResonance = 0, filterEnvelopeAmount = 0;
 
     void noteOn (int note, int velocity);
     void noteOff (int note);

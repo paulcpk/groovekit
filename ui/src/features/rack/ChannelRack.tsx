@@ -10,11 +10,14 @@ import { newPattern } from "@/features/playlist/Playlist";
 import { cn } from "@/lib/cn";
 import { useLiveControl } from "@/lib/liveControl";
 import { useLivePosition } from "@/lib/playhead";
-import { colorFor, formatDb, formatPan, insertName, palette, patternLength, STEP, ticksPerBar, uniqueId } from "@/lib/model";
+import { colorFor, formatDb, formatPan, palette, patternLength, STEP, ticksPerBar, uniqueId } from "@/lib/model";
+import { drawPeaks, usePeaks } from "@/lib/peaks";
+import { Automatable } from "@/features/playlist/Automatable";
 import { call, execute, useEngine } from "@/state/engine";
-import { setUi, useUi } from "@/state/ui";
+import { setUi, useUi, type RackView } from "@/state/ui";
 import { openChannel } from "./channels";
 import { addEmptySampler, addSamplerChannel, replaceSample, routeToNewInsert, stepKey } from "./channels";
+import { InsertItems } from "./ChannelBar";
 import { PluginPicker } from "./PluginPicker";
 
 interface Paint {
@@ -27,8 +30,9 @@ interface Paint {
 
 export function ChannelRack() {
   const doc = useEngine((s) => s.doc)!;
-  const { selectedPattern, selectedChannel } = useUi();
+  const { selectedPattern, selectedChannel, rackView } = useUi();
   const pattern = doc.patterns.find((p) => p.id === selectedPattern);
+  const channels = doc.channels.filter((c) => rackView === "all" || (c.group ?? "rack") === rackView);
   const [paint, setPaint] = useState<Paint | null>(null);
   const paintRef = useRef<Paint | null>(null);
   paintRef.current = paint;
@@ -76,10 +80,14 @@ export function ChannelRack() {
       >
         <RackToolbar doc={doc} pattern={pattern} />
         <div className="min-h-0 flex-1 overflow-auto py-1">
-          {doc.channels.length === 0 ? (
-            <Empty>Drop samples from the browser here, or add a channel with +.</Empty>
+          {channels.length === 0 ? (
+            <Empty>
+              {rackView === "arrangement"
+                ? "Samples dropped onto the playlist are listed here, each with its own sampler."
+                : "Drop samples from the browser here, or add a channel with +."}
+            </Empty>
           ) : (
-            doc.channels.map((channel) => (
+            channels.map((channel) => (
               <ChannelRow
                 key={channel.id}
                 doc={doc} channel={channel} pattern={pattern} steps={steps} playingStep={playingStep}
@@ -215,6 +223,7 @@ function RackToolbar({ doc, pattern }: { doc: Project; pattern: Pattern | undefi
         </>
       )}
       <div className="flex-1" />
+      <RackViewPicker doc={doc} />
       <SwingKnob swing={doc.swing ?? 0} />
       <Dropdown>
         <DropdownTrigger asChild>
@@ -230,6 +239,27 @@ function RackToolbar({ doc, pattern }: { doc: Project; pattern: Pattern | undefi
   );
 }
 
+/** Which channels the rack lists: the ones patterns play, the samples dropped onto the playlist,
+    or both. */
+function RackViewPicker({ doc }: { doc: Project }) {
+  const view = useUi((s) => s.rackView);
+  const count = (v: RackView) => doc.channels.filter((c) => v === "all" || (c.group ?? "rack") === v).length;
+  const names: Record<RackView, string> = { rack: "Rack", arrangement: "Arrangement", all: "All channels" };
+
+  return (
+    <Dropdown>
+      <DropdownTrigger asChild>
+        <Button size="sm" title="Which channels to list">{names[view]} <ChevronDown size={11} /></Button>
+      </DropdownTrigger>
+      <DropdownContent align="end">
+        <DropdownItem checked={view === "rack"} onSelect={() => setUi({ rackView: "rack" })}>Rack · played by patterns ({count("rack")})</DropdownItem>
+        <DropdownItem checked={view === "arrangement"} onSelect={() => setUi({ rackView: "arrangement" })}>Arrangement · dropped on the playlist ({count("arrangement")})</DropdownItem>
+        <DropdownItem checked={view === "all"} onSelect={() => setUi({ rackView: "all" })}>All channels ({count("all")})</DropdownItem>
+      </DropdownContent>
+    </Dropdown>
+  );
+}
+
 //==============================================================================
 function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint, onPaintStart, onPaintEnter }: {
   doc: Project; channel: Channel; pattern: Pattern | undefined; steps: number; playingStep: number; selected: boolean;
@@ -241,18 +271,23 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
   const notes = useMemo(() => pattern?.notes.filter((n) => n.channel === channel.id) ?? [], [pattern, channel.id]);
   const melodic = new Set(notes.map((n) => n.key ?? 60)).size > 1 || notes.some((n) => n.length > STEP * 1.5);
   const insertIndex = doc.mixer.inserts.findIndex((i) => i.id === (channel.insert ?? "master"));
+  const arrangement = channel.group === "arrangement";
   const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateChannel", channel: channel.id, changes }, { label });
   const volume = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { volumeDb: Math.round(v * 10) / 10 } }), "Channel volume");
   const pan = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan channel");
 
-  const previewPath = channel.instrument.type === "sampler" ? channel.instrument.layers[0]?.sample : channel.instrument.type === "audio" ? channel.instrument.sample : undefined;
+  const previewPath = channel.instrument.type === "sampler" ? channel.instrument.layers[0]?.sample : undefined;
   const preview = () => previewPath && void call("preview.play", { path: previewPath });
 
   return (
     <div className={cn("relative flex h-[30px] items-center gap-2 px-2", selected && "bg-raised")}>
       <ActivityLed level={level} />
-      <Knob size={20} value={channel.pan ?? 0} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan} onChange={pan.onChange} onCommit={pan.onCommit} />
-      <Knob size={20} value={channel.volumeDb ?? 0} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`} onChange={volume.onChange} onCommit={volume.onCommit} />
+      <Automatable target={{ scope: "channel", channel: channel.id, param: "pan" }} value={channel.pan ?? 0}>
+        <Knob size={20} value={channel.pan ?? 0} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan} onChange={pan.onChange} onCommit={pan.onCommit} />
+      </Automatable>
+      <Automatable target={{ scope: "channel", channel: channel.id, param: "volume" }} value={channel.volumeDb ?? 0}>
+        <Knob size={20} value={channel.volumeDb ?? 0} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`} onChange={volume.onChange} onCommit={volume.onCommit} />
+      </Automatable>
 
       <Dropdown>
         <DropdownTrigger asChild>
@@ -261,15 +296,7 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
           </button>
         </DropdownTrigger>
         <DropdownContent>
-          <DropdownLabel>Route to insert</DropdownLabel>
-          {doc.mixer.inserts.map((ins, i) => (
-            <DropdownItem key={ins.id} checked={ins.id === (channel.insert ?? "master")}
-              onSelect={() => update({ insert: ins.id === "master" ? null : ins.id }, `Route to ${insertName(ins, i)}`)}>
-              {i === 0 ? "" : `${i} · `}{insertName(ins, i)}
-            </DropdownItem>
-          ))}
-          <DropdownSeparator />
-          <DropdownItem onSelect={() => void routeToNewInsert(doc, channel)}>New insert</DropdownItem>
+          <InsertItems doc={doc} channel={channel} />
         </DropdownContent>
       </Dropdown>
 
@@ -282,7 +309,7 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
               channel.mute ? "bg-control text-faint" : "bg-hover text-fg",
               selected && "ring-1 ring-accent",
             )}
-            title={channel.instrument.type === "plugin" ? "Open the plugin's window" : channel.instrument.type === "audio" ? "Open the audio channel" : "Open the sampler"}
+            title={channel.instrument.type === "plugin" ? "Open the plugin's window" : "Open the sampler"}
             onClick={() => openChannel(channel, true)}
             onDragOver={(e) => channel.instrument.type !== "plugin" && (isSampleDrag(e) || isFileDrag(e)) && (e.preventDefault(), e.stopPropagation())}
             onDrop={(e) => {
@@ -301,12 +328,15 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}>{channel.mute ? "Unmute" : "Mute"}</ContextMenuItem>
           <ContextMenuItem onSelect={() => openChannel(channel)}>
-            {channel.instrument.type === "plugin" ? "Open the plugin's window" : channel.instrument.type === "audio" ? "Open the audio channel" : "Open the sampler"}
+            {channel.instrument.type === "plugin" ? "Open the plugin's window" : "Open the sampler"}
           </ContextMenuItem>
-          {channel.instrument.type !== "audio" && (
-            <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
-          )}
+          <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
           <ContextMenuItem onSelect={() => void routeToNewInsert(doc, channel)}>Route to a new insert</ContextMenuItem>
+          {channel.instrument.type === "sampler" && (
+            <ContextMenuItem onSelect={() => update({ group: arrangement ? null : "arrangement" }, arrangement ? "Move to the rack" : "Move to the arrangement list")}>
+              {arrangement ? "Move to the rack (steps)" : "Move to the arrangement list"}
+            </ContextMenuItem>
+          )}
           <ContextMenuSub label="Colour">
             <div className="grid grid-cols-6 gap-1 p-1">
               {palette.map((c) => (
@@ -332,8 +362,8 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
         <IconButton size="sm" title="Preview sample" className="h-5 w-5" onClick={preview}><Volume2 size={11} /></IconButton>
       )}
 
-      {channel.instrument.type === "audio" ? (
-        <AudioRowInfo doc={doc} channel={channel} />
+      {arrangement ? (
+        <ArrangementRowInfo doc={doc} channel={channel} color={color} width={steps * 22} />
       ) : pattern && (melodic ? (
         <MiniRoll notes={notes} length={patternLength(pattern, doc)} color={color} width={steps * 22}
           onOpen={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })} />
@@ -374,13 +404,26 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
   );
 }
 
-/** An audio channel has no steps: its clips are in the playlist. */
-function AudioRowInfo({ doc, channel }: { doc: Project; channel: Channel }) {
+/** A sample dropped onto the playlist has no steps (a loop would make no sense as 16 hits):
+    its row shows the sample and how many clips play it. "Move to the rack" gives it steps. */
+function ArrangementRowInfo({ doc, channel, color, width }: { doc: Project; channel: Channel; color: string; width: number }) {
   const clips = doc.playlist.clips.filter((c) => c.type === "audio" && c.channel === channel.id).length;
+  const layer = channel.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
+  const peaks = usePeaks(layer?.sample);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const w = Math.max(120, Math.min(width, 420));
+
+  useEffect(() => {
+    if (!peaks || !canvas.current || !layer) return;
+    drawPeaks(canvas.current, peaks, layer.start ?? 0, layer.end ?? peaks.durationSeconds, `color-mix(in srgb, ${color} 70%, #888)`);
+  }, [peaks, layer, color]);
+
   return (
-    <button type="button" onClick={() => openChannel(channel)} title="Open the audio channel"
-      className="flex h-[22px] items-center gap-1.5 rounded-[3px] bg-[#232328] px-2 text-2xs text-faint hover:bg-[#2a2a30] hover:text-dim">
-      <AudioLines size={11} /> Audio · {clips} clip{clips === 1 ? "" : "s"} in the playlist
+    <button type="button" onClick={() => openChannel(channel)} title="Open the sampler"
+      className="flex h-[22px] items-center gap-2 overflow-hidden rounded-[3px] bg-[#232328] pr-2 text-2xs text-faint hover:bg-[#2a2a30] hover:text-dim">
+      <canvas ref={canvas} width={w} height={22} style={{ width: w, height: 22, transform: layer?.reverse ? "scaleX(-1)" : undefined }} />
+      <AudioLines size={11} className="shrink-0" />
+      <span className="shrink-0">{clips} clip{clips === 1 ? "" : "s"}</span>
     </button>
   );
 }

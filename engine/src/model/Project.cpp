@@ -297,20 +297,198 @@ namespace
     }
 }
 
+namespace
+{
+    /** Schema 2's tracks had ids, and an insert, volume and pan for the audio clips on them; its
+        audio clips had their own gain and pan, and played "audio" channels. Now tracks are
+        numbered lanes that only arrange, and audio clips play the first layer of a sampler
+        channel that holds all of that. Clips that sounded different from the others on their
+        channel get their own copy of it. */
+    void upgradeToLanes (Json& doc)
+    {
+        if (! doc.contains ("playlist"))
+            return;
+
+        auto& playlist = doc["playlist"];
+        std::map<std::string, Json> oldTracks;
+        std::map<std::string, int> lanes;
+        auto tracks = Json::array();
+
+        for (auto& t : playlist.value ("tracks", Json::array()))
+        {
+            const auto id = t.value ("id", "");
+            lanes[id] = static_cast<int> (tracks.size());
+            oldTracks[id] = t;
+
+            auto track = Json::object();
+
+            for (auto key : { "name", "color", "mute", "solo" })
+                if (t.contains (key))
+                    track[key] = t[key];
+
+            tracks.push_back (track);
+        }
+
+        // Tracks past the last with settings need no entry.
+        while (! tracks.empty() && tracks.back().empty())
+            tracks.erase (tracks.size() - 1);
+
+        playlist["tracks"] = tracks;
+
+        auto& channels = doc["channels"];
+        std::set<std::string> ids;
+        std::map<std::string, size_t> channelIndex;
+
+        for (size_t i = 0; i < channels.size(); ++i)
+        {
+            auto& channel = channels[i];
+            ids.insert (channel.value ("id", ""));
+            channelIndex[channel.value ("id", "")] = i;
+            auto& instrument = channel["instrument"];
+
+            if (instrument.value ("type", "") != "audio")
+                continue;
+
+            Json layer { { "id", "sample" }, { "sample", instrument["sample"] } };
+
+            for (auto key : { "reverse", "sourceTempo", "envelope" })
+                if (instrument.contains (key))
+                    layer[key] = instrument[key];
+
+            Json sampler { { "type", "sampler" }, { "layers", Json::array ({ layer }) } };
+
+            if (instrument.contains ("filter"))
+                sampler["filter"] = instrument["filter"];
+
+            instrument = sampler;
+            channel["group"] = "arrangement";
+        }
+
+        if (! playlist.contains ("clips"))
+            return;
+
+        auto& clips = playlist["clips"];
+        const auto originals = channels;
+
+        // What each audio clip sounded like beyond its channel: insert, gain and pan.
+        struct Sound
+        {
+            std::string insert;
+            double gainDb, pan;
+            auto operator<=> (const Sound&) const = default;
+        };
+
+        std::map<std::string, std::map<Sound, std::string>> copies;   // channel -> sound -> channel that has it
+        std::vector<Json> added;
+
+        for (auto& clip : clips)
+        {
+            const auto trackId = clip.contains ("track") && clip["track"].is_string() ? clip["track"].get<std::string>() : "";
+            const auto& track = oldTracks.contains (trackId) ? oldTracks[trackId] : Json::object();
+            clip["track"] = lanes.contains (trackId) ? lanes[trackId] : 0;
+
+            if (clip.value ("type", "") != "audio")
+                continue;
+
+            const auto channelId = clip.value ("channel", "");
+            const auto found = channelIndex.find (channelId);
+
+            if (found == channelIndex.end())
+                continue;
+
+            const auto& channel = originals[found->second];
+            const Sound sound { track.value ("insert", channel.value ("insert", std::string (masterInsertId))),
+                                clip.value ("gainDb", 0.0) + track.value ("volumeDb", 0.0),
+                                std::clamp (clip.value ("pan", 0.0) + track.value ("pan", 0.0), -1.0, 1.0) };
+            clip.erase ("gainDb");
+            clip.erase ("pan");
+
+            auto& known = copies[channelId];
+
+            if (! known.contains (sound))
+            {
+                // The first sound changes the channel itself; others get a copy.
+                std::string id = channelId, suffix;
+
+                if (! known.empty())
+                {
+                    for (int n = 2; ids.contains (id); ++n)
+                    {
+                        suffix = "-" + std::to_string (n);
+                        id = channelId.substr (0, 60) + suffix;
+                    }
+
+                    ids.insert (id);
+                    auto copy = originals[found->second];
+                    copy["id"] = id;
+                    channelIndex[id] = channels.size();
+                    channels.push_back (copy);
+                }
+
+                auto& target = channels[channelIndex[id]];
+
+                if (sound.insert == masterInsertId)
+                    target.erase ("insert");
+                else
+                    target["insert"] = sound.insert;
+
+                auto& layer = target["instrument"]["layers"][0];
+
+                if (sound.gainDb != 0)
+                    layer["gainDb"] = std::min (24.0, layer.value ("gainDb", 0.0) + sound.gainDb);
+
+                if (sound.pan != 0)
+                    layer["pan"] = std::clamp (layer.value ("pan", 0.0) + sound.pan, -1.0, 1.0);
+
+                known[sound] = id;
+
+                if (id != channelId)
+                {
+                    // The copy follows the channel's automation too.
+                    for (auto& other : clips)
+                    {
+                        if (other.value ("type", "") == "automation" && other.contains ("target")
+                             && other["target"].value ("scope", "") == "channel" && other["target"].value ("channel", "") == channelId)
+                        {
+                            auto automation = other;
+                            automation["id"] = other.value ("id", "").substr (0, 60) + suffix;
+                            automation["target"]["channel"] = id;
+                            added.push_back (automation);
+                        }
+                    }
+                }
+            }
+
+            clip["channel"] = known[sound];
+        }
+
+        for (auto& clip : added)
+        {
+            if (clip["track"].is_string())
+                clip["track"] = lanes.contains (clip["track"].get<std::string>()) ? lanes[clip["track"].get<std::string>()] : 0;
+
+            clips.push_back (clip);
+        }
+    }
+}
+
 bool migrateProject (Json& doc)
 {
     if (! doc.is_object())
         return false;
 
-    if (doc.value ("schemaVersion", 0) < 2)
+    const auto version = doc.value ("schemaVersion", 0);
+
+    if (version < 2)
         upgradeTimeEffects (doc);
 
     bool changed = moveAudioClipsToChannels (doc);
     changed = upgradeEffects (doc) || changed;
 
-    if (doc.value ("schemaVersion", 0) == 1)
+    if (version == 1 || version == 2)
     {
-        doc["schemaVersion"] = 2;
+        upgradeToLanes (doc);
+        doc["schemaVersion"] = 3;
         changed = true;
     }
 
@@ -323,7 +501,7 @@ Project parseProject (const Json& json)
     Project project;
 
     // Current documents are read as they are; older ones through a converted copy.
-    if (json.is_object() && json.value ("schemaVersion", 0) < 2)
+    if (json.is_object() && json.value ("schemaVersion", 0) < 3)
     {
         auto copy = json;
         migrateProject (copy);
@@ -428,7 +606,6 @@ namespace
         {
             checkUnique (project.channels, "/channels");
             checkUnique (project.patterns, "/patterns");
-            checkUnique (project.playlist.tracks, "/playlist/tracks");
             checkUnique (project.playlist.clips, "/playlist/clips", [] (const Clip& c) -> const Id& { return getClipId (c); });
             checkUnique (project.mixer.inserts, "/mixer/inserts");
 
@@ -479,26 +656,16 @@ namespace
                     if (channel == nullptr)
                         issue (at (at ("/patterns", i) + "/notes", n) + "/channel",
                                "no channel \"" + pattern.notes[n].channel + "\"");
-                    else if (std::holds_alternative<AudioInstrument> (channel->instrument))
-                        issue (at (at ("/patterns", i) + "/notes", n) + "/channel",
-                               "\"" + channel->id + "\" is an audio channel: it plays audio clips, not notes");
                 }
             }
         }
 
         void checkClips()
         {
-            for (size_t i = 0; i < project.playlist.tracks.size(); ++i)
-                if (auto& insert = project.playlist.tracks[i].insert)
-                    checkInsertRef (*insert, at ("/playlist/tracks", i) + "/insert");
-
             for (size_t i = 0; i < project.playlist.clips.size(); ++i)
             {
                 auto& clip = project.playlist.clips[i];
                 auto path = at ("/playlist/clips", i);
-
-                if (findTrack (project, getClipTrack (clip)) == nullptr)
-                    issue (path + "/track", "no playlist track \"" + getClipTrack (clip) + "\"");
 
                 if (auto pc = std::get_if<PatternClip> (&clip))
                 {
@@ -511,8 +678,10 @@ namespace
 
                     if (channel == nullptr)
                         issue (path + "/channel", "no channel \"" + ac->channel + "\"");
-                    else if (! std::holds_alternative<AudioInstrument> (channel->instrument))
-                        issue (path + "/channel", "\"" + ac->channel + "\" isn't an audio channel (its instrument needs type \"audio\")");
+                    else if (! std::holds_alternative<SamplerInstrument> (channel->instrument))
+                        issue (path + "/channel", "\"" + ac->channel + "\" plays a plugin; audio clips play sampler channels");
+                    else if (getClipLayer (*channel) == nullptr)
+                        issue (path + "/channel", "\"" + ac->channel + "\" has no sample layer to play");
                 }
                 else if (auto automation = std::get_if<AutomationClip> (&clip))
                 {
@@ -547,11 +716,18 @@ namespace
             switch (target.scope)
             {
                 case AutomationTargetScope::channel:
-                    if (requireField (target.channel, "channel") && findChannel (project, *target.channel) == nullptr)
+                {
+                    const auto channel = requireField (target.channel, "channel") ? findChannel (project, *target.channel) : nullptr;
+
+                    if (target.channel && channel == nullptr)
                         issue (path + "/channel", "no channel \"" + *target.channel + "\"");
 
-                    requireParam ({ "volume", "pan" });
+                    // A plugin instrument's parameters are checked when the plugin loads.
+                    if (channel == nullptr || ! std::holds_alternative<PluginInstrument> (channel->instrument))
+                        requireParam ({ "volume", "pan", "filterCutoff", "filterResonance", "filterEnvelopeAmount" });
+
                     break;
+                }
 
                 case AutomationTargetScope::insert:
                     if (requireField (target.insert, "insert"))
@@ -706,15 +882,25 @@ void validateOrThrow (const Project& project)
 //==============================================================================
 const Channel* findChannel (const Project& p, const Id& id)         { return findById (p.channels, id); }
 const Pattern* findPattern (const Project& p, const Id& id)         { return findById (p.patterns, id); }
-const PlaylistTrack* findTrack (const Project& p, const Id& id)     { return findById (p.playlist.tracks, id); }
+const PlaylistTrack* findTrack (const Project& p, Lane lane)
+{
+    return lane >= 0 && static_cast<size_t> (lane) < p.playlist.tracks.size() ? &p.playlist.tracks[static_cast<size_t> (lane)] : nullptr;
+}
+
 const Insert* findInsert (const Project& p, const Id& id)           { return findById (p.mixer.inserts, id); }
 
 const Id& getClipId (const Clip& c)             { return std::visit ([] (auto& x) -> const Id& { return x.id; }, c); }
-const Id& getClipTrack (const Clip& c)          { return std::visit ([] (auto& x) -> const Id& { return x.track; }, c); }
+Lane getClipTrack (const Clip& c)               { return std::visit ([] (auto& x) { return x.track; }, c); }
 Ticks getClipStart (const Clip& c)              { return std::visit ([] (auto& x) { return x.start; }, c); }
 TickLength getClipLength (const Clip& c)        { return std::visit ([] (auto& x) { return x.length; }, c); }
 bool isClipMuted (const Clip& c)                { return std::visit ([] (auto& x) { return x.mute; }, c); }
 
 const Id& getEffectId (const Effect& e)         { return std::visit ([] (auto& x) -> const Id& { return x.id; }, e); }
+
+const SamplerLayer* getClipLayer (const Channel& channel)
+{
+    auto sampler = std::get_if<SamplerInstrument> (&channel.instrument);
+    return sampler != nullptr && ! sampler->layers.empty() ? &sampler->layers.front() : nullptr;
+}
 
 } // namespace gk::model

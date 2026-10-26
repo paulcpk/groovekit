@@ -43,23 +43,55 @@ void SamplerEngine::prepare (double newSampleRate, int)
 
 void SamplerEngine::setConfig (std::shared_ptr<const Config> newConfig)
 {
+    // Released after the lock, off the audio thread: the configuration retired before this one.
+    std::shared_ptr<const Config> released;
+
     {
         const juce::ScopedLock sl (configLock);
         std::swap (config, newConfig);
 
+        if (config != nullptr)
+        {
+            filterCutoff = config->filter.cutoff;
+            filterResonance = config->filter.resonance;
+            filterEnvelopeAmount = config->filter.envelopeAmount;
+        }
+
         // newConfig now holds the previous one.
-        const bool sameSamples = newConfig != nullptr && config != nullptr && newConfig->layers.size() == config->layers.size()
-            && std::equal (config->layers.begin(), config->layers.end(), newConfig->layers.begin(),
-                           [] (const Layer& a, const Layer& b) { return a.sample == b.sample && a.start == b.start && a.endFrame() == b.endFrame() && a.reverse == b.reverse; });
+        const auto& previous = newConfig;
+        const auto fromPrevious = [&] (const Layer* l)
+        {
+            return previous != nullptr && l >= previous->layers.data() && l < previous->layers.data() + previous->layers.size();
+        };
+
+        const auto samePart = [&] (const Voice& v)
+        {
+            if (config == nullptr || v.layerIndex >= config->layers.size())
+                return false;
+
+            auto& a = *v.layer;
+            auto& b = config->layers[v.layerIndex];
+            return a.sample == b.sample && a.start == b.start && a.endFrame() == b.endFrame() && a.reverse == b.reverse;
+        };
 
         for (auto& v : voices)
         {
             if (! v.active)
                 continue;
 
-            if (! sameSamples)
+            // Still fading out of the configuration retired before: it goes with it.
+            if (! fromPrevious (v.layer))
             {
                 v.active = false;
+                continue;
+            }
+
+            if (v.isStolen() || ! samePart (v))
+            {
+                // Another sample or part: fade out what was playing rather than cut it off.
+                if (! v.isStolen())
+                    v.stealSamplesLeft = stealFadeSamples;
+
                 continue;
             }
 
@@ -68,15 +100,23 @@ void SamplerEngine::setConfig (std::shared_ptr<const Config> newConfig)
             v.filterEnvelope.setParameters (config->filter.envelope);
             v.samplesToCoefficients = 0;
         }
-    }
 
-    // The previous config is released here, off the audio thread.
+        released = std::move (retired);
+        retired = std::move (newConfig);
+    }
 }
 
 void SamplerEngine::allNotesOff()
 {
     for (auto& v : voices)
         v.active = false;
+}
+
+void SamplerEngine::setFilterControls (float cutoff, float resonance, float envelopeAmount)
+{
+    filterCutoff = cutoff;
+    filterResonance = resonance;
+    filterEnvelopeAmount = envelopeAmount;
 }
 
 int SamplerEngine::getNumActiveVoices() const
@@ -219,8 +259,7 @@ void SamplerEngine::renderVoices (juce::AudioBuffer<float>& buffer, int startSam
 
 void SamplerEngine::updateFilter (Voice& v, float envelopeLevel)
 {
-    const auto& f = config->filter;
-    v.svf.setup (f.cutoff * std::exp2 (f.envelopeAmount * envelopeLevel), f.resonance, sampleRate);
+    v.svf.setup (filterCutoff * std::exp2 (filterEnvelopeAmount * envelopeLevel), filterResonance, sampleRate);
 }
 
 void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSamples)

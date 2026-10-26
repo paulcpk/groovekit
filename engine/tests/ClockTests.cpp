@@ -277,10 +277,6 @@ TEST_CASE ("MIDI clock is steady from the first beat", "[.][hardware]")
     auto dir = test::tempDir() / "clock";
     std::filesystem::remove_all (dir);
     auto session = Session::open (dir);
-    model::Reader r;
-    model::Command c;
-    readValue (r, Json::parse (R"({ "type": "addTrack", "track": { "id": "takes" } })"), c);
-    session->execute ({ c });
 
     LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "clock-recording.json");
     live.openDefaultAudioDevice();
@@ -319,7 +315,7 @@ TEST_CASE ("MIDI clock is steady from the first beat", "[.][hardware]")
         REQUIRE_FALSE (inputs.empty());
 
         live.setPosition (0);
-        live.startRecording ({ { inputs[0], "master", "takes" } }, { .addClips = false });
+        live.startRecording ({ { inputs[0], "master", 0 } }, { .addClips = false });
         pump (4);
         live.stopRecording();
         pump (0.3);
@@ -345,10 +341,6 @@ TEST_CASE ("The Digitakt follows the clock evenly", "[.][digitakt]")
     auto dir = test::tempDir() / "digitakt";
     std::filesystem::remove_all (dir);
     auto session = Session::open (dir);
-    model::Reader r;
-    model::Command c;
-    readValue (r, Json::parse (R"({ "type": "addTrack", "track": { "id": "takes" } })"), c);
-    session->execute ({ c });
 
     LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "digitakt-recording.json");
     live.openDefaultAudioDevice();
@@ -367,7 +359,7 @@ TEST_CASE ("The Digitakt follows the clock evenly", "[.][digitakt]")
 
     const int bars = 8;
     live.setPosition (0);
-    live.startRecording ({ { "Track 1", "master", "takes" } }, { .length = bars * 3840, .normalizeLufs = {} });
+    live.startRecording ({ { "Track 1", "master", 0 } }, { .length = bars * 3840, .normalizeLufs = {} });
 
     for (auto start = juce::Time::getMillisecondCounter(); live.isRecording() && juce::Time::getMillisecondCounter() - start < 30000;)
         pump (0.02);
@@ -377,7 +369,7 @@ TEST_CASE ("The Digitakt follows the clock evenly", "[.][digitakt]")
     auto& clips = session->getProject().playlist.clips;
     REQUIRE (clips.size() == 1);
     const auto take = std::get<model::AudioClip> (clips.front());
-    const auto& sample = std::get<model::AudioInstrument> (model::findChannel (session->getProject(), take.channel)->instrument).sample;
+    const auto& sample = model::getClipLayer (*model::findChannel (session->getProject(), take.channel))->sample;
     const auto audio = analysis::loadAudio (*session->getProjectDir() / sample);
     const auto hits = analysis::detectOnsets (audio, -40.0f, 0.05);
     REQUIRE (hits.size() >= 8);

@@ -8,7 +8,28 @@
 namespace gk::sampler
 {
 
-/** An audio channel's envelope and filter, applied to the audio clips on its track.
+/** The filter's cutoff, resonance and envelope amount as automatable parameters ("filterCutoff",
+    "filterResonance", "filterEnvelopeAmount"): the model's values unless automation moves them. */
+class FilterControls
+{
+public:
+    explicit FilterControls (tracktion::Plugin&);
+    ~FilterControls();
+
+    /** Takes the model's values. */
+    void set (const Filter&);
+
+    /** The filter with the parameters' current values. */
+    Filter apply (Filter) const;
+
+    tracktion::AutomatableParameter::Ptr cutoff, resonance, envelopeAmount;
+
+private:
+    juce::CachedValue<float> values[3];
+};
+
+/** A sampler channel's first layer's gain, pan and envelope and the channel's filter, applied
+    to the audio clips on its track.
 
     Each clip is shaped like a note held for the clip's length: the volume envelope's attack
     starts where the clip starts, and its release ends where the clip ends; the filter's
@@ -21,16 +42,18 @@ public:
     AudioChannelPlugin (tracktion::PluginCreationInfo);
     ~AudioChannelPlugin() override;
 
-    static const char* getPluginName()                  { return "GrooveKit Audio Channel"; }
+    static const char* getPluginName()                  { return "GrooveKit Audio Clips"; }
     static const char* xmlTypeName;
 
     struct Clip { double start, end; };   // seconds on the timeline
 
     /** Takes new settings (safe while playing). Clips must be sorted by start. */
-    void setSettings (const model::AudioInstrument&, std::vector<Clip>);
+    void setSettings (const model::SamplerInstrument&, std::vector<Clip>);
 
-    /** New envelope and filter settings for the same clips. */
-    void updateInstrument (const model::AudioInstrument&);
+    /** New gain, pan, envelope and filter settings for the same clips. */
+    void updateInstrument (const model::SamplerInstrument&);
+
+    FilterControls filterControls { *this };
 
     /** The envelope's level at a point of a note: since its start, and until its end. */
     static float envelopeLevel (const juce::ADSR::Parameters&, double since, double untilEnd);
@@ -50,6 +73,7 @@ public:
 private:
     struct Settings
     {
+        float gainL = 1, gainR = 1;
         juce::ADSR::Parameters envelope;
         Filter filter;
         std::vector<Clip> clips;

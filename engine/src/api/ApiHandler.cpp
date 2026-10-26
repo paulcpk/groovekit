@@ -156,6 +156,30 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
             }
         };
 
+    // The bar above plugin windows edits the project like the UI, and asks the UI for automation clips.
+    if (live != nullptr)
+        PluginWindowBehaviour::host = {
+            .findKey = [this] (tracktion::Plugin& plugin) { return live->findPluginKey (plugin); },
+            .getProject = [this] { return &session.getProject(); },
+            .execute = [this] (const std::vector<model::Command>& commands, const std::string& label, const std::string& group)
+            {
+                try
+                {
+                    lastOrigin = "ui";
+                    session.execute (commands, { "ui", group, label });
+                }
+                catch (const std::exception& e)
+                {
+                    juce::Logger::writeToLog ("Plugin window: " + juce::String (e.what()));
+                }
+            },
+            .createAutomation = [this] (const model::AutomationTarget& target, double value)
+            {
+                if (broadcast)
+                    broadcast (notification ("createAutomation", { { "target", model::toJson (target) }, { "value", value } }).dump());
+            },
+        };
+
     listenerId = session.addListener ([this] (const Change& change)
     {
         if (! broadcast)
@@ -185,6 +209,7 @@ ApiHandler::~ApiHandler()
         live->onTransportChange = {};
         live->onLevels = {};
         PluginWindowBehaviour::onWindowClosed = {};
+        PluginWindowBehaviour::host = {};
     }
 
     session.removeListener (listenerId);
@@ -868,11 +893,12 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
 
         for (auto& t : params.value ("targets", Json::array()))
         {
-            if (! t.is_object() || ! t.contains ("input") || ! t.contains ("track"))
-                throw RpcError (invalidParams, "each target needs input and track (and optionally insert)");
+            if (! t.is_object() || ! t.contains ("input") || ! t.contains ("track") || ! t["track"].is_number_integer()
+                 || t["track"].get<int>() < 0 || t["track"].get<int>() > 999)
+                throw RpcError (invalidParams, "each target needs input and track (a playlist track number, 0-999), and optionally insert");
 
             targets.push_back ({ t["input"].get<std::string>(), t.value ("insert", std::string (model::masterInsertId)),
-                                 t["track"].get<std::string>() });
+                                 t["track"].get<int>() });
         }
 
         LiveEngine::RecordOptions options;
@@ -1144,11 +1170,6 @@ Json ApiHandler::importIntoProject (const std::string& method, const Json& param
             for (auto& layer : sampler->layers)
                 if (auto path = collect (layer.sample))
                     commands.push_back (model::UpdateSamplerLayer { channel.id, layer.id, Json { { "sample", *path } } });
-
-    for (auto& channel : project.channels)
-        if (auto audio = std::get_if<model::AudioInstrument> (&channel.instrument))
-            if (auto path = collect (audio->sample))
-                commands.push_back (model::Patch { { model::PatchOp { model::PatchOpOp::replace, "/channels/" + std::to_string (&channel - project.channels.data()) + "/instrument/sample", Json (*path) } } });
 
     if (! commands.empty())
         session.execute (commands, { "ui", {}, "Collect samples into the project" });

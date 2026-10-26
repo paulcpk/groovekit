@@ -1,33 +1,61 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Groove",
   "tempo": 124,
   "channels": [
     {
-      "id": "kick", "name": "Kick", "insert": "drums",
-      "instrument": { "type": "sampler", "layers": [{ "id": "main", "sample": "../../fixtures/samples/kick.wav", "pitchTracking": false }] }
+      "id": "kick",
+      "name": "Kick",
+      "insert": "drums",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "main", "sample": "../../fixtures/samples/kick.wav", "pitchTracking": false }]
+      }
     },
     {
-      "id": "snare", "name": "Snare", "insert": "drums", "volumeDb": -3,
-      "instrument": { "type": "sampler", "layers": [{ "id": "main", "sample": "../../fixtures/samples/snare.wav", "pitchTracking": false }] }
+      "id": "snare",
+      "name": "Snare",
+      "insert": "drums",
+      "volumeDb": -3,
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "main", "sample": "../../fixtures/samples/snare.wav", "pitchTracking": false }]
+      }
     },
     {
-      "id": "hat", "name": "Hat", "insert": "drums", "volumeDb": -6, "pan": 0.2,
-      "instrument": { "type": "sampler", "layers": [{ "id": "main", "sample": "../../fixtures/samples/hat.wav", "pitchTracking": false }] }
+      "id": "hat",
+      "name": "Hat",
+      "insert": "drums",
+      "volumeDb": -6,
+      "pan": 0.2,
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "main", "sample": "../../fixtures/samples/hat.wav", "pitchTracking": false }]
+      }
     },
     {
-      "id": "bass", "name": "Bass", "insert": "bass",
+      "id": "bass",
+      "name": "Bass",
+      "insert": "bass",
       "instrument": {
         "type": "sampler",
         "polyphony": 4,
         "layers": [
           {
-            "id": "sine", "sample": "../../fixtures/samples/bass_a2.wav", "rootKey": 45, "mode": "gate",
+            "id": "sine",
+            "sample": "../../fixtures/samples/bass_a2.wav",
+            "rootKey": 45,
+            "mode": "gate",
             "envelope": { "attack": 0.005, "decay": 0.1, "sustain": 0.8, "release": 0.05 }
           },
           {
-            "id": "octave", "sample": "../../fixtures/samples/bass_a2.wav", "rootKey": 45, "transpose": 12, "gainDb": -12,
-            "mode": "gate", "envelope": { "attack": 0.005, "release": 0.05 }
+            "id": "octave",
+            "sample": "../../fixtures/samples/bass_a2.wav",
+            "rootKey": 45,
+            "transpose": 12,
+            "gainDb": -12,
+            "mode": "gate",
+            "envelope": { "attack": 0.005, "release": 0.05 }
           }
         ]
       }
@@ -35,7 +63,8 @@
   ],
   "patterns": [
     {
-      "id": "beat", "name": "Beat",
+      "id": "beat",
+      "name": "Beat",
       "notes": [
         { "channel": "kick", "start": 0, "length": 240, "velocity": 120 },
         { "channel": "kick", "start": 960, "length": 240, "velocity": 120 },
@@ -51,7 +80,9 @@
       ]
     },
     {
-      "id": "bassline", "name": "Bassline", "length": 7680,
+      "id": "bassline",
+      "name": "Bassline",
+      "length": 7680,
       "notes": [
         { "channel": "bass", "start": 0, "length": 400, "key": 45 },
         { "channel": "bass", "start": 720, "length": 200, "key": 45, "velocity": 80 },
@@ -65,16 +96,16 @@
     }
   ],
   "playlist": {
-    "tracks": [
-      { "id": "drums", "name": "Drums" },
-      { "id": "bass", "name": "Bass" },
-      { "id": "automation", "name": "Filter sweep" }
-    ],
+    "tracks": [{ "name": "Drums" }, { "name": "Bass" }, { "name": "Filter sweep" }],
     "clips": [
-      { "type": "pattern", "id": "drums", "track": "drums", "start": 0, "length": 30720, "pattern": "beat" },
-      { "type": "pattern", "id": "bass", "track": "bass", "start": 7680, "length": 23040, "pattern": "bassline" },
+      { "type": "pattern", "id": "drums", "track": 0, "start": 0, "length": 30720, "pattern": "beat" },
+      { "type": "pattern", "id": "bass", "track": 1, "start": 7680, "length": 23040, "pattern": "bassline" },
       {
-        "type": "automation", "id": "sweep", "track": "automation", "start": 7680, "length": 15360,
+        "type": "automation",
+        "id": "sweep",
+        "track": 2,
+        "start": 7680,
+        "length": 15360,
         "target": { "scope": "effect", "insert": "bass", "effect": "filter", "param": "frequency" },
         "points": [{ "time": 0, "value": 300 }, { "time": 15360, "value": 6000 }]
       }
@@ -83,20 +114,33 @@
   "mixer": {
     "inserts": [
       {
-        "id": "master", "name": "Master",
-        "effects": [{ "type": "builtin", "id": "glue", "kind": "compressor", "params": { "thresholdDb": -12, "ratio": 2, "attackMs": 10, "releaseMs": 100 } }]
+        "id": "master",
+        "name": "Master",
+        "effects": [
+          {
+            "type": "builtin",
+            "id": "glue",
+            "kind": "compressor",
+            "params": { "thresholdDb": -12, "ratio": 2, "attackMs": 10, "releaseMs": 100 }
+          }
+        ]
       },
       {
-        "id": "drums", "name": "Drums", "volumeDb": -3,
+        "id": "drums",
+        "name": "Drums",
+        "volumeDb": -3,
         "effects": [{ "type": "builtin", "id": "eq", "kind": "eq", "params": { "band1Freq": 80, "band1GainDb": 3 } }],
         "sends": [{ "id": "toVerb", "target": "verb", "levelDb": -14 }]
       },
       {
-        "id": "bass", "name": "Bass", "volumeDb": -4,
+        "id": "bass",
+        "name": "Bass",
+        "volumeDb": -4,
         "effects": [{ "type": "builtin", "id": "filter", "kind": "lowpass", "params": { "frequency": 300 } }]
       },
       {
-        "id": "verb", "name": "Reverb",
+        "id": "verb",
+        "name": "Reverb",
         "effects": [{ "type": "builtin", "id": "room", "kind": "reverb", "params": { "size": 60, "decay": 1.5 } }]
       }
     ]

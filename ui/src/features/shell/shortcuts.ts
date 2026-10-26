@@ -71,11 +71,10 @@ export function useShortcuts() {
           const span = Math.max(...selected.map((c) => c.start + c.length)) - Math.min(...selected.map((c) => c.start));
           addClips(copiesOf(doc, selected, span), selected.length === 1 ? "Duplicate clip" : `Duplicate ${selected.length} clips`);
         } else if (key === "v" && clipboard.length) {
-          // Pasted at the playhead, keeping their spacing and tracks (tracks deleted since go to the first).
-          const tracks = new Set(doc.playlist.tracks.map((t) => t.id));
+          // Pasted at the playhead, keeping their spacing and tracks.
           const first = Math.min(...clipboard.map((c) => c.start));
           const at = useEngine.getState().transport.position;
-          const clips = copiesOf(doc, clipboard, at - first).map((c) => (tracks.has(c.track) ? c : { ...c, track: doc.playlist.tracks[0]?.id ?? c.track }));
+          const clips = copiesOf(doc, clipboard, at - first);
           addClips(clips, clips.length === 1 ? "Paste clip" : `Paste ${clips.length} clips`);
         }
       } else if (e.key === "F5") {

@@ -4,6 +4,8 @@ import { create } from "zustand";
 
 export type BottomPanel = "rack" | "piano" | "mixer";
 export type SidebarTab = "browser" | "history" | "activity";
+/** Which channels the rack lists: those played by patterns, the samples dropped on the playlist, or all. */
+export type RackView = "rack" | "arrangement" | "all";
 
 export interface UiState {
   sidebarTab: SidebarTab;
@@ -17,6 +19,7 @@ export interface UiState {
   selectedChannel?: string;
   selectedInsert?: string;
   selectedClips: string[];
+  rackView: RackView;
 
   /** Playlist pixels per quarter note. */
   playlistZoom: number;
@@ -30,8 +33,6 @@ export interface UiState {
   recordOpen: boolean;
   projectDialog?: "new" | "open" | "saveAs";
   exportOpen: boolean;
-  /** The audio clip whose gain, fades and stretch are being edited. */
-  clipEditor?: string;
   /** The computer keyboard plays the selected channel (Z row from C of this octave, Q row an octave up). */
   typingKeyboard: boolean;
   keyboardOctave: number;
@@ -58,6 +59,7 @@ export const useUi = create<UiState>(() => ({
   bottomHeight: 300,
   sidebarWidth: 260,
   selectedClips: [],
+  rackView: "rack",
   playlistZoom: 24,
   trackHeight: 44,
   snap: 960,
@@ -76,7 +78,7 @@ export const useUi = create<UiState>(() => ({
 
 const persisted: (keyof UiState)[] = [
   "sidebarTab", "sidebarOpen", "bottomPanel", "bottomOpen", "bottomHeight", "sidebarWidth",
-  "playlistZoom", "trackHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize",
+  "rackView", "playlistZoom", "trackHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize",
 ];
 
 useUi.subscribe((state) => {

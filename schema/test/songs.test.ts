@@ -25,7 +25,7 @@ describe("test songs match the schema", () => {
 
 describe("the schema rejects bad input", () => {
   const minimal = (): Record<string, any> => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
     tempo: 120,
     channels: [],
     patterns: [],
@@ -43,7 +43,7 @@ describe("the schema rejects bad input", () => {
 
   it("rejects unknown clip types", () => {
     const p = minimal();
-    p.playlist.clips.push({ type: "video", id: "v", track: "t", start: 0, length: 1 });
+    p.playlist.clips.push({ type: "video", id: "v", track: 0, start: 0, length: 1 });
     expect(validate(p)).toBe(false);
   });
 });

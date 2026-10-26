@@ -1,15 +1,23 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Sends",
   "tempo": 120,
   "channels": [
     {
-      "id": "a", "insert": "silenced",
-      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] }
+      "id": "a",
+      "insert": "silenced",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
     },
     {
-      "id": "b", "insert": "dry",
-      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] }
+      "id": "b",
+      "insert": "dry",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
     }
   ],
   "patterns": [
@@ -21,10 +29,7 @@
       ]
     }
   ],
-  "playlist": {
-    "tracks": [{ "id": "t" }],
-    "clips": [{ "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 1920, "pattern": "p" }]
-  },
+  "playlist": { "tracks": [], "clips": [{ "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 1920, "pattern": "p" }] },
   "mixer": {
     "inserts": [
       { "id": "master" },

@@ -76,13 +76,13 @@ export const useEngine = create<EngineState>(() => ({
 const set = useEngine.setState;
 const get = useEngine.getState;
 
-/** The ids a change touched: the element each op's path leads into, looked up in the newer document. */
+/** The ids a change touched: the element each op's path leads into, looked up in the newer
+    document. Playlist tracks have numbers, not ids: they show up as "track:<number>". */
 function touchedIds(before: Project | undefined, after: Project, ops: PatchOp[]): string[] {
   const ids = new Set<string>();
   const collections: Record<string, (doc: Project) => { id: string }[] | undefined> = {
     channels: (d) => d.channels,
     patterns: (d) => d.patterns,
-    "playlist/tracks": (d) => d.playlist.tracks,
     "playlist/clips": (d) => d.playlist.clips,
     "mixer/inserts": (d) => d.mixer.inserts,
   };
@@ -91,6 +91,7 @@ function touchedIds(before: Project | undefined, after: Project, ops: PatchOp[])
     const keys = parsePointer(op.path);
     const name = keys[0] === "playlist" || keys[0] === "mixer" ? `${keys[0]}/${keys[1]}` : keys[0];
     const index = Number(keys[name.includes("/") ? 2 : 1]);
+    if (name === "playlist/tracks" && !Number.isNaN(index)) ids.add(`track:${index}`);
     const list = collections[name];
     if (!list || Number.isNaN(index)) continue;
 
@@ -114,6 +115,13 @@ function onNotification(method: string, params: any) {
         set({ changes: [], touchedAt: {}, levels: { inserts: {}, channels: {} }, transport: { playing: false, recording: false, position: 0, seconds: 0, mode: "song" }, previewing: undefined });
         setUi({ selectedPattern: params.document.patterns?.[0]?.id, selectedChannel: undefined, selectedInsert: undefined, selectedClips: [], loop: undefined, looping: false });
       }
+      break;
+    }
+
+    case "createAutomation": {
+      // "Automate" in the bar above a plugin's window.
+      const doc = get().doc;
+      if (doc) void import("@/features/playlist/automation").then((m) => m.createAutomation(doc, params.target, params.value));
       break;
     }
 

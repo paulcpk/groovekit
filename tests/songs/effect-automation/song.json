@@ -1,11 +1,15 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Effect automation",
   "tempo": 120,
   "channels": [
     {
-      "id": "beep", "insert": "filtered",
-      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] }
+      "id": "beep",
+      "insert": "filtered",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
     }
   ],
   "patterns": [
@@ -18,16 +22,24 @@
     }
   ],
   "playlist": {
-    "tracks": [{ "id": "notes" }, { "id": "auto" }],
+    "tracks": [],
     "clips": [
-      { "type": "pattern", "id": "c", "track": "notes", "start": 0, "length": 3840, "pattern": "p" },
+      { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 3840, "pattern": "p" },
       {
-        "type": "automation", "id": "closed", "track": "auto", "start": 0, "length": 960,
+        "type": "automation",
+        "id": "closed",
+        "track": 1,
+        "start": 0,
+        "length": 960,
         "target": { "scope": "effect", "insert": "filtered", "effect": "lp", "param": "frequency" },
         "points": [{ "time": 0, "value": 100 }]
       },
       {
-        "type": "automation", "id": "open", "track": "auto", "start": 1920, "length": 960,
+        "type": "automation",
+        "id": "open",
+        "track": 1,
+        "start": 1920,
+        "length": 960,
         "target": { "scope": "effect", "insert": "filtered", "effect": "lp", "param": "frequency" },
         "points": [{ "time": 0, "value": 22000 }]
       }
@@ -36,7 +48,10 @@
   "mixer": {
     "inserts": [
       { "id": "master" },
-      { "id": "filtered", "effects": [{ "type": "builtin", "id": "lp", "kind": "lowpass", "params": { "frequency": 22000 } }] }
+      {
+        "id": "filtered",
+        "effects": [{ "type": "builtin", "id": "lp", "kind": "lowpass", "params": { "frequency": 22000 } }]
+      }
     ]
   }
 }

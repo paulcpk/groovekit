@@ -19,11 +19,12 @@ namespace gk
       blend that mix the dry signal back in), sends and fader;
       non-master inserts output into their target insert's track, master goes to the device
     - each channel becomes a hidden track with its instrument and fader, feeding its insert
+      (a sampler only when it might play notes)
     - each pattern clip becomes one MIDI clip per channel that has notes in the pattern,
       with the pattern repeated to fill the clip
-    - an audio channel's clips go on one hidden track per playlist track they're on, holding
-      the channel's envelope and filter, the playlist track's fader and the channel's fader,
-      feeding the track's insert if it has one, else the channel's
+    - a channel's audio clips go on one hidden track per playlist track they're on, holding
+      the first layer's gain, pan and envelope, the channel's filter and a copy of the
+      channel's fader, feeding the channel's insert
     - automation clips become automation curves on the targeted parameters
 */
 struct CompiledEdit
@@ -43,11 +44,8 @@ struct CompiledEdit
     /** The volume and pan stage of each insert and channel, which also meters them. */
     std::map<model::Id, mixer::FaderPlugin*> insertFaders, channelFaders;
 
-    /** The volume and pan stages of each playlist track's audio clips (one per audio channel on it). */
-    std::map<model::Id, std::vector<mixer::FaderPlugin*>> trackFaders;
-
-    /** Audio channels: their tracks, faders and envelope stages, one of each per playlist track
-        their clips are on. */
+    /** Channels' audio clips: their tracks, faders and shaping stages, one of each per playlist
+        track the clips are on. */
     std::map<model::Id, std::vector<tracktion::AudioTrack*>> audioChannelTracks;
     std::map<model::Id, std::vector<mixer::FaderPlugin*>> audioChannelFaders;
     std::map<model::Id, std::vector<sampler::AudioChannelPlugin*>> audioChannelPlugins;

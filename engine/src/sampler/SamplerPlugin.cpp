@@ -1,5 +1,4 @@
 #include "SamplerPlugin.h"
-#include "AudioChannelPlugin.h"
 
 namespace gk::sampler
 {
@@ -78,6 +77,7 @@ void SamplerPlugin::setInstrument (const model::SamplerInstrument& instrument, c
 
     state.setProperty (instrumentProperty, juce::String (model::toJson (instrument).dump()), nullptr);
     state.setProperty (projectDirProperty, juce::String (projectDir.string()), nullptr);
+    filterControls.set (config->filter);
     samplerEngine.setConfig (std::move (config));
 }
 
@@ -131,6 +131,8 @@ void SamplerPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
                 events.push_back ({ static_cast<int> (std::floor (m.getTimeStamp() * sampleRate + 0.5)), m });
     }
 
+    samplerEngine.setFilterControls (filterControls.cutoff->getCurrentValue(), filterControls.resonance->getCurrentValue(),
+                                     filterControls.envelopeAmount->getCurrentValue());
     samplerEngine.process (*fc.destBuffer, fc.bufferStartSample, fc.bufferNumSamples, events);
 }
 

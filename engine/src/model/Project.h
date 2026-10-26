@@ -22,8 +22,8 @@ Ticks getSongEnd (const Project&);
 
 //==============================================================================
 /** Brings a song document written by an older GrooveKit up to the current schema, in place:
-    audio clips that named their own sample get audio channels. Returns whether it changed
-    anything. Safe to run on any document. */
+    tracks become numbered lanes, and audio clips play sampler channels that hold their file,
+    settings and routing. Returns whether it changed anything. Safe to run on any document. */
 bool migrateProject (Json&);
 
 /** Parses and schema-checks a document. Throws ReadError. */
@@ -51,15 +51,19 @@ void validateOrThrow (const Project&);
 //==============================================================================
 const Channel* findChannel (const Project&, const Id&);
 const Pattern* findPattern (const Project&, const Id&);
-const PlaylistTrack* findTrack (const Project&, const Id&);
+/** A track's settings, or nullptr for a track that has the defaults. */
+const PlaylistTrack* findTrack (const Project&, Lane);
 const Insert* findInsert (const Project&, const Id&);
 
 const Id& getClipId (const Clip&);
-const Id& getClipTrack (const Clip&);
+Lane getClipTrack (const Clip&);
 Ticks getClipStart (const Clip&);
 TickLength getClipLength (const Clip&);
 bool isClipMuted (const Clip&);
 
 const Id& getEffectId (const Effect&);
+
+/** The layer an audio clip on this channel plays: a sampler's first, or nullptr. */
+const SamplerLayer* getClipLayer (const Channel&);
 
 } // namespace gk::model

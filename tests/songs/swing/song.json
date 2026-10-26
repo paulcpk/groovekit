@@ -1,21 +1,27 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Swing",
   "tempo": 120,
   "swing": 0.5,
   "channels": [
-    { "id": "beep", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } }
+    {
+      "id": "beep",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    }
   ],
   "patterns": [
-    { "id": "p", "notes": [
-      { "channel": "beep", "start": 240, "length": 120, "velocity": 127 },
-      { "channel": "beep", "start": 1200, "length": 120, "velocity": 127 },
-      { "channel": "beep", "start": 1920, "length": 120, "velocity": 127 }
-    ] }
+    {
+      "id": "p",
+      "notes": [
+        { "channel": "beep", "start": 240, "length": 120, "velocity": 127 },
+        { "channel": "beep", "start": 1200, "length": 120, "velocity": 127 },
+        { "channel": "beep", "start": 1920, "length": 120, "velocity": 127 }
+      ]
+    }
   ],
-  "playlist": {
-    "tracks": [{ "id": "t" }],
-    "clips": [{ "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 3840, "pattern": "p" }]
-  },
+  "playlist": { "tracks": [], "clips": [{ "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 3840, "pattern": "p" }] },
   "mixer": { "inserts": [{ "id": "master" }] }
 }

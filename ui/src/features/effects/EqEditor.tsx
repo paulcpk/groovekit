@@ -7,6 +7,8 @@ import { cn } from "@/lib/cn";
 import { startDrag } from "@/lib/drag";
 import { EQ_BAND_LABELS, EQ_BAND_TYPES, eqBandGainDb, formatHz, freqToX, xToFreq, type EqBandType } from "@/lib/filters";
 import { useLiveControl } from "@/lib/liveControl";
+import { createAutomation } from "@/features/playlist/automation";
+import { useEngine } from "@/state/engine";
 import { useEffectSpectrum } from "./useEffectOutput";
 
 const W = 640, H = 240, RANGE_DB = 24, BANDS = 7;
@@ -127,6 +129,17 @@ export function EqEditor({ insert, effect }: { insert: Insert; effect: BuiltinEf
                   ))}
                   <ContextMenuSeparator />
                   <ContextMenuItem onSelect={() => set({ [`band${i + 1}Type`]: 0 }, true)}>{b.type === "off" ? "✓ " : ""}Off</ContextMenuItem>
+                  {b.type !== "off" && (
+                    <>
+                      <ContextMenuSeparator />
+                      {([["Freq", "frequency", b.freq], ...(hasGain(b.type) ? [["GainDb", "gain", b.gainDb] as const] : []), ["Q", "width (Q)", b.q]] as const).map(([suffix, name, value]) => (
+                        <ContextMenuItem key={suffix} onSelect={() => {
+                          const doc = useEngine.getState().doc;
+                          if (doc) void createAutomation(doc, { scope: "effect", insert: insert.id, effect: effect.id, param: `band${i + 1}${suffix}` }, value);
+                        }}>Automate band {i + 1} {name}</ContextMenuItem>
+                      ))}
+                    </>
+                  )}
                 </ContextMenuContent>
               </ContextMenu>
             );

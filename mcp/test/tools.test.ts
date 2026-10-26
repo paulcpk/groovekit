@@ -99,8 +99,8 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
       commands: [
         { type: "addChannel", channel: { id: "beep", instrument: { type: "sampler", layers: [{ id: "l", sample: join(fixtures, "beep.wav"), pitchTracking: false }] } } },
         { type: "addPattern", pattern: { id: "beat", notes: [0, 960, 1920, 2880].map((start) => ({ channel: "beep", start, length: 240, velocity: 127 })) } },
-        { type: "addTrack", track: { id: "drums" } },
-        { type: "addClip", clip: { type: "pattern", id: "c1", track: "drums", start: 0, length: 3840, pattern: "beat" } },
+        { type: "updateTrack", track: 0, changes: { name: "Drums" } },
+        { type: "addClip", clip: { type: "pattern", id: "c1", track: 0, start: 0, length: 3840, pattern: "beat" } },
       ],
     });
     expect(edit.error).toBeUndefined();

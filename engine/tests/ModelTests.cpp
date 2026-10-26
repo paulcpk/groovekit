@@ -11,7 +11,7 @@ namespace
     Json minimalProject()
     {
         return Json::parse (R"({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "tempo": 120,
             "channels": [
                 { "id": "kick", "instrument": { "type": "sampler", "layers": [ { "id": "a", "sample": "kick.wav" } ] } }
@@ -20,11 +20,21 @@ namespace
                 { "id": "beat", "notes": [ { "channel": "kick", "start": 0, "length": 240 } ] }
             ],
             "playlist": {
-                "tracks": [ { "id": "t1" } ],
-                "clips": [ { "type": "pattern", "id": "c1", "track": "t1", "start": 0, "length": 3840, "pattern": "beat" } ]
+                "tracks": [],
+                "clips": [ { "type": "pattern", "id": "c1", "track": 0, "start": 0, "length": 3840, "pattern": "beat" } ]
             },
             "mixer": { "inserts": [ { "id": "master" } ] }
         })");
+    }
+
+    /** The minimal project as schema 2 wrote it: tracks with ids. */
+    Json schema2Project()
+    {
+        auto j = minimalProject();
+        j["schemaVersion"] = 2;
+        j["playlist"]["tracks"] = Json::parse (R"([ { "id": "t1" } ])");
+        j["playlist"]["clips"][0]["track"] = "t1";
+        return j;
     }
 
     std::string readErrorPath (const Json& j)
@@ -126,7 +136,7 @@ TEST_CASE ("Schema errors report a JSON pointer")
 
     SECTION ("wrong schema version")
     {
-        j["schemaVersion"] = 3;
+        j["schemaVersion"] = 4;
         CHECK (readErrorPath (j) == "/schemaVersion");
     }
 }
@@ -136,7 +146,6 @@ TEST_CASE ("Validation finds dangling references")
     auto j = minimalProject();
     j["patterns"][0]["notes"][0]["channel"] = "snare";
     j["playlist"]["clips"][0]["pattern"] = "nope";
-    j["playlist"]["clips"][0]["track"] = "t9";
     j["channels"][0]["insert"] = "drums";
 
     auto paths = issuePaths (parseProject (j));
@@ -144,7 +153,6 @@ TEST_CASE ("Validation finds dangling references")
     CHECK (paths == std::vector<std::string> {
         "/channels/0/insert",
         "/patterns/0/notes/0/channel",
-        "/playlist/clips/0/track",
         "/playlist/clips/0/pattern",
     });
 }
@@ -193,7 +201,7 @@ TEST_CASE ("Automation targets are checked")
 {
     auto j = minimalProject();
     j["playlist"]["clips"].push_back (Json::parse (R"({
-        "type": "automation", "id": "a1", "track": "t1", "start": 0, "length": 960,
+        "type": "automation", "id": "a1", "track": 0, "start": 0, "length": 960,
         "target": { "scope": "channel", "channel": "kick", "param": "cutoff" },
         "points": [ { "time": 0, "value": 0 } ]
     })"));
@@ -217,9 +225,9 @@ TEST_CASE ("Pattern length defaults to whole bars")
     CHECK (getPatternLength (Pattern {}, TimeSignature { 3, 4 }) == 2880);
 }
 
-TEST_CASE ("Songs from schema 1 get audio channels for their audio clips")
+TEST_CASE ("Songs from schema 1 get channels for their audio clips")
 {
-    auto j = minimalProject();
+    auto j = schema2Project();
     j["schemaVersion"] = 1;
     auto& clips = j["playlist"]["clips"];
     clips.push_back ({ { "type", "audio" }, { "id", "a1" }, { "track", "t1" }, { "start", 0 }, { "length", 960 }, { "sample", "loops/Drum Loop.wav" }, { "insert", "master" } });
@@ -227,7 +235,7 @@ TEST_CASE ("Songs from schema 1 get audio channels for their audio clips")
     clips.push_back ({ { "type", "audio" }, { "id", "a3" }, { "track", "t1" }, { "start", 1920 }, { "length", 960 }, { "sample", "loops/Drum Loop.wav" }, { "reverse", true } });
 
     CHECK (migrateProject (j));
-    CHECK (j["schemaVersion"] == 2);
+    CHECK (j["schemaVersion"] == 3);
     CHECK_FALSE (migrateProject (j));
 
     auto project = parseProject (j);
@@ -242,22 +250,79 @@ TEST_CASE ("Songs from schema 1 get audio channels for their audio clips")
     CHECK (a2.channel == a1.channel);
     CHECK (a3.channel == "Drum-Loop-2");
 
-    auto& reversed = std::get<AudioInstrument> (findChannel (project, a3.channel)->instrument);
+    auto& reversed = *getClipLayer (*findChannel (project, a3.channel));
     CHECK (reversed.sample == "loops/Drum Loop.wav");
     CHECK (reversed.reverse);
     CHECK (findChannel (project, a1.channel)->name == "Drum Loop");
+    CHECK (findChannel (project, a1.channel)->group == ChannelGroup::arrangement);
 }
 
-TEST_CASE ("Notes can't play audio channels")
+TEST_CASE ("Schema 2 tracks become numbered lanes, and how they and their clips sounded moves to the channels")
+{
+    auto j = schema2Project();
+    j["mixer"]["inserts"].push_back ({ { "id", "bus" } });
+    j["playlist"]["tracks"] = Json::parse (R"([
+        { "id": "t1", "name": "Beat" },
+        { "id": "vox", "insert": "bus", "volumeDb": -6, "mute": true }
+    ])");
+    j["channels"].push_back (Json::parse (R"({ "id": "loop", "insert": "bus", "instrument": { "type": "audio", "sample": "loop.wav", "sourceTempo": 100,
+                                               "envelope": { "attack": 0.1 }, "filter": { "type": "lowpass", "cutoff": 500 } } })"));
+    auto& clips = j["playlist"]["clips"];
+    clips.push_back (Json::parse (R"({ "type": "audio", "id": "a1", "track": "vox", "start": 0, "length": 960, "channel": "loop" })"));
+    clips.push_back (Json::parse (R"({ "type": "audio", "id": "a2", "track": "vox", "start": 960, "length": 960, "channel": "loop", "gainDb": 2, "pan": 0.5 })"));
+    clips.push_back (Json::parse (R"({ "type": "automation", "id": "fade", "track": "t1", "start": 0, "length": 960,
+                                       "target": { "scope": "channel", "channel": "loop", "param": "volume" }, "points": [ { "time": 0, "value": 0 } ] })"));
+
+    CHECK (migrateProject (j));
+    auto project = parseProject (j);
+    CHECK (issuePaths (project).empty());
+
+    REQUIRE (project.playlist.tracks.size() == 2);
+    CHECK (project.playlist.tracks[0].name == "Beat");
+    CHECK (project.playlist.tracks[1].mute);
+    CHECK (getClipTrack (project.playlist.clips[0]) == 0);
+    CHECK (getClipTrack (project.playlist.clips[1]) == 1);
+
+    // The audio channel is a sampler whose first layer holds the file and its settings.
+    auto& loop = *findChannel (project, "loop");
+    auto& sampler = std::get<SamplerInstrument> (loop.instrument);
+    REQUIRE (sampler.layers.size() == 1);
+    CHECK (sampler.layers[0].sample == "loop.wav");
+    CHECK (sampler.layers[0].sourceTempo == 100);
+    CHECK (sampler.layers[0].envelope.attack == 0.1);
+    CHECK (sampler.filter.cutoff == 500);
+    CHECK (loop.group == ChannelGroup::arrangement);
+
+    // The first clip's sound (the track's level) goes onto the channel; the second clip, louder
+    // and panned, gets a copy, which follows the channel's automation too.
+    CHECK (sampler.layers[0].gainDb == -6);
+    auto& a2 = std::get<AudioClip> (project.playlist.clips[2]);
+    CHECK (a2.channel == "loop-2");
+    auto& copy = *findChannel (project, "loop-2");
+    CHECK (getClipLayer (copy)->gainDb == -4);
+    CHECK (getClipLayer (copy)->pan == 0.5);
+    CHECK (copy.insert == "bus");
+
+    auto& followed = std::get<AutomationClip> (project.playlist.clips.back());
+    CHECK (followed.target.channel == "loop-2");
+    CHECK (followed.track == 0);
+}
+
+TEST_CASE ("Audio clips play a sampler's first layer")
 {
     auto j = minimalProject();
-    j["channels"][0]["instrument"] = { { "type", "audio" }, { "sample", "kick.wav" } };
-    CHECK (issuePaths (parseProject (j)) == std::vector<std::string> { "/patterns/0/notes/0/channel" });
+    j["channels"].push_back (Json::parse (R"({ "id": "synth", "instrument": { "type": "plugin", "plugin": { "format": "VST3", "uid": "x", "name": "Synth" } } })"));
+    j["channels"].push_back (Json::parse (R"({ "id": "empty", "instrument": { "type": "sampler", "layers": [] } })"));
+    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "a", "track": 2, "start": 0, "length": 960, "channel": "kick" })"));
+    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "b", "track": 2, "start": 0, "length": 960, "channel": "synth" })"));
+    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "c", "track": 2, "start": 0, "length": 960, "channel": "empty" })"));
+
+    CHECK (issuePaths (parseProject (j)) == std::vector<std::string> { "/playlist/clips/2/channel", "/playlist/clips/3/channel" });
 }
 
 TEST_CASE ("Schema 1 effects carry over to the new EQ, reverb and delay")
 {
-    auto j = minimalProject();
+    auto j = schema2Project();
     j["schemaVersion"] = 1;
     j["mixer"]["inserts"][0]["effects"] = {
         { { "type", "builtin" }, { "id", "eq" }, { "kind", "eq" }, { "params", { { "lowGainDb", 3 }, { "highFreq", 9000 } } } },

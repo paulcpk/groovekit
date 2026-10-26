@@ -23,7 +23,47 @@ juce::ADSR::Parameters toEnvelope (const model::Envelope& e)
 }
 
 //==============================================================================
-const char* AudioChannelPlugin::xmlTypeName = "groovekitAudioChannel";
+FilterControls::FilterControls (tracktion::Plugin& plugin)
+{
+    const struct { const char* id; float min, max, initial; } specs[] {
+        { "filterCutoff", 20.0f, 20000.0f, 20000.0f },
+        { "filterResonance", 0.0f, 1.0f, 0.0f },
+        { "filterEnvelopeAmount", -10.0f, 10.0f, 0.0f },
+    };
+
+    tracktion::AutomatableParameter::Ptr* params[] { &cutoff, &resonance, &envelopeAmount };
+
+    for (size_t i = 0; i < 3; ++i)
+    {
+        values[i].referTo (plugin.state, specs[i].id, nullptr, specs[i].initial);
+        *params[i] = plugin.addParam (specs[i].id, specs[i].id, { specs[i].min, specs[i].max });
+        (*params[i])->attachToCurrentValue (values[i]);
+    }
+}
+
+FilterControls::~FilterControls()
+{
+    for (auto p : { cutoff, resonance, envelopeAmount })
+        p->detachFromCurrentValue();
+}
+
+void FilterControls::set (const Filter& filter)
+{
+    cutoff->setParameter (filter.cutoff, juce::dontSendNotification);
+    resonance->setParameter (filter.resonance, juce::dontSendNotification);
+    envelopeAmount->setParameter (filter.envelopeAmount, juce::dontSendNotification);
+}
+
+Filter FilterControls::apply (Filter filter) const
+{
+    filter.cutoff = cutoff->getCurrentValue();
+    filter.resonance = resonance->getCurrentValue();
+    filter.envelopeAmount = envelopeAmount->getCurrentValue();
+    return filter;
+}
+
+//==============================================================================
+const char* AudioChannelPlugin::xmlTypeName = "groovekitAudioClips";
 
 AudioChannelPlugin::AudioChannelPlugin (tracktion::PluginCreationInfo info)
     : Plugin (info)
@@ -35,12 +75,23 @@ AudioChannelPlugin::~AudioChannelPlugin()
     notifyListenersOfDeletion();
 }
 
-void AudioChannelPlugin::setSettings (const model::AudioInstrument& instrument, std::vector<Clip> clips)
+void AudioChannelPlugin::setSettings (const model::SamplerInstrument& instrument, std::vector<Clip> clips)
 {
     auto made = std::make_shared<Settings>();
-    made->envelope = toEnvelope (instrument.envelope);
+
+    if (! instrument.layers.empty())
+    {
+        auto& layer = instrument.layers.front();
+        const auto gain = juce::Decibels::decibelsToGain (static_cast<float> (layer.gainDb), -150.0f);
+        const auto pan = static_cast<float> (layer.pan);
+        made->gainL = gain * std::min (1.0f, 1.0f - pan);
+        made->gainR = gain * std::min (1.0f, 1.0f + pan);
+        made->envelope = toEnvelope (layer.envelope);
+    }
+
     made->filter = toFilter (instrument.filter);
     made->clips = std::move (clips);
+    filterControls.set (made->filter);
 
     // The old settings are released after the lock, off the audio thread.
     std::shared_ptr<const Settings> next = std::move (made);
@@ -48,7 +99,7 @@ void AudioChannelPlugin::setSettings (const model::AudioInstrument& instrument, 
     std::swap (settings, next);
 }
 
-void AudioChannelPlugin::updateInstrument (const model::AudioInstrument& instrument)
+void AudioChannelPlugin::updateInstrument (const model::SamplerInstrument& instrument)
 {
     std::vector<Clip> clips;
     {
@@ -104,7 +155,7 @@ void AudioChannelPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc
     auto* right = buffer.getWritePointer (buffer.getNumChannels() > 1 ? 1 : 0, fc.bufferStartSample);
     const bool stereo = buffer.getNumChannels() > 1;
     const auto start = fc.editTime.getStart().inSeconds();
-    const auto& f = s->filter;
+    const auto f = filterControls.apply (s->filter);
     const bool filtering = f.type != Filter::Type::off;
 
     // The clip under the block's start; later samples move on from there.
@@ -122,8 +173,8 @@ void AudioChannelPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc
 
         const auto since = t - clip->start, untilEnd = clip->end - t;
         const auto gain = envelopeLevel (s->envelope, since, untilEnd);
-        auto l = left[i] * gain;
-        auto r = stereo ? right[i] * gain : l;
+        auto l = left[i] * gain * s->gainL;
+        auto r = (stereo ? right[i] : left[i]) * gain * s->gainR;
 
         if (filtering)
         {

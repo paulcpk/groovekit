@@ -1,24 +1,35 @@
 #pragma once
 
+#include <cmath>
 #include <filesystem>
+#include <optional>
 
 namespace gk
 {
 
-/** A time-stretched copy of an audio file, pitch kept, rendered offline with Rubber Band (R3) and cached.
+/** How an audio clip plays its file. */
+struct ClipSource
+{
+    double start = 0;               // seconds into the file
+    std::optional<double> end;      // seconds into the file; unset is its end
+    bool reverse = false;           // the part between start and end, backwards
+    double speed = 1;               // > 1 plays faster, pitch kept (a 120 BPM loop at 128/120 fits a 128 BPM song)
+    double semitones = 0;           // pitch shift, length kept
 
-    speed > 1 plays faster (a 120 BPM loop at speed 128/120 fits a 128 BPM song).
-    The result is exactly length / speed long and aligned with the source, which
+    bool isWholeFile() const        { return start <= 0 && ! end && ! reverse && std::abs (speed - 1) < 1.0e-6 && std::abs (semitones) < 1.0e-6; }
+};
+
+/** The part of a file an audio clip plays, prepared offline and cached: cut to start..end,
+    reversed, then time-stretched and pitch-shifted with Rubber Band (R3). Returns the source
+    itself when nothing changes it.
+
+    A stretched result is exactly length / speed long and aligned with the source, which
     real-time stretching in the playback graph doesn't guarantee.
     Throws std::runtime_error if the source can't be read.
 */
-std::filesystem::path getStretchedFile (const std::filesystem::path& source, double speed, const std::filesystem::path& cacheDir);
+std::filesystem::path getClipFile (const std::filesystem::path& source, const ClipSource&, const std::filesystem::path& cacheDir);
 
-/** A copy of an audio file played backwards, cached like stretched files.
-    Throws std::runtime_error if the source can't be read. */
-std::filesystem::path getReversedFile (const std::filesystem::path& source, const std::filesystem::path& cacheDir);
-
-/** Where stretched files are cached unless the caller chooses otherwise:
+/** Where prepared files are cached unless the caller chooses otherwise:
     GROOVEKIT_CACHE_DIR, or ~/Library/Caches/GrooveKit. */
 std::filesystem::path getDefaultCacheDir();
 

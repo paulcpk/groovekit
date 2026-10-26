@@ -1,5 +1,5 @@
 import type { AudioClip, AutomationClip, AutomationPoint, PatternClip, Project } from "@groovekit/schema/project";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { rangePosition, rangeValue, targetRange } from "@/lib/automation";
 import { useCatalogue } from "@/lib/catalogue";
 import { snapTo, startDrag } from "@/lib/drag";
@@ -53,30 +53,51 @@ export const PatternContent = memo(function PatternContent({ clip, doc, width, h
   );
 });
 
-/** The part of the file the clip plays. */
+/** The part of the file the clip plays, with handles at its top corners that drag its fades. */
 export function AudioContent({ clip, doc, width, height, color }: {
   clip: AudioClip; doc: Project; width: number; height: number; color: string;
 }) {
-  const { sample, reverse, sourceTempo } = audioSource(doc, clip);
+  const { sample, reverse, sourceTempo, start: partStart, end: partEnd } = audioSource(doc, clip);
   const peaks = usePeaks(sample);
   const canvas = useRef<HTMLCanvasElement>(null);
   const pixels = Math.max(1, Math.min(4000, Math.round(width)));
+  const [fades, setFades] = useState<{ fadeIn?: number; fadeOut?: number } | null>(null);
 
   useEffect(() => {
     if (!peaks || !canvas.current) return;
     // Stretched clips play a beat of the file per beat of the song.
     const fileSecondsPerTick = 60 / ((sourceTempo ?? doc.tempo) * 960);
-    const start = clip.offset ?? 0;
-    const end = start + clip.length * fileSecondsPerTick;
-    // A reversed clip's offset counts from the file's end; it's drawn mirrored.
-    if (reverse) drawPeaks(canvas.current, peaks, peaks.durationSeconds - end, peaks.durationSeconds - start, color);
-    else drawPeaks(canvas.current, peaks, start, end, color);
-  }, [peaks, clip.offset, clip.length, sourceTempo, reverse, doc.tempo, color, pixels, height]);
+    const from = clip.offset ?? 0;
+    const to = from + clip.length * fileSecondsPerTick;
+    // The clip plays the layer's part of the file; reversed, its offset counts from the part's
+    // end and it's drawn mirrored.
+    const end = partEnd ?? peaks.durationSeconds;
+    if (reverse) drawPeaks(canvas.current, peaks, end - to, end - from, color);
+    else drawPeaks(canvas.current, peaks, partStart + from, partStart + to, color);
+  }, [peaks, clip.offset, clip.length, sourceTempo, reverse, partStart, partEnd, doc.tempo, color, pixels, height]);
 
   if (height < 4) return null;
   const ticksPerSecond = (doc.tempo * 960) / 60;
-  const fadeIn = ((clip.fadeIn ?? 0) * ticksPerSecond * width) / clip.length;
-  const fadeOut = ((clip.fadeOut ?? 0) * ticksPerSecond * width) / clip.length;
+  const pxPerSecond = (ticksPerSecond * width) / clip.length;
+  const seconds = clip.length / ticksPerSecond;
+  const fadeIn = (fades?.fadeIn ?? clip.fadeIn ?? 0) * pxPerSecond;
+  const fadeOut = (fades?.fadeOut ?? clip.fadeOut ?? 0) * pxPerSecond;
+
+  const dragFade = (e: React.PointerEvent, which: "fadeIn" | "fadeOut") => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const from = clip[which] ?? 0;
+    let value = from;
+    startDrag(e, (dx) => {
+      value = Math.round(Math.min(seconds, Math.max(0, from + (which === "fadeIn" ? dx : -dx) / pxPerSecond)) * 100) / 100;
+      setFades({ [which]: value });
+    }, (_dx, _dy, _e, moved) => {
+      setFades(null);
+      if (moved) void execute({ type: "updateClip", clip: clip.id, changes: { [which]: value || null } }, { label: which === "fadeIn" ? "Fade in" : "Fade out" });
+    }, "ew-resize");
+  };
+
+  const handle = "absolute top-0 z-10 h-2 w-2 cursor-ew-resize rounded-[1px] border border-black/50 bg-white/80 opacity-0 group-hover/clip:opacity-100";
 
   return (
     <>
@@ -87,6 +108,14 @@ export function AudioContent({ clip, doc, width, height, color }: {
           {fadeIn > 0 && <path d={`M0 0 L${fadeIn} 0 L0 ${height} Z`} fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.5)" strokeWidth={1} />}
           {fadeOut > 0 && <path d={`M${width} 0 L${width - fadeOut} 0 L${width} ${height} Z`} fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.5)" strokeWidth={1} />}
         </svg>
+      )}
+      {width > 24 && (
+        <>
+          <div className={handle} style={{ left: Math.min(width / 2 - 8, fadeIn + 2) }} title="Drag to fade in" onPointerDown={(e) => dragFade(e, "fadeIn")}
+            onDoubleClick={(e) => e.stopPropagation()} />
+          <div className={handle} style={{ right: Math.min(width / 2 - 8, fadeOut + 2) }} title="Drag to fade out" onPointerDown={(e) => dragFade(e, "fadeOut")}
+            onDoubleClick={(e) => e.stopPropagation()} />
+        </>
       )}
     </>
   );

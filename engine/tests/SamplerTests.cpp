@@ -312,9 +312,14 @@ TEST_CASE ("New settings for the same samples keep notes playing")
     config.filter.type = Filter::Type::lowpass;
     h.engine.setConfig (std::make_shared<Config> (config));
     CHECK (h.engine.getNumActiveVoices() == 1);
+    h.run (256); // the filter settles
 
-    // Another sample stops them.
+    // Another sample stops them, fading out over a few milliseconds rather than with a click.
     config.layers[0].sample = constantSample (100, 0.5f);
     h.engine.setConfig (std::make_shared<Config> (config));
+    h.run (256);
+    CHECK (h.out.getSample (0, 0) > 0.1f);
+    CHECK (std::abs (h.out.getSample (0, 0) - h.out.getSample (0, 1)) < 0.01f);
+    CHECK (h.out.getSample (0, 200) == 0.0f);
     CHECK (h.engine.getNumActiveVoices() == 0);
 }

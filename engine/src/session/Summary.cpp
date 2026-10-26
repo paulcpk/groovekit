@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <map>
 
 namespace gk
 {
@@ -39,6 +40,12 @@ namespace
                 if (! l.pitchTracking)
                     layer["pitchTracking"] = false;
 
+                if (l.transpose != 0 || l.fineTune != 0)
+                    layer["transpose"] = l.transpose + l.fineTune / 100.0;
+
+                if (l.reverse)          layer["reverse"] = true;
+                if (l.sourceTempo)      layer["sourceTempo"] = *l.sourceTempo;
+
                 layers.push_back (std::move (layer));
             }
 
@@ -46,16 +53,6 @@ namespace
 
             if (sampler->filter.type != SamplerFilterType::off)
                 j["filter"] = toString (sampler->filter.type);
-
-            return j;
-        }
-
-        if (auto audio = std::get_if<AudioInstrument> (&instrument))
-        {
-            Json j { { "type", "audio" }, { "sample", fileName (audio->sample) } };
-
-            if (audio->reverse)       j["reverse"] = true;
-            if (audio->sourceTempo)   j["sourceTempo"] = *audio->sourceTempo;
 
             return j;
         }
@@ -119,6 +116,7 @@ Json summarizeProject (const Project& project)
         if (c.volumeDb != 0)     j["volumeDb"] = c.volumeDb;
         if (c.pan != 0)          j["pan"] = c.pan;
         if (c.mute)              j["mute"] = true;
+        if (c.group == ChannelGroup::arrangement)  j["group"] = "arrangement";
 
         channels.push_back (std::move (j));
     }
@@ -142,18 +140,26 @@ Json summarizeProject (const Project& project)
 
     auto tracks = Json::array();
 
-    for (auto& t : project.playlist.tracks)
+    // Tracks with clips or a name, by number.
+    std::map<Lane, Json> lanes;
+
+    for (auto& clip : project.playlist.clips)
+        lanes[getClipTrack (clip)].push_back (describeClip (clip, ts));
+
+    for (size_t i = 0; i < project.playlist.tracks.size(); ++i)
+        if (! project.playlist.tracks[i].name.empty() && ! lanes.contains (static_cast<Lane> (i)))
+            lanes[static_cast<Lane> (i)] = Json::array();
+
+    for (auto& [lane, clips] : lanes)
     {
-        auto clips = Json::array();
+        Json j { { "track", lane }, { "clips", clips } };
 
-        for (auto& clip : project.playlist.clips)
-            if (getClipTrack (clip) == t.id)
-                clips.push_back (describeClip (clip, ts));
-
-        Json j { { "id", t.id }, { "clips", clips } };
-
-        if (! t.name.empty())   j["name"] = t.name;
-        if (t.mute)             j["mute"] = true;
+        if (auto t = findTrack (project, lane))
+        {
+            if (! t->name.empty())   j["name"] = t->name;
+            if (t->mute)             j["mute"] = true;
+            if (t->solo)             j["solo"] = true;
+        }
 
         tracks.push_back (std::move (j));
     }

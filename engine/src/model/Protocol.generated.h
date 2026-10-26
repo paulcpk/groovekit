@@ -218,7 +218,7 @@ inline Json toJson (const RemoveChannel& v)
     return j;
 }
 
-/** Changes a sampler or audio channel's instrument settings (a sampler's polyphony and filter; an audio channel's sample, reverse, sourceTempo, envelope and filter). A sampler's layers have their own commands. */
+/** Changes a sampler's polyphony and filter. Its layers have their own commands. */
 struct UpdateInstrument
 {
     Id channel;
@@ -511,37 +511,34 @@ inline Json toJson (const SetNotes& v)
     return j;
 }
 
-struct AddTrack
+/** Inserts an empty track at this number: it and the tracks below move down one, with their clips. */
+struct InsertTrack
 {
-    PlaylistTrack track;
-    std::optional<Index> index;
+    Lane track {};
 
-    bool operator== (const AddTrack&) const = default;
+    bool operator== (const InsertTrack&) const = default;
 };
 
-inline void readValue (Reader& r, const Json& j, AddTrack& out)
+inline void readValue (Reader& r, const Json& j, InsertTrack& out)
 {
-    r.expectObject (j, { "type", "track", "index" });
+    r.expectObject (j, { "type", "track" });
 
-    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "addTrack"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); });
-    r.optional (j, "index", [&] (const Json& v) { readValue (r, v, out.index.emplace()); r.checkMin (*out.index, 0); r.checkMax (*out.index, 1000000); });
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "insertTrack"); });
+    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
 }
 
-inline Json toJson (const AddTrack& v)
+inline Json toJson (const InsertTrack& v)
 {
     auto j = Json::object();
-    j["type"] = "addTrack";
+    j["type"] = "insertTrack";
     j["track"] = toJson (v.track);
-
-    if (v.index)
-        j["index"] = toJson (*v.index);
     return j;
 }
 
+/** Names, colours, mutes or solos a track. Any track number works; tracks need no adding first. */
 struct UpdateTrack
 {
-    Id track;
+    Lane track {};
     Changes changes;
 
     bool operator== (const UpdateTrack&) const = default;
@@ -552,7 +549,7 @@ inline void readValue (Reader& r, const Json& j, UpdateTrack& out)
     r.expectObject (j, { "type", "track", "changes" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "updateTrack"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkPattern (out.track, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
     r.required (j, "changes", [&] (const Json& v) { readValue (r, v, out.changes); });
 }
 
@@ -565,10 +562,10 @@ inline Json toJson (const UpdateTrack& v)
     return j;
 }
 
-/** Also removes the clips on the track. */
+/** Removes the track's clips and settings; the tracks below move up one. */
 struct RemoveTrack
 {
-    Id track;
+    Lane track {};
 
     bool operator== (const RemoveTrack&) const = default;
 };
@@ -578,7 +575,7 @@ inline void readValue (Reader& r, const Json& j, RemoveTrack& out)
     r.expectObject (j, { "type", "track" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "removeTrack"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkPattern (out.track, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
 }
 
 inline Json toJson (const RemoveTrack& v)
@@ -717,7 +714,7 @@ inline Json toJson (const UpdateInsert& v)
     return j;
 }
 
-/** Channels, audio clips and inserts that fed it are routed to master; sends to it and automation targeting it are removed. Master can't be removed. */
+/** Channels and inserts that fed it are routed to master; sends to it and automation targeting it are removed. Master can't be removed. */
 struct RemoveInsert
 {
     Id insert;
@@ -995,7 +992,7 @@ inline Json toJson (const Patch& v)
     return j;
 }
 
-using Command = std::variant<SetTempo, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, AddTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
+using Command = std::variant<SetTempo, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
 
 inline void readValue (Reader& r, const Json& j, Command& out)
 {
@@ -1022,7 +1019,7 @@ inline void readValue (Reader& r, const Json& j, Command& out)
     if (tag == "addNotes") { readValue (r, j, out.emplace<AddNotes>()); return; }
     if (tag == "removeNotes") { readValue (r, j, out.emplace<RemoveNotes>()); return; }
     if (tag == "setNotes") { readValue (r, j, out.emplace<SetNotes>()); return; }
-    if (tag == "addTrack") { readValue (r, j, out.emplace<AddTrack>()); return; }
+    if (tag == "insertTrack") { readValue (r, j, out.emplace<InsertTrack>()); return; }
     if (tag == "updateTrack") { readValue (r, j, out.emplace<UpdateTrack>()); return; }
     if (tag == "removeTrack") { readValue (r, j, out.emplace<RemoveTrack>()); return; }
     if (tag == "addClip") { readValue (r, j, out.emplace<AddClip>()); return; }

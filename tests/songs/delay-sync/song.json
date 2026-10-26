@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Synced delay",
   "tempo": 120,
   "channels": [
@@ -7,45 +7,14 @@
       "id": "beep",
       "instrument": {
         "type": "sampler",
-        "layers": [
-          {
-            "id": "main",
-            "sample": "../../fixtures/samples/beep.wav",
-            "pitchTracking": false
-          }
-        ]
+        "layers": [{ "id": "main", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
       }
     }
   ],
-  "patterns": [
-    {
-      "id": "quarters",
-      "notes": [
-        {
-          "channel": "beep",
-          "start": 0,
-          "length": 240,
-          "velocity": 127
-        }
-      ]
-    }
-  ],
+  "patterns": [{ "id": "quarters", "notes": [{ "channel": "beep", "start": 0, "length": 240, "velocity": 127 }] }],
   "playlist": {
-    "tracks": [
-      {
-        "id": "t1"
-      }
-    ],
-    "clips": [
-      {
-        "type": "pattern",
-        "id": "c1",
-        "track": "t1",
-        "start": 0,
-        "length": 3840,
-        "pattern": "quarters"
-      }
-    ]
+    "tracks": [],
+    "clips": [{ "type": "pattern", "id": "c1", "track": 0, "start": 0, "length": 3840, "pattern": "quarters" }]
   },
   "mixer": {
     "inserts": [
@@ -56,12 +25,7 @@
             "type": "builtin",
             "id": "d",
             "kind": "delay",
-            "params": {
-              "sync": 8,
-              "feedback": 50,
-              "lowCut": 20,
-              "highCut": 20000
-            },
+            "params": { "sync": 8, "feedback": 50, "lowCut": 20, "highCut": 20000 },
             "mix": 0.5
           }
         ]

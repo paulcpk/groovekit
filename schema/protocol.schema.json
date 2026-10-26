@@ -22,7 +22,7 @@
         { "$ref": "#/$defs/AddNotes" },
         { "$ref": "#/$defs/RemoveNotes" },
         { "$ref": "#/$defs/SetNotes" },
-        { "$ref": "#/$defs/AddTrack" },
+        { "$ref": "#/$defs/InsertTrack" },
         { "$ref": "#/$defs/UpdateTrack" },
         { "$ref": "#/$defs/RemoveTrack" },
         { "$ref": "#/$defs/AddClip" },
@@ -141,7 +141,7 @@
     },
 
     "UpdateInstrument": {
-      "description": "Changes a sampler or audio channel's instrument settings (a sampler's polyphony and filter; an audio channel's sample, reverse, sourceTempo, envelope and filter). A sampler's layers have their own commands.",
+      "description": "Changes a sampler's polyphony and filter. Its layers have their own commands.",
       "type": "object",
       "required": ["type", "channel", "changes"],
       "additionalProperties": false,
@@ -247,36 +247,37 @@
       }
     },
 
-    "AddTrack": {
+    "InsertTrack": {
+      "description": "Inserts an empty track at this number: it and the tracks below move down one, with their clips.",
       "type": "object",
       "required": ["type", "track"],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "addTrack" },
-        "track": { "$ref": "project.schema.json#/$defs/PlaylistTrack" },
-        "index": { "$ref": "#/$defs/Index" }
+        "type": { "const": "insertTrack" },
+        "track": { "$ref": "project.schema.json#/$defs/Lane" }
       }
     },
 
     "UpdateTrack": {
+      "description": "Names, colours, mutes or solos a track. Any track number works; tracks need no adding first.",
       "type": "object",
       "required": ["type", "track", "changes"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "updateTrack" },
-        "track": { "$ref": "project.schema.json#/$defs/Id" },
+        "track": { "$ref": "project.schema.json#/$defs/Lane" },
         "changes": { "$ref": "#/$defs/Changes" }
       }
     },
 
     "RemoveTrack": {
-      "description": "Also removes the clips on the track.",
+      "description": "Removes the track's clips and settings; the tracks below move up one.",
       "type": "object",
       "required": ["type", "track"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "removeTrack" },
-        "track": { "$ref": "project.schema.json#/$defs/Id" }
+        "track": { "$ref": "project.schema.json#/$defs/Lane" }
       }
     },
 
@@ -336,7 +337,7 @@
     },
 
     "RemoveInsert": {
-      "description": "Channels, audio clips and inserts that fed it are routed to master; sends to it and automation targeting it are removed. Master can't be removed.",
+      "description": "Channels and inserts that fed it are routed to master; sends to it and automation targeting it are removed. Master can't be removed.",
       "type": "object",
       "required": ["type", "insert"],
       "additionalProperties": false,

@@ -17,7 +17,7 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 
 `kind` is `execute`, `undo` or `redo`. For undo, `ops` are the entry's inverse.
 
-While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second. While there's signal, `levels` notifications (`{ inserts: { id: [left, right] }, channels: { id: peak } }`, linear peaks since the last one) arrive at the same rate, and once more when it stops.
+While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second. While there's signal, `levels` notifications (`{ inserts: { id: [left, right] }, channels: { id: peak } }`, linear peaks since the last one) arrive at the same rate, and once more when it stops. When "Automate" is pressed in the bar above a plugin's window, a `createAutomation` notification (`{ target, value }`) asks the UI to make the automation clip.
 
 A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<pid>.json` (`{ url, port, pid, project }`, rewritten when it opens another project), so other clients can connect to it rather than start another engine on the same project; an engine refuses to serve a project another one serves.
 
@@ -55,7 +55,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `record.alignment` | `ms?` | `{ alignmentMs }` for the current input device |
 | `midi.devices` | | `{ outputs: [{ name, enabled, clock }], inputs }` |
 | `midi.setClock` | `output`, `enabled?` (true) | same as `midi.devices`; sends clock, start and stop so hardware follows GrooveKit |
-| `record.stop` | `group?` | `{ clips: [id], transport }`; each take becomes an audio clip on an audio channel of its own (files in `<project>/recordings`) |
+| `record.stop` | `group?` | `{ clips: [id], transport }`; each take becomes an audio clip with a sampler channel of its own (group "arrangement") (files in `<project>/recordings`) |
 | `audio.peaks` | `path` (absolute or relative to the project), `resolution?` (peaks a second, default 100) | `{ durationSeconds, sampleRate, channels, resolution, peaks: [0..1] }`, the highest level of each slice over all channels, for drawing waveforms |
 | `preview.play` / `preview.stop` | `path`, `gainDb?` (-6) | `{ playing }`; auditions a file on the audio device, independent of the song |
 | `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, bluetoothInput, sampleRate, bufferSize } }` |
@@ -88,7 +88,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 { "jsonrpc": "2.0", "id": 3, "error": { "code": 1, "message": "/channels/0: unknown property \"volme\"" } }
 ```
 
-Commands add, update or remove channels, sampler layers, patterns, notes, playlist tracks, clips, inserts, effects and sends; `updateInstrument` changes a sampler's or audio channel's own settings (filter, envelopes, sample). `update*` commands take a `changes` object; `null` removes an optional field. Removals cascade: removing a channel removes its notes, its audio clips and the automation targeting it. A raw `patch` command (RFC 6902 add/remove/replace) covers everything else.
+Commands add, update or remove channels, sampler layers, patterns, notes, clips, inserts, effects and sends; `updateInstrument` changes a sampler's own settings (polyphony, filter). Playlist tracks are numbers: `updateTrack` names, colours, mutes or solos any of them, `insertTrack` and `removeTrack` move the tracks below (and their clips) down or up. `update*` commands take a `changes` object; `null` removes an optional field. Removals cascade: removing a channel removes its notes, its audio clips and the automation targeting it. A raw `patch` command (RFC 6902 add/remove/replace) covers everything else.
 
 ## History
 

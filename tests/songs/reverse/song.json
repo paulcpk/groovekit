@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Reverse",
   "tempo": 120,
   "channels": [
@@ -7,35 +7,13 @@
       "id": "kick",
       "name": "kick",
       "instrument": {
-        "type": "audio",
-        "sample": "../../fixtures/samples/kick.wav",
-        "reverse": true
-      }
+        "type": "sampler",
+        "layers": [{ "id": "sample", "sample": "../../fixtures/samples/kick.wav", "reverse": true }]
+      },
+      "group": "arrangement"
     }
   ],
   "patterns": [],
-  "playlist": {
-    "tracks": [
-      {
-        "id": "t"
-      }
-    ],
-    "clips": [
-      {
-        "type": "audio",
-        "id": "a",
-        "track": "t",
-        "start": 0,
-        "length": 576,
-        "channel": "kick"
-      }
-    ]
-  },
-  "mixer": {
-    "inserts": [
-      {
-        "id": "master"
-      }
-    ]
-  }
+  "playlist": { "tracks": [], "clips": [{ "type": "audio", "id": "a", "track": 0, "start": 0, "length": 576, "channel": "kick" }] },
+  "mixer": { "inserts": [{ "id": "master" }] }
 }

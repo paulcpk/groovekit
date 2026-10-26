@@ -425,50 +425,44 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             continue;
         }
 
+        // What only the UI shows: names, colours, which rack list a channel is in.
+        if ((keys.size() == 3 && keys[0] == "channels" && (keys[2] == "name" || keys[2] == "color" || keys[2] == "group"))
+            || (keys.size() == 4 && keys[0] == "playlist" && keys[1] == "tracks" && (keys[3] == "name" || keys[3] == "color"))
+            || (keys.size() == 3 && keys[0] == "playlist" && keys[1] == "tracks" && op.op == PatchOpOp::add && op.value && op.value->empty()))
+            continue;
+
         // /channels/<i>/instrument/...: a sampler takes its new settings while it plays.
         if (keys.size() >= 4 && keys[0] == "channels" && keys[2] == "instrument")
         {
             const auto i = index (keys[1]);
             if (! i || *i >= project.channels.size()) return false;
             const auto& channel = project.channels[*i];
+            auto sampler = std::get_if<SamplerInstrument> (&channel.instrument);
+            if (sampler == nullptr) return false;
 
-            // An audio channel's envelopes and filter; another sample, reverse or stretch rebuilds.
-            if (auto audio = std::get_if<AudioInstrument> (&channel.instrument))
+            // Its audio clips play a prepared copy of the first layer's part of the file: a change
+            // to which part, or how it's stretched or tuned, rebuilds; the rest is shaped live.
+            if (auto it = compiled.audioChannelPlugins.find (channel.id); it != compiled.audioChannelPlugins.end())
             {
-                if (keys.size() < 4 || (keys[3] != "envelope" && keys[3] != "filter"))
+                static const std::set<std::string> prepared { "sample", "start", "end", "reverse", "transpose", "fineTune", "sourceTempo" };
+
+                if (keys[3] == "layers" && (keys.size() < 6 || (keys[4] == "0" && prepared.contains (keys[5]))))
                     return false;
 
-                if (auto it = compiled.audioChannelPlugins.find (channel.id); it != compiled.audioChannelPlugins.end())
-                    for (auto plugin : it->second)
-                        actions.push_back ([plugin, instrument = *audio] { plugin->updateInstrument (instrument); });
-
-                continue;
+                for (auto plugin : it->second)
+                    actions.push_back ([plugin, instrument = *sampler] { plugin->updateInstrument (instrument); });
             }
 
-            auto sampler = std::get_if<SamplerInstrument> (&channel.instrument);
             const auto it = compiled.plugins.find ("channel:" + channel.id);
-            auto plugin = it != compiled.plugins.end() ? dynamic_cast<sampler::SamplerPlugin*> (it->second) : nullptr;
-            if (sampler == nullptr || plugin == nullptr) return false;
-            const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
-            actions.push_back ([plugin, instrument = *sampler, projectDir] { plugin->setInstrument (instrument, projectDir); });
-            continue;
-        }
 
-        // /playlist/tracks/<i>/volumeDb or /pan: the track's audio clips
-        if (keys.size() == 4 && keys[0] == "playlist" && keys[1] == "tracks" && (keys[3] == "volumeDb" || keys[3] == "pan"))
-        {
-            const auto i = index (keys[2]);
-            if (! i || *i >= project.playlist.tracks.size()) return false;
-            const auto& track = project.playlist.tracks[*i];
-            const auto it = compiled.trackFaders.find (track.id);
-
-            // No audio clips on it, so nothing plays through it.
-            if (it == compiled.trackFaders.end())
+            // A sampler that isn't loaded plays no notes yet: adding some rebuilds.
+            if (it == compiled.plugins.end())
                 continue;
 
-            for (auto fader : it->second)
-                actions.push_back ([fader, v = track.volumeDb, p = track.pan] { fader->setVolumeDb (static_cast<float> (v)); fader->setPan (static_cast<float> (p)); });
-
+            auto plugin = dynamic_cast<sampler::SamplerPlugin*> (it->second);
+            if (plugin == nullptr) return false;
+            const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+            actions.push_back ([plugin, instrument = *sampler, projectDir] { plugin->setInstrument (instrument, projectDir); });
             continue;
         }
 
@@ -739,8 +733,7 @@ Project LiveEngine::projectToPlay() const
 
     if (auto length = playPatternLength())
     {
-        project.playlist.tracks.push_back ({ .id = "pattern-mode" });
-        project.playlist.clips.push_back (PatternClip { .id = "pattern-mode", .track = "pattern-mode", .start = 0,
+        project.playlist.clips.push_back (PatternClip { .id = "pattern-mode", .track = 0, .start = 0,
                                                         .length = *length, .pattern = *playPattern });
     }
 
@@ -902,9 +895,6 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const
         if (findInsert (project, t.insert) == nullptr)
             throw std::runtime_error ("No mixer insert \"" + t.insert + "\"");
 
-        if (options.addClips && findTrack (project, t.track) == nullptr)
-            throw std::runtime_error ("No playlist track \"" + t.track + "\"");
-
         te::InputDeviceInstance* input = nullptr;
 
         for (auto instance : playbackContext->getAllInputs())
@@ -920,7 +910,7 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const
 
         auto track = edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr, false);
         // Recorded files are named "_<track name>_Take_<n>.wav".
-        track->setName (juce::String (t.track + "-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S").toStdString()));
+        track->setName (juce::String ("track" + std::to_string (t.track + 1) + "-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S").toStdString()));
         track->getOutput().setOutputToTrack (compiled.insertTracks.at (t.insert));
 
         auto destination = input->setTarget (track->itemID, true, nullptr);
@@ -987,7 +977,7 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
     for (auto& clip : project.playlist.clips)
         used.insert (getClipId (clip));
 
-    // Each take gets an audio channel (with the same id as its clip).
+    // Each take gets a sampler channel (with the same id as its clip), listed with the arrangement's.
     for (auto& channel : project.channels)
         used.insert (channel.id);
 
@@ -1012,7 +1002,7 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             Id id;
 
             for (int n = 1; id.empty() || used.contains (id); ++n)
-                id = "rec-" + r.target.track + "-" + std::to_string (n);
+                id = "rec-" + std::to_string (r.target.track + 1) + "-" + std::to_string (n);
 
             used.insert (id);
 
@@ -1052,28 +1042,29 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             if (recordOptions.length)
                 ac.length = std::max<Ticks> (1, std::min (ac.length, recordStart + *recordOptions.length - ac.start));
 
-            AudioInstrument instrument;
-            instrument.sample = relative.empty() || relative.string().starts_with ("..") ? file.string() : relative.string();
+            SamplerLayer layer;
+            layer.id = "sample";
+            layer.sample = relative.empty() || relative.string().starts_with ("..") ? file.string() : relative.string();
+
+            if (recordOptions.normalizeLufs)
+                if (const auto lufs = analysis::integratedLufs (*audio); lufs > analysis::silenceDb)
+                    layer.gainDb = std::round (std::clamp (*recordOptions.normalizeLufs - lufs, -24.0, 24.0) * 10.0) / 10.0;
 
             Channel channel;
             channel.id = id;
             channel.insert = r.target.insert;
-            channel.instrument = instrument;
+            channel.group = ChannelGroup::arrangement;
+            channel.instrument = SamplerInstrument { .layers = { layer } };
 
             if (auto track = findTrack (project, r.target.track); track != nullptr && ! track->name.empty())
                 channel.name = track->name + " " + id.substr (id.rfind ('-') + 1);
             else
-                channel.name = id;
+                channel.name = "Take " + id.substr (4);
 
             commands.push_back (AddChannel { channel, {} });
 
             ac.channel = id;
             ac.offset = offset;
-
-            if (recordOptions.normalizeLufs)
-                if (const auto lufs = analysis::integratedLufs (*audio); lufs > analysis::silenceDb)
-                    ac.gainDb = std::round (std::clamp (*recordOptions.normalizeLufs - lufs, -24.0, 24.0) * 10.0) / 10.0;
-
             commands.push_back (AddClip { ac });
             ids.push_back (id);
         }

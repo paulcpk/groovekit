@@ -1,11 +1,31 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Muting",
   "tempo": 120,
   "channels": [
-    { "id": "live", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
-    { "id": "mutedChannel", "mute": true, "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
-    { "id": "toMutedInsert", "insert": "off", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } }
+    {
+      "id": "live",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    },
+    {
+      "id": "mutedChannel",
+      "mute": true,
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    },
+    {
+      "id": "toMutedInsert",
+      "insert": "off",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    }
   ],
   "patterns": [
     { "id": "live", "notes": [{ "channel": "live", "start": 0, "length": 240, "velocity": 127 }] },
@@ -13,14 +33,22 @@
     { "id": "toMutedInsert", "notes": [{ "channel": "toMutedInsert", "start": 0, "length": 240, "velocity": 127 }] }
   ],
   "playlist": {
-    "tracks": [{ "id": "main" }, { "id": "muted", "mute": true }],
+    "tracks": [{}, { "mute": true }],
     "clips": [
-      { "type": "pattern", "id": "audible", "track": "main", "start": 0, "length": 960, "pattern": "live" },
-      { "type": "pattern", "id": "onMutedTrack", "track": "muted", "start": 960, "length": 960, "pattern": "live" },
-      { "type": "pattern", "id": "mutedClip", "track": "main", "start": 1920, "length": 960, "pattern": "live", "mute": true },
-      { "type": "pattern", "id": "channelMuted", "track": "main", "start": 2880, "length": 960, "pattern": "mutedChannel" },
-      { "type": "pattern", "id": "insertMuted", "track": "main", "start": 3840, "length": 960, "pattern": "toMutedInsert" },
-      { "type": "pattern", "id": "audibleAgain", "track": "main", "start": 4800, "length": 960, "pattern": "live" }
+      { "type": "pattern", "id": "audible", "track": 0, "start": 0, "length": 960, "pattern": "live" },
+      { "type": "pattern", "id": "onMutedTrack", "track": 1, "start": 960, "length": 960, "pattern": "live" },
+      {
+        "type": "pattern",
+        "id": "mutedClip",
+        "track": 0,
+        "start": 1920,
+        "length": 960,
+        "pattern": "live",
+        "mute": true
+      },
+      { "type": "pattern", "id": "channelMuted", "track": 0, "start": 2880, "length": 960, "pattern": "mutedChannel" },
+      { "type": "pattern", "id": "insertMuted", "track": 0, "start": 3840, "length": 960, "pattern": "toMutedInsert" },
+      { "type": "pattern", "id": "audibleAgain", "track": 0, "start": 4800, "length": 960, "pattern": "live" }
     ]
   },
   "mixer": { "inserts": [{ "id": "master" }, { "id": "off", "mute": true }] }

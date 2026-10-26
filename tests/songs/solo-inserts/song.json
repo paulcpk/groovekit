@@ -1,11 +1,32 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Insert solo",
   "tempo": 120,
   "channels": [
-    { "id": "drums", "insert": "drums", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
-    { "id": "other", "insert": "other", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
-    { "id": "kick", "insert": "kick", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } }
+    {
+      "id": "drums",
+      "insert": "drums",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    },
+    {
+      "id": "other",
+      "insert": "other",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    },
+    {
+      "id": "kick",
+      "insert": "kick",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    }
   ],
   "patterns": [
     { "id": "drums", "notes": [{ "channel": "drums", "start": 0, "length": 240, "velocity": 127 }] },
@@ -13,18 +34,20 @@
     { "id": "kick", "notes": [{ "channel": "kick", "start": 0, "length": 240, "velocity": 127 }] }
   ],
   "playlist": {
-    "tracks": [{ "id": "t" }],
+    "tracks": [],
     "clips": [
-      { "type": "pattern", "id": "soloedInsert", "track": "t", "start": 0, "length": 960, "pattern": "drums" },
-      { "type": "pattern", "id": "otherInsert", "track": "t", "start": 960, "length": 960, "pattern": "other" },
-      { "type": "pattern", "id": "feedsSoloedInsert", "track": "t", "start": 1920, "length": 960, "pattern": "kick" }
+      { "type": "pattern", "id": "soloedInsert", "track": 0, "start": 0, "length": 960, "pattern": "drums" },
+      { "type": "pattern", "id": "otherInsert", "track": 0, "start": 960, "length": 960, "pattern": "other" },
+      { "type": "pattern", "id": "feedsSoloedInsert", "track": 0, "start": 1920, "length": 960, "pattern": "kick" }
     ]
   },
-  "mixer": { "inserts": [
-    { "id": "master" },
-    { "id": "drums", "solo": true, "output": "bus" },
-    { "id": "bus" },
-    { "id": "kick", "output": "drums" },
-    { "id": "other" }
-  ] }
+  "mixer": {
+    "inserts": [
+      { "id": "master" },
+      { "id": "drums", "solo": true, "output": "bus" },
+      { "id": "bus" },
+      { "id": "kick", "output": "drums" },
+      { "id": "other" }
+    ]
+  }
 }

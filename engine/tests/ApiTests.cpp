@@ -97,8 +97,7 @@ TEST_CASE ("The API renders and analyses")
         Json::parse (R"({ "type": "addChannel", "channel": { "id": "b", "instrument": { "type": "sampler", "layers": [
                          { "id": "l", "pitchTracking": false, "sample": ")" + beep + R"(" } ] } } })"),
         Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "b", "start": 0, "length": 240, "velocity": 127 } ] } })"),
-        Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
-        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 960, "pattern": "p" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 960, "pattern": "p" } })"),
     }) } });
 
     auto output = (test::tempDir() / "api-render.wav").string();
@@ -169,8 +168,7 @@ TEST_CASE ("Mix analysis finds sources that mask each other")
             { "channel": "bassA", "start": 0, "length": 960, "key": 45 },
             { "channel": "bassB", "start": 0, "length": 960, "key": 45 },
             { "channel": "hat", "start": 0, "length": 120 }, { "channel": "hat", "start": 480, "length": 120 } ] } })"),
-        Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
-        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 1920, "pattern": "p" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 1920, "pattern": "p" } })"),
     }) } });
 
     auto r = h.call ("analyzeMix");
@@ -196,8 +194,7 @@ TEST_CASE ("Mastering reaches a target loudness with the limiter")
                          { "id": "l", "sample": ")" + bass + R"(", "rootKey": 45 } ] } } })"),
         Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "b", "start": 0, "length": 960, "key": 45 },
                          { "channel": "b", "start": 1920, "length": 960, "key": 48 } ] } })"),
-        Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
-        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 15360, "pattern": "p" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 15360, "pattern": "p" } })"),
     }) } });
 
     auto r = h.call ("master", { { "targetLufs", -10 }, { "ceilingDb", -1 } });
@@ -231,8 +228,7 @@ TEST_CASE ("Mastering converges on quiet material and keeps true peak under the 
                          { "channel": "k", "start": 0, "length": 240 }, { "channel": "k", "start": 960, "length": 240 },
                          { "channel": "k", "start": 1920, "length": 240 }, { "channel": "k", "start": 2880, "length": 240 },
                          { "channel": "b", "start": 480, "length": 400, "key": 45 }, { "channel": "b", "start": 2400, "length": 400, "key": 48 } ] } })"),
-        Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
-        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 15360, "pattern": "p" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 15360, "pattern": "p" } })"),
     }) } });
 
     auto r = h.call ("master", { { "targetLufs", -9 }, { "ceilingDb", -1 } });
@@ -369,8 +365,7 @@ TEST_CASE ("Renders take a format and can include stems")
              Json::parse (R"({ "type": "addChannel", "channel": { "id": "b", "insert": "drums", "instrument": { "type": "sampler", "layers": [
                               { "id": "l", "pitchTracking": false, "sample": ")" + test::fixture ("beep.wav").string() + R"(" } ] } } })"),
              Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "b", "start": 0, "length": 240 } ] } })"),
-             Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
-             Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 960, "pattern": "p" } })") })
+             Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 960, "pattern": "p" } })") })
     {
         readValue (r, json, commands.emplace_back());
     }
@@ -390,19 +385,40 @@ TEST_CASE ("Renders take a format and can include stems")
     CHECK (h.call ("render", { { "bitDepth", 12 } })["error"]["code"] == -32602);
 }
 
-TEST_CASE ("Removing an insert sends the playlist tracks routed to it to master")
+TEST_CASE ("Tracks are numbered lanes that need no adding")
 {
     Harness h;
     auto r = h.call ("execute", Json::parse (R"({ "commands": [
-        { "type": "addInsert", "insert": { "id": "bus" } },
-        { "type": "addTrack", "track": { "id": "t", "insert": "bus", "volumeDb": -3, "pan": 0.5 } } ] })"));
+        { "type": "addPattern", "pattern": { "id": "p", "notes": [] } },
+        { "type": "addClip", "clip": { "type": "pattern", "id": "a", "track": 0, "start": 0, "length": 960, "pattern": "p" } },
+        { "type": "addClip", "clip": { "type": "pattern", "id": "b", "track": 5, "start": 0, "length": 960, "pattern": "p" } },
+        { "type": "updateTrack", "track": 3, "changes": { "name": "Drums", "mute": true } } ] })"));
     REQUIRE (r.contains ("result"));
-    CHECK (h.session.getProject().playlist.tracks[0].insert == "bus");
 
-    CHECK_THAT (h.call ("execute", Json::parse (R"({ "commands": [ { "type": "updateTrack", "track": "t", "changes": { "insert": "nope" } } ] })"))["error"]["message"].get<std::string>(),
-                ContainsSubstring ("no mixer insert"));
+    auto& tracks = h.session.getProject().playlist.tracks;
+    REQUIRE (tracks.size() == 4);
+    CHECK (tracks[0] == model::PlaylistTrack {});
+    CHECK (tracks[3].name == "Drums");
+    CHECK (tracks[3].mute);
 
-    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "removeInsert", "insert": "bus" } ] })"));
-    CHECK (h.session.getProject().playlist.tracks[0].insert == "master");
-    CHECK (h.session.getProject().playlist.tracks[0].volumeDb == -3);
+    auto trackOf = [&] (const char* id)
+    {
+        for (auto& clip : h.session.getProject().playlist.clips)
+            if (model::getClipId (clip) == id)
+                return model::getClipTrack (clip);
+
+        return -1;
+    };
+
+    // Inserting moves the tracks below down, with their clips and settings.
+    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "insertTrack", "track": 1 } ] })"));
+    CHECK (trackOf ("a") == 0);
+    CHECK (trackOf ("b") == 6);
+    CHECK (h.session.getProject().playlist.tracks[4].name == "Drums");
+
+    // Removing takes the track's clips and moves the ones below up.
+    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "removeTrack", "track": 0 } ] })"));
+    CHECK (trackOf ("a") == -1);
+    CHECK (trackOf ("b") == 5);
+    CHECK (h.session.getProject().playlist.tracks[3].name == "Drums");
 }

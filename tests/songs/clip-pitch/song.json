@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 3,
+  "name": "Clip pitch",
+  "tempo": 120,
+  "channels": [
+    {
+      "id": "clicks",
+      "group": "arrangement",
+      "instrument": { "type": "sampler", "layers": [{ "id": "sample", "sample": "../../fixtures/samples/clicks_120bpm.wav", "transpose": 12 }] }
+    }
+  ],
+  "patterns": [],
+  "playlist": { "tracks": [], "clips": [{ "type": "audio", "id": "up", "track": 0, "start": 0, "length": 1920, "channel": "clicks" }] },
+  "mixer": { "inserts": [{ "id": "master" }] }
+}

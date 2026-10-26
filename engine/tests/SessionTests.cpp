@@ -77,8 +77,7 @@ TEST_CASE ("Channels, patterns, notes and clips")
         R"({ "type": "addNotes", "pattern": "p", "notes": [
                 { "channel": "beep", "start": 0, "length": 240 },
                 { "channel": "beep", "start": 960, "length": 240, "key": 62 } ] })",
-        R"({ "type": "addTrack", "track": { "id": "t" } })",
-        R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 3840, "pattern": "p" } })",
+        R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 3840, "pattern": "p" } })",
     });
 
     auto& project = s.getProject();
@@ -141,8 +140,7 @@ TEST_CASE ("Removing an insert reroutes to master and drops sends and automation
         R"({ "type": "addInsert", "insert": { "id": "sub", "output": "drums" } })",
         beepChannel,
         R"({ "type": "updateChannel", "channel": "beep", "changes": { "insert": "drums" } })",
-        R"({ "type": "addTrack", "track": { "id": "t" } })",
-        R"({ "type": "addClip", "clip": { "type": "automation", "id": "a", "track": "t", "start": 0, "length": 960,
+        R"({ "type": "addClip", "clip": { "type": "automation", "id": "a", "track": 0, "start": 0, "length": 960,
               "target": { "scope": "effect", "insert": "drums", "effect": "f", "param": "frequency" },
               "points": [ { "time": 0, "value": 200 } ] } })",
     });
@@ -321,9 +319,9 @@ TEST_CASE ("Random command sequences undo back to the start")
                 case 4:  c = R"({ "type": "addNotes", "pattern": "p)" + n + R"(", "notes": [ { "channel": "ch)" + m + R"(", "start": )" + std::to_string (pick (8) * 240) + R"(, "length": 240 } ] })"; break;
                 case 5:  c = R"({ "type": "removeNotes", "pattern": "p)" + n + R"(", "channel": "ch)" + m + R"(" })"; break;
                 case 6:  c = R"({ "type": "removePattern", "pattern": "p)" + n + R"(" })"; break;
-                case 7:  c = R"({ "type": "addTrack", "track": { "id": "t)" + n + R"(" } })"; break;
-                case 8:  c = R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c)" + n + m + R"(", "track": "t)" + n + R"(", "start": 0, "length": 960, "pattern": "p)" + m + R"(" } })"; break;
-                case 9:  c = R"({ "type": "removeTrack", "track": "t)" + n + R"(" })"; break;
+                case 7:  c = R"({ "type": "insertTrack", "track": )" + n + " }"; break;
+                case 8:  c = R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c)" + n + m + R"(", "track": )" + n + R"(, "start": 0, "length": 960, "pattern": "p)" + m + R"(" } })"; break;
+                case 9:  c = R"({ "type": "removeTrack", "track": )" + n + " }"; break;
                 case 10: c = R"({ "type": "addInsert", "insert": { "id": "bus)" + n + R"(" } })"; break;
                 case 11: c = R"({ "type": "removeInsert", "insert": "bus)" + n + R"(" })"; break;
                 case 12: c = R"({ "type": "addSend", "insert": "bus)" + n + R"(", "send": { "id": "s)" + m + R"(", "target": "bus)" + m + R"(" } })"; break;

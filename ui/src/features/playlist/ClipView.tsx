@@ -59,7 +59,7 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
   const body = (
     <div
       className={cn(
-        "absolute top-px overflow-hidden rounded-[3px]",
+        "group/clip absolute top-px overflow-hidden rounded-[3px]",
         selected ? "ring-1 ring-fg" : "ring-1 ring-black/40",
         ghost && "opacity-50",
         muted && "opacity-45 saturate-0",
@@ -158,12 +158,10 @@ function ClipMenu({ clip, doc, at }: { clip: Clip; doc: Project; at: number }) {
       {clip.type === "audio" && (
         <>
           <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => openWindow({ kind: "channel", channel: clip.channel })}>Open the audio channel</ContextMenuItem>
-          <ContextMenuItem onSelect={() => setUi({ clipEditor: clip.id })}>Gain and fades…</ContextMenuItem>
+          <ContextMenuItem onSelect={() => openWindow({ kind: "channel", channel: clip.channel })}>Open the channel</ContextMenuItem>
           <ContextMenuItem onSelect={() => void makeAudioUnique(doc, clip)}>Make unique</ContextMenuItem>
-          <ContextMenuItem onSelect={() => void execute({ type: "updateClip", clip: clip.id, changes: { gainDb: null } }, { label: "Reset clip gain" })} disabled={clip.gainDb === undefined}>
-            Reset gain{clip.gainDb !== undefined ? ` (${clip.gainDb > 0 ? "+" : ""}${clip.gainDb.toFixed(1)} dB)` : ""}
-          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => void execute({ type: "updateClip", clip: clip.id, changes: { fadeIn: null, fadeOut: null } }, { label: "Remove fades" })}
+            disabled={!clip.fadeIn && !clip.fadeOut}>Remove fades</ContextMenuItem>
         </>
       )}
       <ContextMenuSeparator />

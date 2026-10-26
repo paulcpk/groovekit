@@ -19,6 +19,38 @@ using TickLength = int64_t;
 using Pan = double;
 /** MIDI note number; 60 is C4. */
 using Key = int;
+/** Playlist track number, 0 at the top. Any clip can go on any track, and a track needs no setting up first. */
+using Lane = int;
+
+enum class ChannelGroup
+{
+    rack,
+    arrangement
+};
+
+inline const char* toString (ChannelGroup v)
+{
+    switch (v)
+    {
+        case ChannelGroup::rack: return "rack";
+        case ChannelGroup::arrangement: return "arrangement";
+    }
+
+    return "";
+}
+
+inline Json toJson (ChannelGroup v) { return toString (v); }
+
+inline void readValue (Reader& r, const Json& j, ChannelGroup& out)
+{
+    std::string s;
+    readValue (r, j, s);
+
+    if (s == "rack") { out = ChannelGroup::rack; return; }
+    if (s == "arrangement") { out = ChannelGroup::arrangement; return; }
+
+    r.fail ("unknown value \"" + s + "\"");
+}
 
 enum class SamplerFilterType
 {
@@ -261,7 +293,7 @@ inline Json toJson (const Envelope& v)
     return j;
 }
 
-/** A resonant 12 dB/octave filter per voice, its cutoff moved by its own envelope. */
+/** A resonant 12 dB/octave filter per voice (and per audio clip), its cutoff moved by its own envelope. */
 struct SamplerFilter
 {
     SamplerFilterType type = SamplerFilterType::off;
@@ -358,7 +390,7 @@ struct SamplerLayer
     VelocityRange velocityRange;
     /** If false, every key plays the sample at root pitch (drums). */
     bool pitchTracking = true;
-    /** Semitones. */
+    /** Semitones. Audio clips are pitch-shifted and keep their length. */
     int transpose = 0;
     /** Cents. */
     double fineTune = 0;
@@ -366,6 +398,7 @@ struct SamplerLayer
     Pan pan = 0;
     /** oneShot plays to the end of the sample and ignores note-off; gate releases on note-off. */
     SamplerLayerMode mode = SamplerLayerMode::oneShot;
+    /** Volume over each note. Over an audio clip, the attack starts where the clip starts and the release ends where it ends. */
     Envelope envelope;
     /** Seconds into the file where the part that plays begins. */
     double start = 0;
@@ -373,13 +406,15 @@ struct SamplerLayer
     std::optional<double> end;
     /** Plays the part between start and end backwards. */
     bool reverse = false;
+    /** Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it. */
+    std::optional<double> sourceTempo;
 
     bool operator== (const SamplerLayer&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
 {
-    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse" });
+    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "sourceTempo" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "sample", [&] (const Json& v) { readValue (r, v, out.sample); r.checkMinLength (out.sample, 1); });
@@ -396,6 +431,7 @@ inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
     r.optional (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.optional (j, "end", [&] (const Json& v) { readValue (r, v, out.end.emplace()); r.checkMin (*out.end, 0); });
     r.optional (j, "reverse", [&] (const Json& v) { readValue (r, v, out.reverse); });
+    r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
 }
 
 inline Json toJson (const SamplerLayer& v)
@@ -419,15 +455,18 @@ inline Json toJson (const SamplerLayer& v)
         j["end"] = toJson (*v.end);
 
     j["reverse"] = toJson (v.reverse);
+
+    if (v.sourceTempo)
+        j["sourceTempo"] = toJson (*v.sourceTempo);
     return j;
 }
 
-/** Built-in polyphonic sampler. Every layer whose key and velocity range match a note plays it. */
+/** Built-in polyphonic sampler. Every layer whose key and velocity range match a note plays it; audio clips on the playlist play its first layer. */
 struct SamplerInstrument
 {
     /** Maximum simultaneous voices; the oldest voice is stolen. */
     int polyphony = 32;
-    /** Filters every voice, after its layer's volume envelope. */
+    /** Filters every voice and audio clip, after the layer's volume envelope. */
     SamplerFilter filter;
     std::vector<SamplerLayer> layers;
 
@@ -522,51 +561,7 @@ inline Json toJson (const PluginInstrument& v)
     return j;
 }
 
-/** An audio channel: the sample that the playlist's audio clips naming this channel play, and how they play it. Notes don't play it. */
-struct AudioInstrument
-{
-    /** Audio file path, absolute or relative to the project folder. */
-    std::string sample;
-    /** Plays the file backwards; clip offsets then count from the file's end. */
-    bool reverse = false;
-    /** Tempo the file was recorded at. When set, its clips are time-stretched (pitch kept) to the project tempo; offsets stay in the file's own seconds. */
-    std::optional<double> sourceTempo;
-    /** Volume over each clip: the attack starts where the clip starts and the release ends where it ends. */
-    Envelope envelope;
-    /** Filters the clips; its envelope runs over each clip like the volume envelope. */
-    SamplerFilter filter;
-
-    bool operator== (const AudioInstrument&) const = default;
-};
-
-inline void readValue (Reader& r, const Json& j, AudioInstrument& out)
-{
-    r.expectObject (j, { "type", "sample", "reverse", "sourceTempo", "envelope", "filter" });
-
-    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "audio"); });
-    r.required (j, "sample", [&] (const Json& v) { readValue (r, v, out.sample); r.checkMinLength (out.sample, 1); });
-    r.optional (j, "reverse", [&] (const Json& v) { readValue (r, v, out.reverse); });
-    r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
-    r.optional (j, "envelope", [&] (const Json& v) { readValue (r, v, out.envelope); });
-    r.optional (j, "filter", [&] (const Json& v) { readValue (r, v, out.filter); });
-}
-
-inline Json toJson (const AudioInstrument& v)
-{
-    auto j = Json::object();
-    j["type"] = "audio";
-    j["sample"] = toJson (v.sample);
-    j["reverse"] = toJson (v.reverse);
-
-    if (v.sourceTempo)
-        j["sourceTempo"] = toJson (*v.sourceTempo);
-
-    j["envelope"] = toJson (v.envelope);
-    j["filter"] = toJson (v.filter);
-    return j;
-}
-
-using Instrument = std::variant<SamplerInstrument, PluginInstrument, AudioInstrument>;
+using Instrument = std::variant<SamplerInstrument, PluginInstrument>;
 
 inline void readValue (Reader& r, const Json& j, Instrument& out)
 {
@@ -578,7 +573,6 @@ inline void readValue (Reader& r, const Json& j, Instrument& out)
 
     if (tag == "sampler") { readValue (r, j, out.emplace<SamplerInstrument>()); return; }
     if (tag == "plugin") { readValue (r, j, out.emplace<PluginInstrument>()); return; }
-    if (tag == "audio") { readValue (r, j, out.emplace<AudioInstrument>()); return; }
 
     r.fail ("unknown type \"" + tag + "\"");
 }
@@ -601,6 +595,8 @@ struct Channel
     bool solo = false;
     /** Mixer insert this channel feeds. */
     Id insert = "master";
+    /** Which list of the channel rack shows the channel: rack for sounds played by patterns, arrangement for samples dropped onto the playlist. Only the view depends on it. */
+    ChannelGroup group = ChannelGroup::rack;
     Instrument instrument;
 
     bool operator== (const Channel&) const = default;
@@ -608,7 +604,7 @@ struct Channel
 
 inline void readValue (Reader& r, const Json& j, Channel& out)
 {
-    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "solo", "insert", "instrument" });
+    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "solo", "insert", "group", "instrument" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
@@ -618,6 +614,7 @@ inline void readValue (Reader& r, const Json& j, Channel& out)
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
     r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
     r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert); r.checkPattern (out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.optional (j, "group", [&] (const Json& v) { readValue (r, v, out.group); });
     r.required (j, "instrument", [&] (const Json& v) { readValue (r, v, out.instrument); });
 }
 
@@ -635,6 +632,7 @@ inline Json toJson (const Channel& v)
     j["mute"] = toJson (v.mute);
     j["solo"] = toJson (v.solo);
     j["insert"] = toJson (v.insert);
+    j["group"] = toJson (v.group);
     j["instrument"] = toJson (v.instrument);
     return j;
 }
@@ -712,43 +710,31 @@ inline Json toJson (const Pattern& v)
     return j;
 }
 
-/** A free lane; any clip can go on any track. */
+/** A playlist lane. Tracks only arrange: how clips sound is set by their channels and the mixer. */
 struct PlaylistTrack
 {
-    Id id;
     std::string name = "";
     std::optional<std::string> color;
     bool mute = false;
     /** While any track is soloed, only soloed tracks play. */
     bool solo = false;
-    /** Mixer insert the audio clips on this track play into (overriding their channels' inserts). Pattern clips play through their channels' inserts. */
-    std::optional<Id> insert;
-    /** Level of the audio clips on this track. */
-    double volumeDb = 0;
-    /** Pan of the audio clips on this track. */
-    Pan pan = 0;
 
     bool operator== (const PlaylistTrack&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, PlaylistTrack& out)
 {
-    r.expectObject (j, { "id", "name", "color", "mute", "solo", "insert", "volumeDb", "pan" });
+    r.expectObject (j, { "name", "color", "mute", "solo" });
 
-    r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.optional (j, "color", [&] (const Json& v) { readValue (r, v, out.color.emplace()); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
     r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
-    r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert.emplace()); r.checkPattern (*out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
-    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 24); });
-    r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
 }
 
 inline Json toJson (const PlaylistTrack& v)
 {
     auto j = Json::object();
-    j["id"] = toJson (v.id);
     j["name"] = toJson (v.name);
 
     if (v.color)
@@ -756,12 +742,6 @@ inline Json toJson (const PlaylistTrack& v)
 
     j["mute"] = toJson (v.mute);
     j["solo"] = toJson (v.solo);
-
-    if (v.insert)
-        j["insert"] = toJson (*v.insert);
-
-    j["volumeDb"] = toJson (v.volumeDb);
-    j["pan"] = toJson (v.pan);
     return j;
 }
 
@@ -769,7 +749,7 @@ inline Json toJson (const PlaylistTrack& v)
 struct PatternClip
 {
     Id id;
-    Id track;
+    Lane track {};
     Ticks start {};
     TickLength length {};
     bool mute = false;
@@ -786,7 +766,7 @@ inline void readValue (Reader& r, const Json& j, PatternClip& out)
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "pattern"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkPattern (out.track, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
     r.required (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.required (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
@@ -811,16 +791,14 @@ inline Json toJson (const PatternClip& v)
 struct AudioClip
 {
     Id id;
-    Id track;
+    Lane track {};
     Ticks start {};
     TickLength length {};
     bool mute = false;
-    /** The audio channel whose sample the clip plays, with its settings and routing. */
+    /** The sampler channel whose first layer the clip plays, with the channel's settings and routing. */
     Id channel;
-    /** Seconds into the file where playback starts. */
+    /** Seconds into the layer's part of the file (from its start, or from its end when reversed) where playback starts. */
     double offset = 0;
-    double gainDb = 0;
-    Pan pan = 0;
     /** Seconds. */
     double fadeIn = 0;
     /** Seconds. */
@@ -831,18 +809,16 @@ struct AudioClip
 
 inline void readValue (Reader& r, const Json& j, AudioClip& out)
 {
-    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "channel", "offset", "gainDb", "pan", "fadeIn", "fadeOut" });
+    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "channel", "offset", "fadeIn", "fadeOut" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "audio"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkPattern (out.track, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
     r.required (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.required (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
     r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "offset", [&] (const Json& v) { readValue (r, v, out.offset); r.checkMin (out.offset, 0); });
-    r.optional (j, "gainDb", [&] (const Json& v) { readValue (r, v, out.gainDb); r.checkMax (out.gainDb, 24); });
-    r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "fadeIn", [&] (const Json& v) { readValue (r, v, out.fadeIn); r.checkMin (out.fadeIn, 0); });
     r.optional (j, "fadeOut", [&] (const Json& v) { readValue (r, v, out.fadeOut); r.checkMin (out.fadeOut, 0); });
 }
@@ -858,14 +834,12 @@ inline Json toJson (const AudioClip& v)
     j["mute"] = toJson (v.mute);
     j["channel"] = toJson (v.channel);
     j["offset"] = toJson (v.offset);
-    j["gainDb"] = toJson (v.gainDb);
-    j["pan"] = toJson (v.pan);
     j["fadeIn"] = toJson (v.fadeIn);
     j["fadeOut"] = toJson (v.fadeOut);
     return j;
 }
 
-/** What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id (for plugins: id or name, values normalized 0..1). send: param is level. */
+/** What an automation clip drives. channel: param is volume or pan; for samplers also filterCutoff (Hz), filterResonance (0..1) or filterEnvelopeAmount (octaves); for plugin instruments also a parameter id or name (normalized 0..1). insert: volume or pan. effect: the effect's parameter id or mix (for plugins: id or name, normalized 0..1). send: level. */
 struct AutomationTarget
 {
     AutomationTargetScope scope;
@@ -945,7 +919,7 @@ inline Json toJson (const AutomationPoint& v)
 struct AutomationClip
 {
     Id id;
-    Id track;
+    Lane track {};
     Ticks start {};
     TickLength length {};
     bool mute = false;
@@ -961,7 +935,7 @@ inline void readValue (Reader& r, const Json& j, AutomationClip& out)
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "automation"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkPattern (out.track, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
     r.required (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.required (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
@@ -1007,6 +981,7 @@ inline Json toJson (const Clip& v)
 
 struct Playlist
 {
+    /** Settings of tracks 0, 1, 2 and so on; tracks past the end of the list have the defaults. */
     std::vector<PlaylistTrack> tracks;
     std::vector<Clip> clips;
 
@@ -1246,7 +1221,7 @@ inline void readValue (Reader& r, const Json& j, Project& out)
 {
     r.expectObject (j, { "schemaVersion", "name", "tempo", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
 
-    r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 2); });
+    r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 3); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.required (j, "tempo", [&] (const Json& v) { readValue (r, v, out.tempo); r.checkMin (out.tempo, 20); r.checkMax (out.tempo, 999); });
     r.optional (j, "timeSignature", [&] (const Json& v) { readValue (r, v, out.timeSignature); });
@@ -1260,7 +1235,7 @@ inline void readValue (Reader& r, const Json& j, Project& out)
 inline Json toJson (const Project& v)
 {
     auto j = Json::object();
-    j["schemaVersion"] = 2;
+    j["schemaVersion"] = 3;
     j["name"] = toJson (v.name);
     j["tempo"] = toJson (v.tempo);
     j["timeSignature"] = toJson (v.timeSignature);

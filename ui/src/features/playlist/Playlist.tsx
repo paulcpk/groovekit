@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
-import { audioSource, baseName, colorFor, patternLength, snapTicks, songEnd, ticksPerBar, ticksPerBeat, uniqueId } from "@/lib/model";
+import { audioSource, baseName, colorFor, laneCount, patternLength, snapTicks, songEnd, ticksPerBar, ticksPerBeat, uniqueId } from "@/lib/model";
 import { getPeaks } from "@/lib/peaks";
 import { execute, reportError, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -47,8 +47,8 @@ export function Playlist() {
   const playedTo = useEngine((s) => Math.floor(s.transport.position / (8 * g.bar)) + 1) * 8 * g.bar;
   const endTicks = Math.max(songEnd(doc) + 16 * g.bar, playedTo + 8 * g.bar, Math.ceil(viewWidth / g.pxPerTick / g.bar + 4) * g.bar);
   const width = endTicks * g.pxPerTick;
-  const tracks = doc.playlist.tracks;
-  const trackIndex = useMemo(() => new Map(tracks.map((t, i) => [t.id, i])), [tracks]);
+  // Tracks are numbered lanes: every one in use, and spare ones below to drop onto.
+  const count = laneCount(doc) + (drag?.dTracks && drag.dTracks > 0 ? drag.dTracks : 0);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -62,12 +62,11 @@ export function Playlist() {
 
   // What each lane shows, with the drag in progress applied.
   const lanes = useMemo(() => {
-    const byTrack: { clip: Clip; start: number; length: number; ghost?: boolean }[][] = tracks.map(() => []);
-    const clampTrack = (i: number) => Math.min(tracks.length - 1, Math.max(0, i));
+    const byTrack: { clip: Clip; start: number; length: number; ghost?: boolean }[][] = Array.from({ length: count }, () => []);
+    const clampTrack = (i: number) => Math.min(count - 1, Math.max(0, i));
 
     for (const clip of doc.playlist.clips) {
-      const index = trackIndex.get(clip.track);
-      if (index === undefined) continue;
+      const index = clampTrack(clip.track);
       const dragged = drag?.ids.includes(clip.id) ? drag : null;
 
       if (!dragged) {
@@ -82,7 +81,7 @@ export function Playlist() {
       }
     }
     return byTrack;
-  }, [doc.playlist.clips, tracks, trackIndex, drag]);
+  }, [doc.playlist.clips, count, drag]);
 
   const beginClipDrag = (e: React.PointerEvent, clip: Clip, edge: "left" | "right" | "body") => {
     e.stopPropagation();
@@ -94,6 +93,7 @@ export function Playlist() {
     const ids = edge === "body" ? selection : [clip.id];
     const moving = doc.playlist.clips.filter((c) => ids.includes(c.id));
     const earliest = Math.min(...moving.map((c) => c.start));
+    const topmost = Math.min(...moving.map((c) => c.track));
     const minStep = Math.min(g.snap, g.beat);
     let state: DragState = { mode, ids, dTicks: 0, dTracks: 0 };
 
@@ -110,7 +110,7 @@ export function Playlist() {
         if (clip.type === "audio") dTicks = Math.max(dTicks, -secondsToTicks((clip.offset ?? 0), clip, doc));
       }
 
-      state = { mode, ids, dTicks, dTracks: mode === "move" || mode === "copy" ? Math.round(dy / g.trackHeight) : 0 };
+      state = { mode, ids, dTicks, dTracks: mode === "move" || mode === "copy" ? Math.max(-topmost, Math.round(dy / g.trackHeight)) : 0 };
       setDrag(state);
     }, (_dx, _dy, _ev, moved) => {
       setDrag(null);
@@ -133,15 +133,14 @@ export function Playlist() {
       setRubber(null);
 
       if (!moved) {
-        placePattern(doc, tracks[laneIndex].id, floorTo(Math.max(0, x0) / g.pxPerTick, g.snap));
+        placePattern(doc, laneIndex, floorTo(Math.max(0, x0) / g.pxPerTick, g.snap));
         return;
       }
 
       const [xa, xb] = [Math.min(r.x0, r.x1), Math.max(r.x0, r.x1)];
       const [ya, yb] = [Math.min(r.y0, r.y1), Math.max(r.y0, r.y1)];
       const hits = doc.playlist.clips.filter((c) => {
-        const i = trackIndex.get(c.track) ?? -1;
-        const top = i * g.trackHeight;
+        const top = c.track * g.trackHeight;
         return c.start * g.pxPerTick < xb && (c.start + c.length) * g.pxPerTick > xa && top < yb && top + g.trackHeight > ya;
       }).map((c) => c.id);
       setUi({ selectedClips: ev.shiftKey ? [...new Set([...useUi.getState().selectedClips, ...hits])] : hits });
@@ -170,9 +169,9 @@ export function Playlist() {
             <Ruler g={g} endTicks={endTicks} />
           </div>
 
-          {tracks.map((track, i) => (
-            <div key={track.id} className="flex">
-              <TrackHeader track={track} index={i} doc={doc} height={g.trackHeight} />
+          {lanes.map((laneClips, i) => (
+            <div key={i} className="flex">
+              <TrackHeader track={doc.playlist.tracks[i] ?? {}} index={i} doc={doc} height={g.trackHeight} />
               <div
                 className="relative border-b border-grid-strong"
                 style={gridStyle}
@@ -189,7 +188,7 @@ export function Playlist() {
                     void importDroppedFiles(e).then(async (samples) => {
                       let start = at;
                       for (const sample of samples) {
-                        const clip = await dropSample(useEngine.getState().doc ?? doc, sample, track.id, start);
+                        const clip = await dropSample(useEngine.getState().doc ?? doc, sample, i, start);
                         if (clip) start = clip.start + clip.length;
                       }
                     });
@@ -198,10 +197,10 @@ export function Playlist() {
                   const sample = droppedSample(e);
                   if (!sample) return;
                   e.preventDefault();
-                  void dropSample(doc, sample, track.id, at);
+                  void dropSample(doc, sample, i, at);
                 }}
               >
-                {lanes[i].map(({ clip, start, length, ghost }) => (
+                {laneClips.map(({ clip, start, length, ghost }) => (
                   <ClipView
                     key={clip.id + (ghost ? "-ghost" : "")}
                     clip={clip} doc={doc} ghost={ghost}
@@ -215,10 +214,9 @@ export function Playlist() {
             </div>
           ))}
 
-          <div className="flex">
-            <div className="sticky left-0 z-10 flex shrink-0 items-center border-r border-line bg-panel px-1" style={{ width: HEADER_W, height: 32 }}>
-              <Button size="sm" onClick={() => addTrack(doc)}><Plus size={12} /> Add track</Button>
-            </div>
+          {/* Room below the last track, so it never sits on the window's edge. */}
+          <div className="flex" style={{ height: 3 * g.trackHeight }}>
+            <div className="sticky left-0 z-10 shrink-0 border-r border-line bg-panel" style={{ width: HEADER_W }} />
           </div>
 
           {rubber && (
@@ -306,12 +304,10 @@ function secondsToTicks(seconds: number, clip: AudioClip, doc: Project) {
 }
 
 async function commitDrag(state: DragState, doc: Project) {
-  const tracks = doc.playlist.tracks;
-  const index = new Map(tracks.map((t, i) => [t.id, i]));
   const clips = doc.playlist.clips.filter((c) => state.ids.includes(c.id));
   const n = clips.length;
   const what = n === 1 ? "clip" : `${n} clips`;
-  const trackAfter = (c: Clip) => tracks[Math.min(tracks.length - 1, Math.max(0, (index.get(c.track) ?? 0) + state.dTracks))].id;
+  const trackAfter = (c: Clip) => Math.min(999, Math.max(0, c.track + state.dTracks));
 
   if (state.mode === "move") {
     if (state.dTicks === 0 && state.dTracks === 0) return;
@@ -345,7 +341,7 @@ async function commitDrag(state: DragState, doc: Project) {
   }
 }
 
-function placePattern(doc: Project, track: string, start: number) {
+function placePattern(doc: Project, track: number, start: number) {
   const { selectedPattern } = useUi.getState();
   const pattern = doc.patterns.find((p) => p.id === selectedPattern);
   setUi({ selectedClips: [] });
@@ -359,18 +355,23 @@ function placePattern(doc: Project, track: string, start: number) {
   void execute({ type: "addClip", clip }, { label: `Place ${pattern.name ?? pattern.id}` });
 }
 
-async function dropSample(doc: Project, sample: DraggedSample, track: string, start: number) {
+/** A sample dropped onto the playlist becomes a clip of a sampler channel listed with the
+    arrangement's: one that already plays the whole file as it is, or a new one. */
+async function dropSample(doc: Project, sample: DraggedSample, track: number, start: number) {
   try {
     const duration = sample.durationSeconds ?? (await getPeaks(sample.path)).durationSeconds;
     const loopTempo = sample.loop && sample.tempo ? sample.tempo : undefined;
     const length = Math.max(1, Math.round((duration * (loopTempo ?? doc.tempo) * 960) / 60));
-    // The sample's audio channel: one already playing it the same way, or a new one.
-    const existing = doc.channels.find((c) => c.instrument.type === "audio" && c.instrument.sample === sample.path
-      && !c.instrument.reverse && c.instrument.sourceTempo === loopTempo);
+    const existing = doc.channels.find((c) => {
+      const layer = c.instrument.type === "sampler" && c.group === "arrangement" ? c.instrument.layers[0] : undefined;
+      return layer && layer.sample === sample.path && !layer.reverse && !layer.start && layer.end === undefined
+        && !layer.transpose && !layer.fineTune && layer.sourceTempo === loopTempo;
+    });
     const channel: Channel = existing ?? {
       id: uniqueId(baseName(sample.path).replace(/[^A-Za-z0-9_.-]+/g, "-").slice(0, 56) || "audio", doc.channels),
       name: baseName(sample.path),
-      instrument: { type: "audio", sample: sample.path, ...(loopTempo ? { sourceTempo: loopTempo } : {}) },
+      group: "arrangement",
+      instrument: { type: "sampler", layers: [{ id: "sample", sample: sample.path, ...(loopTempo ? { sourceTempo: loopTempo } : {}) }] },
     };
     const clip: AudioClip = { type: "audio", id: uniqueId(baseName(sample.path), doc.playlist.clips), track, start, length, channel: channel.id };
     await execute([...(existing ? [] : [{ type: "addChannel" as const, channel }]), { type: "addClip", clip }], { label: `Add ${baseName(sample.path)}` });
@@ -380,11 +381,6 @@ async function dropSample(doc: Project, sample: DraggedSample, track: string, st
     reportError(e);
     return undefined;
   }
-}
-
-function addTrack(doc: Project) {
-  const id = uniqueId("track", doc.playlist.tracks);
-  void execute({ type: "addTrack", track: { id, name: `Track ${doc.playlist.tracks.length + 1}` } }, { label: "Add track" });
 }
 
 export async function newPattern(doc: Project) {

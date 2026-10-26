@@ -26,6 +26,8 @@ export function rangeValue(r: Range, t: number) {
 /** The value range of what an automation clip drives, in the parameter's own units. */
 export function targetRange(target: AutomationTarget, doc: Project | undefined, catalogue: Catalogue | undefined): Range {
   if (target.param === "pan") return { min: -1, max: 1, unit: "", default: 0 };
+  if (target.scope === "channel" && channelParams[target.param]) return channelParams[target.param].range;
+  if (target.scope === "channel" && target.param !== "volume") return { min: 0, max: 1, unit: "", default: 0.5 };
   if (target.scope === "channel" || target.scope === "insert") return { min: -60, max: 12, unit: "dB", default: 0 };
   if (target.scope === "send") return { min: -60, max: 12, unit: "dB", default: 0 };
 
@@ -40,8 +42,16 @@ export function targetRange(target: AutomationTarget, doc: Project | undefined, 
   return { min: 0, max: 1, unit: "", default: 0.5 };
 }
 
+/** A sampler channel's parameters beyond volume and pan that automation can move. */
+export const channelParams: Record<string, { label: string; range: Range }> = {
+  filterCutoff: { label: "Filter cutoff", range: { min: 20, max: 20000, unit: "Hz", default: 20000, log: true } },
+  filterResonance: { label: "Filter resonance", range: { min: 0, max: 1, unit: "", default: 0 } },
+  filterEnvelopeAmount: { label: "Filter env amount", range: { min: -10, max: 10, unit: "oct", default: 0 } },
+};
+
 export function targetLabel(target: AutomationTarget, doc: Project | undefined) {
-  const param = target.param === "volume" ? "Volume" : target.param === "pan" ? "Pan" : target.param === "level" ? "Level" : target.param === "mix" ? "Mix" : target.param;
+  const param = target.param === "volume" ? "Volume" : target.param === "pan" ? "Pan" : target.param === "level" ? "Level" : target.param === "mix" ? "Mix"
+    : target.scope === "channel" && channelParams[target.param] ? channelParams[target.param].label : target.param;
 
   if (target.scope === "channel") {
     const ch = doc?.channels.find((c) => c.id === target.channel);

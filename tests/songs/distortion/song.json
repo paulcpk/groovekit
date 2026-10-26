@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Distortion",
   "tempo": 120,
   "channels": [
@@ -7,13 +7,7 @@
       "id": "beep",
       "instrument": {
         "type": "sampler",
-        "layers": [
-          {
-            "id": "main",
-            "sample": "../../fixtures/samples/beep.wav",
-            "pitchTracking": false
-          }
-        ]
+        "layers": [{ "id": "main", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
       }
     }
   ],
@@ -21,49 +15,16 @@
     {
       "id": "quarters",
       "notes": [
-        {
-          "channel": "beep",
-          "start": 0,
-          "length": 240,
-          "velocity": 127
-        },
-        {
-          "channel": "beep",
-          "start": 960,
-          "length": 240,
-          "velocity": 127
-        },
-        {
-          "channel": "beep",
-          "start": 1920,
-          "length": 240,
-          "velocity": 127
-        },
-        {
-          "channel": "beep",
-          "start": 2880,
-          "length": 240,
-          "velocity": 127
-        }
+        { "channel": "beep", "start": 0, "length": 240, "velocity": 127 },
+        { "channel": "beep", "start": 960, "length": 240, "velocity": 127 },
+        { "channel": "beep", "start": 1920, "length": 240, "velocity": 127 },
+        { "channel": "beep", "start": 2880, "length": 240, "velocity": 127 }
       ]
     }
   ],
   "playlist": {
-    "tracks": [
-      {
-        "id": "t1"
-      }
-    ],
-    "clips": [
-      {
-        "type": "pattern",
-        "id": "c1",
-        "track": "t1",
-        "start": 0,
-        "length": 3840,
-        "pattern": "quarters"
-      }
-    ]
+    "tracks": [],
+    "clips": [{ "type": "pattern", "id": "c1", "track": 0, "start": 0, "length": 3840, "pattern": "quarters" }]
   },
   "mixer": {
     "inserts": [
@@ -74,12 +35,7 @@
             "type": "builtin",
             "id": "x",
             "kind": "distortion",
-            "params": {
-              "type": 1,
-              "driveDb": 24,
-              "tone": 20000,
-              "outputDb": 0
-            }
+            "params": { "type": 1, "driveDb": 24, "tone": 20000, "outputDb": 0 }
           }
         ]
       }

@@ -13,14 +13,16 @@ namespace fs = std::filesystem;
 namespace
 {
     /** Bump when the algorithm or its settings change, so old cache entries aren't reused. */
-    constexpr int stretchVersion = 5;
+    constexpr int stretchVersion = 6;
 
-    std::string cacheKey (const fs::path& source, double speed)
+    std::string cacheKey (const fs::path& source, const ClipSource& how)
     {
         const auto canonical = fs::weakly_canonical (fs::absolute (source)).string();
         const auto modified = static_cast<long long> (fs::last_write_time (source).time_since_epoch().count());
         const auto description = canonical + "|" + std::to_string (fs::file_size (source)) + "|" + std::to_string (modified)
-                               + "|" + std::to_string (speed) + "|" + std::to_string (stretchVersion);
+                               + "|" + std::to_string (how.start) + "|" + (how.end ? std::to_string (*how.end) : "-")
+                               + "|" + (how.reverse ? "r" : "") + "|" + std::to_string (how.speed) + "|" + std::to_string (how.semitones)
+                               + "|" + std::to_string (stretchVersion);
 
         // FNV-1a: the key only needs to be stable on this machine.
         uint64_t hash = 14695981039346656037ull;
@@ -48,7 +50,7 @@ namespace
         return buffer;
     }
 
-    juce::AudioBuffer<float> stretch (const juce::AudioBuffer<float>& input, double sampleRate, double speed)
+    juce::AudioBuffer<float> stretch (const juce::AudioBuffer<float>& input, double sampleRate, double speed, double semitones)
     {
         using RubberBand::RubberBandStretcher;
 
@@ -59,7 +61,7 @@ namespace
         // Offline mode studies the whole file first and keeps the output aligned with the input.
         RubberBandStretcher stretcher (static_cast<size_t> (sampleRate), static_cast<size_t> (channels),
                                        RubberBandStretcher::OptionProcessOffline | RubberBandStretcher::OptionEngineFiner | RubberBandStretcher::OptionWindowShort,
-                                       1.0 / speed);
+                                       1.0 / speed, std::pow (2.0, semitones / 12.0));
         stretcher.setExpectedInputDuration (inputLength);
 
         const auto block = std::min<size_t> (stretcher.getProcessSizeLimit(), 8192);
@@ -141,33 +143,35 @@ namespace
     }
 }
 
-fs::path getReversedFile (const fs::path& source, const fs::path& cacheDir)
+fs::path getClipFile (const fs::path& source, const ClipSource& how, const fs::path& cacheDir)
 {
-    // Speed -1 keeps reversed copies apart from stretched ones in the key.
-    const auto target = cacheDir / "reverse" / (cacheKey (source, -1.0) + ".wav");
+    if (how.isWholeFile())
+        return source;
+
+    const auto target = cacheDir / "clips" / (cacheKey (source, how) + ".wav");
 
     if (fs::exists (target))
         return target;
 
     double sampleRate = 0;
     auto audio = readFile (source, sampleRate);
-    audio.reverse (0, audio.getNumSamples());
-    writeWav (audio, sampleRate, target);
-    return target;
-}
+    const auto toFrame = [&] (double seconds) { return std::clamp (static_cast<int> (std::llround (seconds * sampleRate)), 0, audio.getNumSamples()); };
+    const auto first = toFrame (how.start);
+    const auto last = std::max (first, how.end ? toFrame (*how.end) : audio.getNumSamples());
 
-fs::path getStretchedFile (const fs::path& source, double speed, const fs::path& cacheDir)
-{
-    const auto target = cacheDir / "stretch" / (cacheKey (source, speed) + ".wav");
+    juce::AudioBuffer<float> part (audio.getNumChannels(), std::max (1, last - first));
+    part.clear();
 
-    if (fs::exists (target))
-        return target;
+    for (int ch = 0; ch < audio.getNumChannels() && last > first; ++ch)
+        part.copyFrom (ch, 0, audio, ch, first, last - first);
 
-    double sampleRate = 0;
-    auto input = readFile (source, sampleRate);
-    auto output = stretch (input, sampleRate, speed);
+    if (how.reverse)
+        part.reverse (0, part.getNumSamples());
 
-    writeWav (output, sampleRate, target);
+    if (std::abs (how.speed - 1) > 1.0e-6 || std::abs (how.semitones) > 1.0e-6)
+        part = stretch (part, sampleRate, how.speed, how.semitones);
+
+    writeWav (part, sampleRate, target);
     return target;
 }
 

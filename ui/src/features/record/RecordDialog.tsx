@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { Button, DragNumber } from "@/components/controls";
 import { Dialog } from "@/components/dialog";
 import { cn } from "@/lib/cn";
-import { uniqueId } from "@/lib/model";
 import { call, engine, execute, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
@@ -93,17 +92,18 @@ export function RecordDialog() {
   );
 }
 
-/** A playlist track per input, named after it, reusing tracks of that name. */
+/** A playlist track per input, named after it: one of that name, or the next empty one below
+    the song's clips. */
 async function ensureTracks(doc: Project, inputs: string[]) {
   const commands: Command[] = [];
-  const taken = new Set(doc.playlist.tracks.map((t) => t.id));
+  const taken = new Set([...doc.playlist.clips.map((c) => c.track), ...doc.playlist.tracks.flatMap((t, i) => (t.name ? [i] : []))]);
+  let next = Math.max(-1, ...taken) + 1;
   const targets = inputs.map((input) => {
-    const existing = doc.playlist.tracks.find((t) => t.name === input);
-    if (existing) return { input, track: existing.id };
-    const id = uniqueId(input, taken);
-    taken.add(id);
-    commands.push({ type: "addTrack", track: { id, name: input } });
-    return { input, track: id };
+    const existing = doc.playlist.tracks.findIndex((t) => t.name === input);
+    if (existing >= 0) return { input, track: existing };
+    const track = next++;
+    commands.push({ type: "updateTrack", track, changes: { name: input } });
+    return { input, track };
   });
   if (commands.length) await execute(commands, { label: `Add ${commands.length} track${commands.length === 1 ? "" : "s"} for recording` });
   return targets;

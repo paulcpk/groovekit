@@ -9,7 +9,8 @@ import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { cn } from "@/lib/cn";
 import { useLiveControl } from "@/lib/liveControl";
 import { colorFor, fileName, formatDb, formatPan, noteName, uniqueId } from "@/lib/model";
-import { call, execute } from "@/state/engine";
+import { ChannelBar } from "@/features/rack/ChannelBar";
+import { call, execute, useEngine } from "@/state/engine";
 import type { OpenWindow } from "@/state/windows";
 import { DEFAULT_ENVELOPE, EnvelopeGraph } from "./EnvelopeGraph";
 import { FilterGraph } from "./FilterGraph";
@@ -17,14 +18,17 @@ import { Waveform } from "./Waveform";
 
 type Tab = "sample" | "volume" | "filter";
 
-/** A sampler channel's settings: the sample and the part of it that plays, the volume envelope,
-    and the filter with its own envelope. */
+/** A channel's window, for the samples in the rack and those dropped onto the playlist alike:
+    where it plays and how loud, the sample and the part of it that plays, the volume envelope,
+    and the filter with its own envelope. Audio clips in the playlist play the first layer. */
 export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWindow; channel: Channel; sampler: SamplerInstrument }) {
+  const doc = useEngine((s) => s.doc)!;
   const [tab, setTab] = useState<Tab>("sample");
   const [layerId, setLayerId] = useState<string>();
   const [over, setOver] = useState(false);
   const layer = sampler.layers.find((l) => l.id === layerId) ?? sampler.layers[0];
   const color = colorFor(channel.id, channel.color);
+  const clips = doc.playlist.clips.filter((c) => c.type === "audio" && c.channel === channel.id).length;
 
   const addLayers = (paths: string[]) => {
     const ids = sampler.layers.map((l) => ({ id: l.id }));
@@ -47,7 +51,7 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
             ...(preset.envelope ? sampler.layers.map((l) => ({ type: "updateSamplerLayer" as const, channel: channel.id, layer: l.id, changes: { envelope: preset.envelope } })) : []),
           ], { label: `Sampler preset: ${preset.name}` })} />
       }
-      title={<><span className="h-3 w-1 shrink-0 rounded-sm" style={{ background: color }} /><span className="truncate">{channel.name ?? channel.id}</span><span className="text-2xs font-normal text-faint">Sampler</span></>}>
+      title={<><span className="h-3 w-1 shrink-0 rounded-sm" style={{ background: color }} /><span className="truncate">{channel.name || channel.id}</span><span className="text-2xs font-normal text-faint">Sampler</span></>}>
       <div
         className={cn("flex flex-col gap-3 p-3", over && "bg-accent/5")}
         onDragOver={(e) => {
@@ -69,9 +73,11 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
           addLayers([sample.path]);
         }}
       >
+        <ChannelBar doc={doc} channel={channel} />
         <div className="flex items-center gap-2">
           <Tabs<Tab> value={tab} onChange={setTab} items={[{ value: "sample", label: "Sample" }, { value: "volume", label: "Volume" }, { value: "filter", label: "Filter" }]} />
           <div className="flex-1" />
+          {clips > 0 && <span className="text-2xs text-faint">{clips} clip{clips === 1 ? "" : "s"} in the playlist</span>}
           {sampler.layers.length > 1 && tab !== "filter" && (
             <div className="flex items-center gap-1" title="Layers">
               {sampler.layers.map((l, i) => (
@@ -86,9 +92,9 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
         {!layer ? (
           <div className="rounded-md border border-dashed border-line p-8 text-center text-xs text-faint">Drop a sample here</div>
         ) : tab === "sample" ? (
-          <SampleTab channel={channel} sampler={sampler} layer={layer} color={color} />
+          <SampleTab channel={channel} sampler={sampler} layer={layer} color={color} first={layer === sampler.layers[0]} clips={clips} tempo={doc.tempo} />
         ) : tab === "volume" ? (
-          <VolumeTab channel={channel} layer={layer} color={color} />
+          <VolumeTab channel={channel} layer={layer} color={color} clips={clips} />
         ) : (
           <FilterTab channel={channel} filter={sampler.filter} color={color} />
         )}
@@ -102,7 +108,9 @@ function useLayerCommand(channel: Channel, layer: SamplerLayer, label: string) {
   return useLiveControl<Partial<SamplerLayer>>((changes) => ({ type: "updateSamplerLayer", channel: channel.id, layer: layer.id, changes }), label);
 }
 
-function SampleTab({ channel, sampler, layer, color }: { channel: Channel; sampler: SamplerInstrument; layer: SamplerLayer; color: string }) {
+function SampleTab({ channel, sampler, layer, color, first, clips, tempo }: {
+  channel: Channel; sampler: SamplerInstrument; layer: SamplerLayer; color: string; first: boolean; clips: number; tempo: number;
+}) {
   const set = (changes: Partial<SamplerLayer>, label: string) =>
     void execute({ type: "updateSamplerLayer", channel: channel.id, layer: layer.id, changes }, { label });
   const region = useLayerCommand(channel, layer, "Sample start and end");
@@ -110,6 +118,11 @@ function SampleTab({ channel, sampler, layer, color }: { channel: Channel; sampl
   const pan = useLayerCommand(channel, layer, "Layer pan");
   const key = layer.rootKey ?? 60;
   const mode = layer.mode ?? "oneShot";
+  // A sample from the playlist isn't loaded to play notes until it has some, so pressing the
+  // waveform plays the file instead.
+  const plays = channel.group === "arrangement"
+    ? { press: () => void call("preview.play", { path: layer.sample }), release: () => void call("preview.stop") }
+    : { press: () => void call("live.noteOn", { channel: channel.id, key, velocity: 110 }), release: () => void call("live.noteOff", { channel: channel.id, key }) };
 
   return (
     <div className="flex flex-col gap-3">
@@ -122,8 +135,8 @@ function SampleTab({ channel, sampler, layer, color }: { channel: Channel; sampl
       <Waveform
         path={layer.sample} start={layer.start ?? 0} end={layer.end} reverse={!!layer.reverse} color={color}
         onRegion={(start, end, commit) => (commit ? region.onCommit : region.onChange)({ start, end: end ?? (null as never) })}
-        onPress={() => void call("live.noteOn", { channel: channel.id, key, velocity: 110 })}
-        onRelease={() => void call("live.noteOff", { channel: channel.id, key })}
+        onPress={plays.press}
+        onRelease={plays.release}
       />
       <div className="flex flex-wrap items-center gap-1.5">
         <ToggleChip on={!!layer.reverse} label="Reverse" onClick={() => set({ reverse: !layer.reverse }, layer.reverse ? "Play forwards" : "Reverse")} />
@@ -131,6 +144,18 @@ function SampleTab({ channel, sampler, layer, color }: { channel: Channel; sampl
           onClick={() => set({ pitchTracking: layer.pitchTracking === false }, "Pitch tracking")} />
         <ToggleChip on={mode === "gate"} tone="dim" label={mode === "gate" ? "Gate" : "One-shot"} title="One-shot plays to the end; gate stops on note-off"
           onClick={() => set({ mode: mode === "gate" ? "oneShot" : "gate" }, "Layer mode")} />
+        {first && (clips > 0 || channel.group === "arrangement") && (
+          <>
+            <ToggleChip on={layer.sourceTempo !== undefined} label="Stretch to tempo" title="Audio clips are time-stretched to the song's tempo, keeping their pitch"
+              onClick={() => set({ sourceTempo: layer.sourceTempo !== undefined ? (null as never) : tempo }, layer.sourceTempo !== undefined ? "Don't stretch" : "Stretch to tempo")} />
+            {layer.sourceTempo !== undefined && (
+              <span className="flex items-center gap-1 text-2xs text-dim">from
+                <DragNumber value={layer.sourceTempo} min={20} max={999} step={0.1} format={(v) => `${v.toFixed(1)} BPM`} className="text-fg"
+                  onCommit={(v) => set({ sourceTempo: Math.round(v * 10) / 10 }, "Source tempo")} />
+              </span>
+            )}
+          </>
+        )}
         {((layer.start ?? 0) > 0 || layer.end !== undefined) && (
           <button type="button" className="text-2xs text-faint hover:text-fg" onClick={() => set({ start: 0, end: null as never }, "Play the whole sample")}>Whole sample</button>
         )}
@@ -170,20 +195,21 @@ function SampleTab({ channel, sampler, layer, color }: { channel: Channel; sampl
   );
 }
 
-function VolumeTab({ channel, layer, color }: { channel: Channel; layer: SamplerLayer; color: string }) {
+function VolumeTab({ channel, layer, color, clips }: { channel: Channel; layer: SamplerLayer; color: string; clips: number }) {
   const envelope = useLayerCommand(channel, layer, "Volume envelope");
   return (
     <div className="flex flex-col gap-2">
       <EnvelopeGraph label="Volume" envelope={layer.envelope} color={color}
         onChange={(env) => envelope.onChange({ envelope: env })} onCommit={(env) => envelope.onCommit({ envelope: env })} />
-      {(layer.mode ?? "oneShot") === "oneShot" && (
-        <div className="text-2xs text-faint">One-shot layers play to their end and ignore note-off, so the release only applies in gate mode.</div>
+      {clips > 0 && <div className="text-2xs text-faint">Over each audio clip, the attack starts where the clip starts and the release ends where it ends.</div>}
+      {channel.group !== "arrangement" && (layer.mode ?? "oneShot") === "oneShot" && (
+        <div className="text-2xs text-faint">One-shot layers play to their end and ignore note-off, so a note's release only applies in gate mode.</div>
       )}
     </div>
   );
 }
 
-/** A sampler's or audio channel's filter and its envelope. */
+/** A sampler's filter and its envelope. */
 export function FilterTab({ channel, filter: saved, color }: { channel: Channel; filter: SamplerFilter | undefined; color: string }) {
   const filter = useLiveControl<SamplerFilter>((f) => ({ type: "updateInstrument", channel: channel.id, changes: { filter: f } }), "Filter");
   // A filter switched on here starts with a pluck: a quick fall back to the cutoff. One set up
@@ -194,7 +220,7 @@ export function FilterTab({ channel, filter: saved, color }: { channel: Channel;
 
   return (
     <div className="flex flex-col gap-3">
-      <FilterGraph filter={saved} color={color}
+      <FilterGraph filter={saved} color={color} channel={channel.id}
         onChange={(change) => filter.onChange({ ...current(), ...change })}
         onCommit={(change) => filter.onCommit({ ...current(), ...change })} />
       <EnvelopeGraph label="Cutoff envelope" envelope={envelope} color={color}

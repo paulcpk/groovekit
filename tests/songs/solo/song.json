@@ -1,21 +1,34 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Solo",
   "tempo": 120,
   "channels": [
-    { "id": "soloed", "solo": true, "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
-    { "id": "other", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } }
+    {
+      "id": "soloed",
+      "solo": true,
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    },
+    {
+      "id": "other",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }]
+      }
+    }
   ],
   "patterns": [
     { "id": "soloed", "notes": [{ "channel": "soloed", "start": 0, "length": 240, "velocity": 127 }] },
     { "id": "other", "notes": [{ "channel": "other", "start": 0, "length": 240, "velocity": 127 }] }
   ],
   "playlist": {
-    "tracks": [{ "id": "main", "solo": true }, { "id": "side" }],
+    "tracks": [{ "solo": true }],
     "clips": [
-      { "type": "pattern", "id": "heard", "track": "main", "start": 0, "length": 960, "pattern": "soloed" },
-      { "type": "pattern", "id": "channelNotSoloed", "track": "main", "start": 960, "length": 960, "pattern": "other" },
-      { "type": "pattern", "id": "trackNotSoloed", "track": "side", "start": 1920, "length": 960, "pattern": "soloed" }
+      { "type": "pattern", "id": "heard", "track": 0, "start": 0, "length": 960, "pattern": "soloed" },
+      { "type": "pattern", "id": "channelNotSoloed", "track": 0, "start": 960, "length": 960, "pattern": "other" },
+      { "type": "pattern", "id": "trackNotSoloed", "track": 1, "start": 1920, "length": 960, "pattern": "soloed" }
     ]
   },
   "mixer": { "inserts": [{ "id": "master" }] }

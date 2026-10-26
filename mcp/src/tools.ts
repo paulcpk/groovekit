@@ -8,15 +8,15 @@ import type { Reference } from "./reference.ts";
 
 export const instructions = `GrooveKit is a music production app (a DAW) that you operate through these tools. The human directs; you arrange, mix and master.
 
-Model: channels (instruments: the built-in sampler with one or more sample layers) feed mixer inserts; patterns hold notes for any channels; the playlist has free tracks holding pattern, audio and automation clips. Inserts chain effects, sends and a fader, and feed other inserts or master.
+Model: channels (instruments: the built-in sampler with one or more sample layers, or a plugin) feed mixer inserts; patterns hold notes for any channels; the playlist holds pattern, audio and automation clips on numbered tracks (0, 1, 2, ...: any clip on any track, no setup needed; tracks only arrange, with a name, mute and solo). How a clip sounds and where it plays is set by its channel and the mixer, never by its track. Inserts chain effects, sends and a fader, and feed other inserts or master.
 
 Units: time is integer ticks at 960 per quarter note (in 4/4 a 16th is 240, a beat 960, a bar 3840). Volumes in dB, pan -1..1, velocity 1-127, keys are MIDI numbers (60 = C4). Sample paths are absolute or relative to the project folder.
 
-Sounds: search_samples finds samples in the user's library by words, category, loop, tempo and key, with a description of each sound. Use one-shots as sampler layers; set rootKey from the result's rootKey so pitched samples play in tune, and pitchTracking false for drums. Use loops as audio clips: an audio clip plays the sample of an audio channel (instrument {"type":"audio","sample":path}, with sourceTempo set to the loop's tempo to stretch it to the song), so add the channel, then clips naming it. The audio channel holds reverse, stretch, a volume envelope and a filter for all its clips, and its insert routes them unless the playlist track has one. describe_sample gives full measurements (spectrum bands, attack, pitch, loudness). Paths in results are absolute.
+Sounds: search_samples finds samples in the user's library by words, category, loop, tempo and key, with a description of each sound. Use one-shots as sampler layers; set rootKey from the result's rootKey so pitched samples play in tune, and pitchTracking false for drums. Use loops as audio clips: an audio clip plays the first layer of a sampler channel, so add a channel ({"group":"arrangement","instrument":{"type":"sampler","layers":[{"id":"sample","sample":path,"sourceTempo":loopTempo}]}}; sourceTempo stretches it to the song), then clips naming it. The layer's start/end, reverse, transpose and fine tune (pitch-shifted, length kept), gain, pan and envelope, and the channel's filter, volume, pan and insert apply to all its clips; a clip itself only has its position, offset and fades. group "arrangement" lists the channel apart from the pattern channels in the rack. describe_sample gives full measurements (spectrum bands, attack, pitch, loudness). Paths in results are absolute.
 
-Plugins: the user's VST3/AU plugins are listed by plugins (scan first if the list is empty). describe_plugin gives a pluginRef and parameter names; use it in a channel instrument {"type":"plugin","plugin":pluginRef} or an insert effect {"type":"plugin","id":...,"plugin":pluginRef}, set "params" by name (normalized 0-1), and automate them with effect-scope automation clips. Every insert effect, built-in or plugin, has a mix from 0 (the dry signal) to 1 (only the effect): mix reverbs and delays in rather than adding sends for everything; it is automatable as the effect parameter "mix".
+Plugins: the user's VST3/AU plugins are listed by plugins (scan first if the list is empty). describe_plugin gives a pluginRef and parameter names; use it in a channel instrument {"type":"plugin","plugin":pluginRef} or an insert effect {"type":"plugin","id":...,"plugin":pluginRef}, set "params" by name (normalized 0-1), and automate them with automation clips (an instrument's: scope channel with param its parameter id or name; an effect's: scope effect). A sampler channel's filterCutoff, filterResonance and filterEnvelopeAmount are automatable too, like any channel's volume and pan. Every insert effect, built-in or plugin, has a mix from 0 (the dry signal) to 1 (only the effect): mix reverbs and delays in rather than adding sends for everything; it is automatable as the effect parameter "mix".
 
-Recording: the record tool captures hardware like the user's Digitakt II per track into clips, with GrooveKit as MIDI clock master. After a recording, each take is an audio clip on its own audio channel; cut (updateClip offset/length), copy and arrange them like any other.
+Recording: the record tool captures hardware like the user's Digitakt II per track into clips, with GrooveKit as MIDI clock master. After a recording, each take is an audio clip with its own sampler channel; cut (updateClip offset/length), copy and arrange them like any other.
 
 Workflow: get_summary to see the song, get_schema once for exact shapes, edit_project to change it (commands apply atomically; errors name the offending field), render to hear it as numbers (LUFS, peak, onsets), then adjust and re-render. Every edit is undoable; edits made close together form one group that undo reverts in one step.`;
 
@@ -260,7 +260,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
       description: `Records audio inputs into clips, e.g. the user's Digitakt II over USB (16 tracks; each can be an audio or a MIDI track, so some outputs are silent).
 - devices: lists audio input devices, inputs and MIDI outputs.
 - setup: selects the input device (e.g. "Digitakt II") and turns on MIDI clock to a MIDI output (e.g. "Elektron Digitakt II"), so the hardware starts and stops with GrooveKit and follows its tempo.
-- start: records the given inputs (or "all": Main, Track 1-16 and the Delay, Reverb and Chorus returns; per-track outputs are dry) from fromBar for bars bars, each into its own insert and playlist track (created when missing, named after the input). Silent takes are skipped, and each take's clip gain is set so it plays at about -20 LUFS (hardware outputs arrive quiet). Returns at once; the takes become clips when it stops.
+- start: records the given inputs (or "all": Main, Track 1-16 and the Delay, Reverb and Chorus returns; per-track outputs are dry) from fromBar for bars bars, each into its own insert and playlist track (named after the input). Silent takes are skipped, and each take's channel gain is set so it plays at about -20 LUFS (hardware outputs arrive quiet). Returns at once; the takes become clips when it stops.
 - stop: stops early.
 - calibrate: once per setup, with the hardware playing clean hits on the given input (a kick track), measures the round trip so takes land on the grid.`,
       inputSchema: {
@@ -293,14 +293,21 @@ Opening, creating or saving as switches the user's window too, so only do it whe
             const slug = (n: string) => "rec-" + n.toLowerCase().replace(/[^a-z0-9]+/g, "");
             const doc = engine.document!;
             const commands: unknown[] = [];
+            // Each input records onto the playlist track of its name, or the next free one below the song.
+            const used = new Set<number>([...doc.playlist.clips.map((c) => c.track), ...doc.playlist.tracks.flatMap((t, i) => (t.name ? [i] : []))]);
+            let next = Math.max(-1, ...used) + 1;
+            const tracks = new Map<string, number>();
             for (const name of names) {
               const id = slug(name);
               if (!doc.mixer.inserts.some((i) => i.id === id)) commands.push({ type: "addInsert", insert: { id, name } });
-              if (!doc.playlist.tracks.some((t) => t.id === id)) commands.push({ type: "addTrack", track: { id, name } });
+              const existing = doc.playlist.tracks.findIndex((t) => t.name === name);
+              const track = existing >= 0 ? existing : next++;
+              if (existing < 0) commands.push({ type: "updateTrack", track, changes: { name } });
+              tracks.set(name, track);
             }
             if (commands.length) await engine.call("execute", { commands, group: groups.next(), label: "Add recording tracks" });
             return engine.call("record.start", {
-              targets: names.map((name) => ({ input: name, insert: slug(name), track: slug(name) })),
+              targets: names.map((name) => ({ input: name, insert: slug(name), track: tracks.get(name) })),
               fromBar: args.fromBar ?? 1,
               bars: args.bars ?? 8,
               dropSilent: true,
@@ -318,7 +325,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "analyze_mix",
     {
-      description: "Renders the mix plus one stem per channel (audio channels carry the audio clips) and reports: the mix's loudness, true peak, loudness range, spectral balance and stereo image; each source's loudness and share of every frequency band; and masking, i.e. pairs of sources that both carry a big share of the same band (e.g. kick and bass at 60-120 Hz). Slower than render: one render per source.",
+      description: "Renders the mix plus one stem per channel (with its audio clips) and reports: the mix's loudness, true peak, loudness range, spectral balance and stereo image; each source's loudness and share of every frequency band; and masking, i.e. pairs of sources that both carry a big share of the same band (e.g. kick and bass at 60-120 Hz). Slower than render: one render per source.",
       inputSchema: {
         startBar: z.number().min(1).optional(),
         endBar: z.number().min(1).optional(),

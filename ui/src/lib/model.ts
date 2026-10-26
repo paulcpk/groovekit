@@ -122,8 +122,28 @@ export function snapTicks(snap: number, doc: Project | undefined) {
 }
 
 /** What an audio clip plays, from its audio channel. */
+/** What an audio clip plays: its channel's first sampler layer, the part of the file it cuts out,
+    and the tempo the file was recorded at. */
 export function audioSource(doc: Project, clip: AudioClip) {
   const channel = doc.channels.find((c) => c.id === clip.channel);
-  const audio = channel?.instrument.type === "audio" ? channel.instrument : undefined;
-  return { channel, sample: audio?.sample, reverse: !!audio?.reverse, sourceTempo: audio?.sourceTempo };
+  const layer = channel?.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
+  return {
+    channel, layer, sample: layer?.sample, reverse: !!layer?.reverse, sourceTempo: layer?.sourceTempo,
+    start: layer?.start ?? 0, end: layer?.end,
+  };
+}
+
+/** The number of playlist tracks to show: every one in use or set up, a screenful at least,
+    and a few spare below. */
+export function laneCount(doc: Project) {
+  const used = Math.max(doc.playlist.tracks.length, ...doc.playlist.clips.map((c) => c.track + 1));
+  return Math.max(16, used + 4);
+}
+
+/** The first track from `from` with no clips. */
+export function firstEmptyLane(doc: Project, from = 0) {
+  const used = new Set(doc.playlist.clips.map((c) => c.track));
+  let lane = from;
+  while (used.has(lane)) lane++;
+  return lane;
 }

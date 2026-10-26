@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "name": "Tempo match",
   "tempo": 60,
   "channels": [
@@ -7,35 +7,16 @@
       "id": "clicks_120bpm",
       "name": "clicks_120bpm",
       "instrument": {
-        "type": "audio",
-        "sample": "../../fixtures/samples/clicks_120bpm.wav",
-        "sourceTempo": 120
-      }
+        "type": "sampler",
+        "layers": [{ "id": "sample", "sample": "../../fixtures/samples/clicks_120bpm.wav", "sourceTempo": 120 }]
+      },
+      "group": "arrangement"
     }
   ],
   "patterns": [],
   "playlist": {
-    "tracks": [
-      {
-        "id": "t"
-      }
-    ],
-    "clips": [
-      {
-        "type": "audio",
-        "id": "loop",
-        "track": "t",
-        "start": 0,
-        "length": 1920,
-        "channel": "clicks_120bpm"
-      }
-    ]
+    "tracks": [],
+    "clips": [{ "type": "audio", "id": "loop", "track": 0, "start": 0, "length": 1920, "channel": "clicks_120bpm" }]
   },
-  "mixer": {
-    "inserts": [
-      {
-        "id": "master"
-      }
-    ]
-  }
+  "mixer": { "inserts": [{ "id": "master" }] }
 }

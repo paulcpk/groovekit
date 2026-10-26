@@ -49,13 +49,9 @@ export function openChannel(channel: Channel, toggle = false) {
   else (toggle ? toggleWindow : openWindow)({ kind: "channel", channel: channel.id });
 }
 
-/** A sample dropped on a sampler channel replaces its first layer's sample, keeping its settings;
-    on an audio channel, the sample all its clips play. */
+/** A sample dropped on a sampler channel replaces its first layer's sample (the one its audio
+    clips play), keeping its settings. */
 export async function replaceSample(channel: Channel, path: string) {
-  if (channel.instrument.type === "audio") {
-    await execute({ type: "updateInstrument", channel: channel.id, changes: { sample: path } }, { label: `Replace sample with ${baseName(path)}` });
-    return;
-  }
   if (channel.instrument.type !== "sampler") return;
   const layer = channel.instrument.layers[0];
   await execute(layer

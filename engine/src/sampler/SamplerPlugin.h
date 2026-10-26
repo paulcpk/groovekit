@@ -1,7 +1,6 @@
 #pragma once
 
-#include "SamplerEngine.h"
-#include "model/Project.h"
+#include "AudioChannelPlugin.h"
 
 #include <tracktion_engine/tracktion_engine.h>
 
@@ -40,6 +39,8 @@ public:
     void initialise (const tracktion::PluginInitialisationInfo&) override;
     void deinitialise() override {}
     void applyToBuffer (const tracktion::PluginRenderContext&) override;
+
+    FilterControls filterControls { *this };
 
 private:
     SamplerEngine samplerEngine;
