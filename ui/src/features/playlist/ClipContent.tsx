@@ -66,11 +66,29 @@ export function AudioContent({ clip, doc, width, height, color }: {
     // Stretched clips play a beat of the file per beat of the song.
     const fileSecondsPerTick = 60 / ((clip.sourceTempo ?? doc.tempo) * 960);
     const start = clip.offset ?? 0;
-    drawPeaks(canvas.current, peaks, start, start + clip.length * fileSecondsPerTick, color);
-  }, [peaks, clip.offset, clip.length, clip.sourceTempo, doc.tempo, color, pixels, height]);
+    const end = start + clip.length * fileSecondsPerTick;
+    // A reversed clip's offset counts from the file's end; it's drawn mirrored.
+    if (clip.reverse) drawPeaks(canvas.current, peaks, peaks.durationSeconds - end, peaks.durationSeconds - start, color);
+    else drawPeaks(canvas.current, peaks, start, end, color);
+  }, [peaks, clip.offset, clip.length, clip.sourceTempo, clip.reverse, doc.tempo, color, pixels, height]);
 
   if (height < 4) return null;
-  return <canvas ref={canvas} width={pixels} height={Math.max(1, Math.round(height))} className="absolute left-0" style={{ width, height }} />;
+  const ticksPerSecond = (doc.tempo * 960) / 60;
+  const fadeIn = ((clip.fadeIn ?? 0) * ticksPerSecond * width) / clip.length;
+  const fadeOut = ((clip.fadeOut ?? 0) * ticksPerSecond * width) / clip.length;
+
+  return (
+    <>
+      <canvas ref={canvas} width={pixels} height={Math.max(1, Math.round(height))} className="absolute left-0"
+        style={{ width, height, transform: clip.reverse ? "scaleX(-1)" : undefined }} />
+      {(fadeIn > 0 || fadeOut > 0) && (
+        <svg className="pointer-events-none absolute left-0 top-0" width={width} height={height}>
+          {fadeIn > 0 && <path d={`M0 0 L${fadeIn} 0 L0 ${height} Z`} fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.5)" strokeWidth={1} />}
+          {fadeOut > 0 && <path d={`M${width} 0 L${width - fadeOut} 0 L${width} ${height} Z`} fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.5)" strokeWidth={1} />}
+        </svg>
+      )}
+    </>
+  );
 }
 
 /** The automation curve, editable: drag points, double-click to add, Alt-click to remove. */

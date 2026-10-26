@@ -50,6 +50,10 @@ export function TrackHeader({ track, index, doc, height }: { track: PlaylistTrac
             on={!track.mute} tone="accent" label={String(index + 1)} title={track.mute ? "Unmute track" : "Mute track"}
             onClick={() => void execute({ type: "updateTrack", track: track.id, changes: { mute: !track.mute } }, { label: track.mute ? "Unmute track" : "Mute track" })}
           />
+          <ToggleChip
+            on={!!track.solo} label="S" title={track.solo ? "Unsolo track" : "Solo: only soloed tracks play"}
+            onClick={() => void execute({ type: "updateTrack", track: track.id, changes: { solo: !track.solo } }, { label: track.solo ? "Unsolo track" : "Solo track" })}
+          />
           {touched !== undefined && Date.now() - touched < 2000 && (
             <span key={touched} className="pointer-events-none absolute inset-0 animate-agent-flash bg-agent/25" />
           )}

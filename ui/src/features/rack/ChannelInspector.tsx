@@ -3,6 +3,7 @@ import { Play, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button, DragNumber, IconButton, Knob, ToggleChip } from "@/components/controls";
 import { droppedSample, isSampleDrag } from "@/features/playlist/geometry";
+import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { cn } from "@/lib/cn";
 import { colorFor, fileName, formatDb, formatPan, noteName, uniqueId } from "@/lib/model";
 import { call, execute, toast, useEngine } from "@/state/engine";
@@ -19,7 +20,7 @@ export function ChannelInspector({ channelId }: { channelId: string }) {
     <div
       className={cn("flex h-full flex-col", over && "bg-accent/5")}
       onDragOver={(e) => {
-        if (channel.instrument.type !== "sampler" || !isSampleDrag(e)) return;
+        if (channel.instrument.type !== "sampler" || !(isSampleDrag(e) || isFileDrag(e))) return;
         e.preventDefault();
         e.stopPropagation();
         setOver(true);
@@ -28,14 +29,26 @@ export function ChannelInspector({ channelId }: { channelId: string }) {
       onDrop={(e) => {
         setOver(false);
         if (channel.instrument.type !== "sampler") return;
+        const instrument = channel.instrument;
+        const addLayers = (paths: string[]) => {
+          const ids = instrument.layers.map((l) => ({ id: l.id }));
+          void execute(paths.map((path) => {
+            const id = uniqueId("l1", ids);
+            ids.push({ id });
+            return { type: "addSamplerLayer" as const, channel: channel.id, layer: { id, sample: path, pitchTracking: instrument.layers[0]?.pitchTracking ?? false } };
+          }), { label: paths.length === 1 ? `Add layer ${fileName(paths[0])}` : `Add ${paths.length} layers` });
+        };
+        if (isFileDrag(e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          void importDroppedFiles(e).then((samples) => samples.length && addLayers(samples.map((s) => s.path)));
+          return;
+        }
         const sample = droppedSample(e);
         if (!sample) return;
         e.preventDefault();
         e.stopPropagation();
-        const { path } = sample;
-        const id = uniqueId("l1", channel.instrument.layers.map((l) => ({ id: l.id })));
-        void execute({ type: "addSamplerLayer", channel: channel.id, layer: { id, sample: path, pitchTracking: channel.instrument.layers[0]?.pitchTracking ?? false } },
-          { label: `Add layer ${fileName(path)}` });
+        addLayers([sample.path]);
       }}
     >
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-2">

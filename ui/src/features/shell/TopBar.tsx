@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Circle, Layers, ListMusic, Pause, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
+import { ChevronDown, Circle, KeyboardMusic, Layers, ListMusic, Metronome, Pause, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
 import { Button, DragNumber, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { cn } from "@/lib/cn";
@@ -7,9 +7,10 @@ import { formatPosition, formatTime } from "@/lib/model";
 import { inDesktopApp } from "@/engine/client";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi, type BottomPanel } from "@/state/ui";
-import { masterSong, redo, renderSong, setPlayMode, setTempo, stop, toggleLoop, togglePlay, undo } from "./actions";
+import { masterSong, record, redo, renderSong, setCountIn, setMetronome, setPlayMode, setTempo, stop, toggleLoop, togglePlay, undo } from "./actions";
 import { browseForProject, openProject, recentProjects, saveProject, type RecentProject } from "./ProjectDialog";
 import { ProjectName } from "./ProjectName";
+import { collectSamples, importAudio } from "./importFiles";
 
 export const snaps: { label: string; ticks: number }[] = [
   { label: "Bar", ticks: 0 }, // resolved against the time signature
@@ -54,8 +55,8 @@ function PlayMode() {
 }
 
 function TransportButtons() {
-  const { playing, recording } = useEngine((s) => s.transport);
-  const looping = useUi((s) => s.looping);
+  const { playing, recording, mode, metronome, countInBars = 0 } = useEngine((s) => s.transport);
+  const { looping, typingKeyboard, keyboardOctave, recordQuantize } = useUi();
 
   return (
     <div className="flex items-center gap-0.5">
@@ -65,11 +66,35 @@ function TransportButtons() {
       <IconButton title="Stop and go back to the start (Space twice)" onClick={() => void stop()}>
         <Square size={12} fill="currentColor" />
       </IconButton>
-      <IconButton title="Record…" active={recording} tone="rec" onClick={() => setUi({ recordOpen: true })}>
+      <IconButton title={mode === "pattern" ? "Record notes into the pattern (pattern mode)" : "Record audio…"} active={recording} tone="rec" onClick={() => void record()}>
         <Circle size={12} fill={recording ? "currentColor" : "none"} className={cn(!recording && "text-rec")} />
       </IconButton>
       <IconButton title="Loop (L)" active={looping} tone="accent" onClick={() => void toggleLoop()}>
         <Repeat size={14} />
+      </IconButton>
+      <Dropdown>
+        <DropdownTrigger asChild>
+          <IconButton title="Metronome and count-in" active={metronome} tone="accent"><Metronome size={14} /></IconButton>
+        </DropdownTrigger>
+        <DropdownContent>
+          <DropdownItem checked={!!metronome} onSelect={() => void setMetronome(!metronome)}>Metronome</DropdownItem>
+          <DropdownSeparator />
+          <DropdownLabel>Count-in before recording</DropdownLabel>
+          {[0, 1, 2].map((bars) => (
+            <DropdownItem key={bars} checked={countInBars === bars} onSelect={() => void setCountIn(bars)}>
+              {bars === 0 ? "None" : `${bars} bar${bars === 1 ? "" : "s"}`}
+            </DropdownItem>
+          ))}
+          <DropdownSeparator />
+          <DropdownLabel>Recorded notes</DropdownLabel>
+          {[{ label: "As played", ticks: 0 }, { label: "Snap to 1/16", ticks: 240 }, { label: "Snap to 1/8", ticks: 480 }].map((q) => (
+            <DropdownItem key={q.ticks} checked={recordQuantize === q.ticks} onSelect={() => setUi({ recordQuantize: q.ticks })}>{q.label}</DropdownItem>
+          ))}
+        </DropdownContent>
+      </Dropdown>
+      <IconButton title={typingKeyboard ? `Typing keyboard on (octave ${keyboardOctave}; - and = change it): letters play the selected channel` : "Typing keyboard: play the selected channel with the letter keys"}
+        active={typingKeyboard} tone="accent" onClick={() => setUi({ typingKeyboard: !typingKeyboard })}>
+        <KeyboardMusic size={14} />
       </IconButton>
     </div>
   );
@@ -144,6 +169,10 @@ function ProjectMenu() {
         <DropdownSeparator />
         <DropdownItem onSelect={saveProject}>Save <span className="ml-auto text-2xs text-faint">⌘S</span></DropdownItem>
         <DropdownItem onSelect={() => setUi({ projectDialog: "saveAs" })}>Save as… <span className="ml-auto text-2xs text-faint">⇧⌘S</span></DropdownItem>
+        <DropdownSeparator />
+        {inDesktopApp && <DropdownItem onSelect={() => void importAudio()}>Import audio…</DropdownItem>}
+        <DropdownItem onSelect={() => void collectSamples()}>Collect samples into the project</DropdownItem>
+        <DropdownItem onSelect={() => setUi({ exportOpen: true })}>Export… <span className="ml-auto text-2xs text-faint">⌘R</span></DropdownItem>
         {recent.some((p) => p.path !== current) && (
           <>
             <DropdownSeparator />
@@ -168,7 +197,8 @@ function SongMenu() {
       </DropdownTrigger>
       <DropdownContent align="end">
         <DropdownLabel>Bounce</DropdownLabel>
-        <DropdownItem onSelect={() => void renderSong()}>Render to WAV</DropdownItem>
+        <DropdownItem onSelect={() => setUi({ exportOpen: true })}>Export… <span className="ml-auto text-2xs text-faint">⌘R</span></DropdownItem>
+        <DropdownItem onSelect={() => void renderSong()}>Quick render to the project</DropdownItem>
         <DropdownSeparator />
         <DropdownLabel>Master limiter</DropdownLabel>
         <DropdownItem onSelect={() => void masterSong(-14)}>Master to −14 LUFS (streaming)</DropdownItem>

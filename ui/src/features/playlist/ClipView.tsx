@@ -6,7 +6,10 @@ import { cn } from "@/lib/cn";
 import { baseName, colorFor, uniqueId } from "@/lib/model";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
+import { useState } from "react";
+import { snapTo } from "@/lib/drag";
 import { AudioContent, AutomationContent, PatternContent } from "./ClipContent";
+import { splitAtPlayhead, splitClips } from "./clipOps";
 import { CLIP_HEADER_H } from "./geometry";
 
 export function clipColor(clip: Clip, doc: Project) {
@@ -43,6 +46,7 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
   const touched = useEngine((s) => s.touchedAt[clip.id]);
   const bodyH = height - CLIP_HEADER_H;
   const muted = clip.mute;
+  const [menuTick, setMenuTick] = useState(clip.start);
 
   const body = (
     <div
@@ -59,7 +63,12 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
         const edge = x > width - 6 && width > 14 ? "right" : x < 5 && width > 14 ? "left" : "body";
         onPointerDown(e, clip, edge);
       }}
+      onContextMenu={(e) => {
+        const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+        setMenuTick(Math.round(clip.start + snapTo(x / pxPerTick, snap)));
+      }}
       onDoubleClick={() => {
+        if (clip.type === "audio") setUi({ clipEditor: clip.id });
         if (clip.type === "pattern") setUi({ selectedPattern: clip.pattern, bottomOpen: true, bottomPanel: "rack" });
       }}
     >
@@ -87,12 +96,12 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{body}</ContextMenuTrigger>
-      <ClipMenu clip={clip} doc={doc} />
+      <ClipMenu clip={clip} doc={doc} at={menuTick} />
     </ContextMenu>
   );
 }
 
-function ClipMenu({ clip, doc }: { clip: Clip; doc: Project }) {
+function ClipMenu({ clip, doc, at }: { clip: Clip; doc: Project; at: number }) {
   const selection = useUi((s) => s.selectedClips);
   const targets = selection.includes(clip.id) ? doc.playlist.clips.filter((c) => selection.includes(c.id)) : [clip];
   const plural = targets.length > 1 ? ` ${targets.length} clips` : "";
@@ -132,14 +141,24 @@ function ClipMenu({ clip, doc }: { clip: Clip; doc: Project }) {
         </>
       )}
       <ContextMenuItem onSelect={duplicate}>Duplicate{plural}</ContextMenuItem>
+      <ContextMenuItem onSelect={() => splitClips(at, [clip.id])} disabled={at <= clip.start || at >= clip.start + clip.length}>Split here</ContextMenuItem>
+      <ContextMenuItem shortcut="⌘E" onSelect={() => splitAtPlayhead()}>Split at playhead</ContextMenuItem>
       <ContextMenuItem onSelect={() => void execute(targets.map((c) => ({ type: "updateClip" as const, clip: c.id, changes: { mute: !clip.mute } })),
         { label: `${clip.mute ? "Unmute" : "Mute"}${plural || " clip"}` })}>
         {clip.mute ? "Unmute" : "Mute"}{plural}
       </ContextMenuItem>
       {clip.type === "audio" && (
-        <ContextMenuItem onSelect={() => void execute({ type: "updateClip", clip: clip.id, changes: { gainDb: null } }, { label: "Reset clip gain" })} disabled={clip.gainDb === undefined}>
-          Reset gain{clip.gainDb !== undefined ? ` (${clip.gainDb > 0 ? "+" : ""}${clip.gainDb.toFixed(1)} dB)` : ""}
-        </ContextMenuItem>
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => setUi({ clipEditor: clip.id })}>Gain, fades and stretch…</ContextMenuItem>
+          <ContextMenuItem onSelect={() => void execute(targets.filter((c) => c.type === "audio").map((c) => ({ type: "updateClip" as const, clip: c.id, changes: { reverse: !clip.reverse } })),
+            { label: clip.reverse ? "Play forwards" : "Reverse" })}>
+            {clip.reverse ? "Play forwards" : "Reverse"}{plural}
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => void execute({ type: "updateClip", clip: clip.id, changes: { gainDb: null } }, { label: "Reset clip gain" })} disabled={clip.gainDb === undefined}>
+            Reset gain{clip.gainDb !== undefined ? ` (${clip.gainDb > 0 ? "+" : ""}${clip.gainDb.toFixed(1)} dB)` : ""}
+          </ContextMenuItem>
+        </>
       )}
       <ContextMenuSeparator />
       <ContextMenuItem danger shortcut="⌫" onSelect={() => {

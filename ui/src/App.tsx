@@ -9,6 +9,9 @@ import { Splitter } from "@/features/shell/Splitter";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { RecordDialog } from "@/features/record/RecordDialog";
 import { ProjectDialog } from "@/features/shell/ProjectDialog";
+import { AudioClipDialog } from "@/features/playlist/AudioClipDialog";
+import { ExportDialog } from "@/features/shell/ExportDialog";
+import { useLiveChannel, useTypingKeyboard } from "@/features/shell/liveInput";
 import { useShortcuts } from "@/features/shell/shortcuts";
 import { useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -22,6 +25,8 @@ export function App() {
   const bottomHeight = bottomPanel === "mixer" ? Math.max(chosenHeight, 420) : chosenHeight;
   useShortcuts();
   useDefaultSelection();
+  useLiveChannel();
+  useTypingKeyboard();
 
   return (
     <div className="flex h-full flex-col">
@@ -63,6 +68,8 @@ export function App() {
       <SettingsDialog />
       <RecordDialog />
       <ProjectDialog />
+      <AudioClipDialog />
+      <ExportDialog />
     </div>
   );
 }

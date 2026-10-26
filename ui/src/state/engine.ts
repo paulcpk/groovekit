@@ -17,6 +17,8 @@ export interface Transport {
   /** Pattern mode plays one pattern on a loop instead of the song. */
   mode?: "song" | "pattern";
   pattern?: string;
+  metronome?: boolean;
+  countInBars?: number;
 }
 
 export interface Levels {
@@ -145,7 +147,11 @@ function onNotification(method: string, params: any) {
 }
 
 export const engine = new EngineClient("ui", {
-  status: (status, error) => set({ status, error }),
+  status: (status, error) => {
+    set({ status, error });
+    // Transport notifications only come with changes; on connecting, ask where it is (mode, metronome...).
+    if (status === "connected") void engine.call<Transport>("transport.state").then((transport) => set({ transport }), () => {});
+  },
   notification: onNotification,
 });
 

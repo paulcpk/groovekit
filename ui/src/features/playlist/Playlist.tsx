@@ -10,6 +10,7 @@ import { execute, reportError, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { ClipView } from "./ClipView";
 import { HEADER_W, RULER_H, droppedSample, isSampleDrag, type DraggedSample, type Geometry } from "./geometry";
+import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { TrackHeader } from "./TrackHeader";
@@ -177,14 +178,27 @@ export function Playlist() {
                 style={gridStyle}
                 onPointerDown={(e) => beginEmptyDrag(e, i)}
                 onDragOver={(e) => {
-                  if (isSampleDrag(e)) e.preventDefault();
+                  if (isSampleDrag(e) || isFileDrag(e)) e.preventDefault();
                 }}
                 onDrop={(e) => {
+                  const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+                  const at = floorTo(x / g.pxPerTick, g.snap);
+                  if (isFileDrag(e)) {
+                    e.preventDefault();
+                    // Several files play one after another from where they're dropped.
+                    void importDroppedFiles(e).then(async (samples) => {
+                      let start = at;
+                      for (const sample of samples) {
+                        const clip = await dropSample(useEngine.getState().doc ?? doc, sample, track.id, start);
+                        if (clip) start = clip.start + clip.length;
+                      }
+                    });
+                    return;
+                  }
                   const sample = droppedSample(e);
                   if (!sample) return;
                   e.preventDefault();
-                  const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-                  void dropSample(doc, sample, track.id, floorTo(x / g.pxPerTick, g.snap));
+                  void dropSample(doc, sample, track.id, at);
                 }}
               >
                 {lanes[i].map(({ clip, start, length, ghost }) => (
@@ -356,8 +370,10 @@ async function dropSample(doc: Project, sample: DraggedSample, track: string, st
     };
     await execute({ type: "addClip", clip }, { label: `Add ${baseName(sample.path)}` });
     setUi({ selectedClips: [clip.id] });
+    return clip;
   } catch (e) {
     reportError(e);
+    return undefined;
   }
 }
 

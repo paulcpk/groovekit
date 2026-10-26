@@ -16,6 +16,7 @@ interface AudioDevices {
 interface MidiDevices {
   outputs: { name: string; enabled: boolean; clock: boolean }[];
   inputs: string[];
+  enabledInputs?: string[];
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -90,6 +91,21 @@ export function SettingsDialog() {
       </Section>
 
       <LibrarySettings />
+
+      <Section title="MIDI keyboards and controllers">
+        {!midi ? <div className="text-xs text-faint">Loading…</div> : midi.inputs.length === 0 ? <div className="text-xs text-faint">No MIDI inputs. The typing keyboard in the top bar works without one.</div> : (
+          <div className="flex flex-col gap-1">
+            {midi.inputs.map((name) => (
+              <label key={name} className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={midi.enabledInputs?.includes(name) ?? false} className="accent-[var(--color-accent)]"
+                  onChange={(e) => void call<MidiDevices>("midi.setInput", { input: name, enabled: e.target.checked }).then(setMidi)} />
+                <span className="text-fg">{name}</span>
+                <span className="text-faint">plays the selected channel</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </Section>
 
       <Section title="MIDI clock">
         {!midi ? <div className="text-xs text-faint">Loading…</div> : midi.outputs.length === 0 ? <div className="text-xs text-faint">No MIDI outputs.</div> : (

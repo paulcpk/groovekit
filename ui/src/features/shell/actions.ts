@@ -1,4 +1,4 @@
-import { call, execute, toast, useEngine } from "@/state/engine";
+import { call, engine, execute, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { formatDb } from "@/lib/model";
 
@@ -82,4 +82,37 @@ export async function masterSong(targetLufs = -14) {
 
 export function setTempo(tempo: number) {
   return execute({ type: "setTempo", tempo: Math.round(tempo * 100) / 100 });
+}
+
+export function setMetronome(enabled: boolean) {
+  return call("transport.setMetronome", { enabled });
+}
+
+export function setCountIn(bars: number) {
+  return call("transport.setMetronome", { countInBars: bars });
+}
+
+/** In pattern mode, records notes from the keyboards into the selected pattern on the selected
+    channel; in song mode, picks audio inputs to record. Stops a recording in progress. */
+export function record() {
+  const { transport, doc } = useEngine.getState();
+  if (transport.recording) return call("record.stop");
+  if (transport.mode !== "pattern") {
+    setUi({ recordOpen: true });
+    return Promise.resolve();
+  }
+  const { selectedPattern, selectedChannel, recordQuantize } = useUi.getState();
+  const pattern = selectedPattern ?? doc?.patterns[0]?.id;
+  const channel = selectedChannel ?? doc?.channels[0]?.id;
+  if (!pattern || !channel) {
+    toast("Pick a pattern and a channel to record notes into");
+    return Promise.resolve();
+  }
+  return call("record.notes", { pattern, channel, quantize: recordQuantize });
+}
+
+/** Plays a note on a channel briefly, to hear it while editing. */
+export function auditionNote(channel: string, key: number, velocity = 100, ms = 220) {
+  void engine.call("live.noteOn", { channel, key, velocity }).catch(() => {});
+  setTimeout(() => void engine.call("live.noteOff", { key }).catch(() => {}), ms);
 }

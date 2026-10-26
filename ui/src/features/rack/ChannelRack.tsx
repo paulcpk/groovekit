@@ -1,10 +1,11 @@
 import type { Channel, Note, Pattern, Project } from "@groovekit/schema/project";
 import { ChevronDown, Copy, Plus, Trash2, Volume2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Empty, IconButton, Knob } from "@/components/controls";
+import { Button, Empty, IconButton, Knob, ToggleChip } from "@/components/controls";
 import { ActivityLed } from "@/components/fader";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { droppedSample, isSampleDrag } from "@/features/playlist/geometry";
+import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { newPattern } from "@/features/playlist/Playlist";
 import { cn } from "@/lib/cn";
 import { useLiveControl } from "@/lib/liveControl";
@@ -54,8 +55,15 @@ export function ChannelRack() {
     <div className="flex h-full">
       <div
         className="flex min-w-0 flex-1 flex-col"
-        onDragOver={(e) => isSampleDrag(e) && e.preventDefault()}
+        onDragOver={(e) => (isSampleDrag(e) || isFileDrag(e)) && e.preventDefault()}
         onDrop={(e) => {
+          if (isFileDrag(e)) {
+            e.preventDefault();
+            void importDroppedFiles(e).then(async (samples) => {
+              for (const sample of samples) await addSamplerChannel(useEngine.getState().doc ?? doc, sample);
+            });
+            return;
+          }
           const sample = droppedSample(e);
           if (!sample) return;
           e.preventDefault();
@@ -106,6 +114,18 @@ async function commitPaint(doc: Project, pattern: Pattern, paint: Paint) {
 }
 
 //==============================================================================
+/** Delays every second 16th, for the whole song. */
+function SwingKnob({ swing }: { swing: number }) {
+  const control = useLiveControl((v) => ({ type: "setSwing", swing: Math.round(v) / 100 }), "Swing");
+  return (
+    <div className="flex items-center gap-1.5 text-2xs text-dim" title="Swing: delays every second 16th note (double-click resets)">
+      <Knob value={swing * 100} min={0} max={100} defaultValue={0} size={22} format={(v) => `${Math.round(v)}%`}
+        onChange={control.onChange} onCommit={control.onCommit} />
+      <span>Swing {Math.round(swing * 100)}%</span>
+    </div>
+  );
+}
+
 function RackToolbar({ doc, pattern }: { doc: Project; pattern: Pattern | undefined }) {
   const [renaming, setRenaming] = useState(false);
   const bar = ticksPerBar(doc);
@@ -173,6 +193,7 @@ function RackToolbar({ doc, pattern }: { doc: Project; pattern: Pattern | undefi
         </>
       )}
       <div className="flex-1" />
+      <SwingKnob swing={doc.swing ?? 0} />
       <Dropdown>
         <DropdownTrigger asChild>
           <Button size="sm"><Plus size={12} /> Channel</Button>
@@ -269,6 +290,9 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
 
       <button type="button" title="Mute" onClick={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}
         className={cn("h-3 w-3 shrink-0 rounded-full border", channel.mute ? "border-faint bg-transparent" : "border-ok bg-ok/80")} />
+      <ToggleChip on={!!channel.solo} label="S" tone="dim" title={channel.solo ? "Unsolo" : "Solo: only soloed channels play"}
+        className={cn("h-4 min-w-4 px-0.5 text-[9px]", channel.solo && "bg-accent text-black")}
+        onClick={() => update({ solo: !channel.solo }, channel.solo ? "Unsolo channel" : "Solo channel")} />
       {channel.instrument.type === "sampler" && channel.instrument.layers.length > 0 && (
         <IconButton size="sm" title="Preview sample" className="h-5 w-5" onClick={preview}><Volume2 size={11} /></IconButton>
       )}

@@ -29,6 +29,14 @@ export interface UiState {
   settingsOpen: boolean;
   recordOpen: boolean;
   projectDialog?: "new" | "open" | "saveAs";
+  exportOpen: boolean;
+  /** The audio clip whose gain, fades and stretch are being edited. */
+  clipEditor?: string;
+  /** The computer keyboard plays the selected channel (Z row from C of this octave, Q row an octave up). */
+  typingKeyboard: boolean;
+  keyboardOctave: number;
+  /** Recorded notes snap to this grid (ticks); 0 keeps them as played. */
+  recordQuantize: number;
   /** The loop region in ticks, and whether the transport loops it. */
   loop?: { start: number; end: number };
   looping: boolean;
@@ -58,13 +66,17 @@ export const useUi = create<UiState>(() => ({
   followPlayhead: true,
   settingsOpen: false,
   recordOpen: false,
+  exportOpen: false,
+  typingKeyboard: false,
+  keyboardOctave: 4,
+  recordQuantize: 0,
   looping: false,
   ...saved,
 }));
 
 const persisted: (keyof UiState)[] = [
   "sidebarTab", "sidebarOpen", "bottomPanel", "bottomOpen", "bottomHeight", "sidebarWidth",
-  "playlistZoom", "trackHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead",
+  "playlistZoom", "trackHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize",
 ];
 
 useUi.subscribe((state) => {

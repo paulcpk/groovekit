@@ -116,8 +116,14 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
 
       <div className="flex shrink-0 items-center justify-between px-2 py-1.5">
         <span className="font-mono text-2xs text-dim tabular">{formatDb(db)}</span>
-        <ToggleChip on={!insert.mute} label={master ? "M" : String(index)} title={insert.mute ? "Unmute" : "Mute"}
-          onClick={() => update({ mute: !insert.mute }, insert.mute ? "Unmute insert" : "Mute insert")} />
+        <div className="flex gap-0.5">
+          {!master && (
+            <ToggleChip on={!!insert.solo} label="S" title={insert.solo ? "Unsolo" : "Solo: hear only this insert, with what feeds it and what it feeds"}
+              onClick={() => update({ solo: !insert.solo }, insert.solo ? "Unsolo insert" : "Solo insert")} />
+          )}
+          <ToggleChip on={!insert.mute} label={master ? "M" : String(index)} title={insert.mute ? "Unmute" : "Mute"}
+            onClick={() => update({ mute: !insert.mute }, insert.mute ? "Unmute insert" : "Mute insert")} />
+        </div>
       </div>
       <div className="h-4 shrink-0 px-2 text-[9px] text-faint">{feeders > 0 && `${feeders} channel${feeders === 1 ? "" : "s"}`}</div>
 

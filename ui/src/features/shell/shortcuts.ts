@@ -5,6 +5,7 @@ import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { redo, setPosition, stop, togglePlay, toggleLoop, undo } from "./actions";
 import { browseForProject, saveProject } from "./ProjectDialog";
+import { splitAtPlayhead } from "@/features/playlist/clipOps";
 
 let clipboard: Clip[] = [];
 let lastSpace = 0;
@@ -86,6 +87,12 @@ export function useShortcuts() {
       } else if (e.key === "F8" || (mod && e.key.toLowerCase() === "b")) {
         e.preventDefault();
         setUi({ sidebarOpen: !useUi.getState().sidebarOpen });
+      } else if (mod && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        setUi({ exportOpen: true });
+      } else if (mod && e.key.toLowerCase() === "e") {
+        e.preventDefault();
+        splitAtPlayhead();
       } else if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (e.shiftKey) setUi({ projectDialog: "saveAs" });

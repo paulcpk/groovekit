@@ -8,12 +8,16 @@ import { stepKey } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
 import { colorFor, noteName, patternLength, snapTicks, STEP, ticksPerBar, ticksPerBeat } from "@/lib/model";
-import { execute, useEngine } from "@/state/engine";
+import { auditionNote } from "@/features/shell/actions";
+import { engine, execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
 const KEYS_W = 56;
 const VELOCITY_H = 64;
 const black = new Set([1, 3, 6, 8, 10]);
+
+/** Notes copied with ⌘C, pasted into any pattern or channel with ⌘V. */
+let noteClipboard: Note[] = [];
 
 export function PianoRoll() {
   const doc = useEngine((s) => s.doc)!;
@@ -75,19 +79,87 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
       .finally(() => setDraft(null));
   };
 
-  // Delete removes the selected notes while the piano roll is open.
+  // Editing keys act on the piano roll while it's what was clicked last.
+  const root = useRef<HTMLDivElement>(null);
+  const active = useRef(false);
+
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      active.current = !!root.current?.contains(e.target as Node);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, []);
+
+  const quantize = () => {
+    const targets = selected.size ? selected : new Set(stored.map((_, i) => i));
+    save(stored.map((n, i) => (targets.has(i) ? { ...n, start: Math.max(0, snapTo(n.start, step)) } : n)), "Quantize notes");
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key !== "Delete" && e.key !== "Backspace") || selected.size === 0) return;
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      save(stored.filter((_, i) => !selected.has(i)), selected.size === 1 ? "Delete note" : `Delete ${selected.size} notes`);
-      setSelected(new Set());
+      const t = e.target as HTMLElement | null;
+      if (!active.current || t?.tagName === "INPUT" || t?.tagName === "TEXTAREA") return;
+      const mod = e.metaKey || e.ctrlKey;
+      const k = e.key.toLowerCase();
+      const all = new Set(stored.map((_, i) => i));
+      const chosen = [...selected].map((i) => stored[i]).filter(Boolean);
+      const handled = () => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      };
+
+      if ((e.key === "Delete" || e.key === "Backspace") && selected.size) {
+        handled();
+        save(stored.filter((_, i) => !selected.has(i)), selected.size === 1 ? "Delete note" : `Delete ${selected.size} notes`);
+        setSelected(new Set());
+      } else if (mod && k === "a") {
+        handled();
+        setSelected(all);
+      } else if (mod && k === "c" && chosen.length) {
+        handled();
+        noteClipboard = chosen.map((n) => ({ ...n }));
+      } else if (mod && (k === "v" || k === "d")) {
+        // Paste puts copied notes back at their times; duplicate repeats the selection right after itself.
+        const source = k === "v" ? noteClipboard : chosen;
+        if (!source.length) return;
+        handled();
+        const span = k === "d" ? Math.ceil((Math.max(...source.map((n) => n.start + n.length)) - Math.min(...source.map((n) => n.start))) / step) * step : 0;
+        const added = source.map((n) => ({ ...n, channel: channelId, start: n.start + span }));
+        const next = [...stored, ...added];
+        const end = Math.max(...next.map((n) => n.start + n.length));
+        // A pattern with a set length grows (in whole bars) to keep the new notes in its loop.
+        if (pattern.length && end > pattern.length) {
+          setDraft(next);
+          void execute([
+            { type: "updatePattern", pattern: pattern.id, changes: { length: Math.ceil(end / bar) * bar } },
+            { type: "setNotes", pattern: pattern.id, channel: channelId, notes: next.map((n) => ({ ...n, channel: channelId })) },
+          ], { label: k === "v" ? "Paste notes" : "Duplicate notes" }).finally(() => setDraft(null));
+        } else {
+          save(next, k === "v" ? "Paste notes" : "Duplicate notes");
+        }
+        setSelected(new Set(added.map((_, i) => stored.length + i)));
+      } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && selected.size) {
+        handled();
+        const dk = (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1);
+        save(stored.map((n, i) => (selected.has(i) ? { ...n, key: Math.min(127, Math.max(0, (n.key ?? 60) + dk)) } : n)), "Transpose notes");
+        const first = chosen[0];
+        if (first) auditionNote(channelId, Math.min(127, Math.max(0, (first.key ?? 60) + dk)));
+      } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && selected.size) {
+        handled();
+        const dt = (e.key === "ArrowRight" ? 1 : -1) * step;
+        if (Math.min(...chosen.map((n) => n.start)) + dt < 0) return;
+        save(stored.map((n, i) => (selected.has(i) ? { ...n, start: n.start + dt } : n)), "Move notes");
+      } else if (k === "q" && !mod) {
+        handled();
+        quantize();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   });
+
+  const [rubber, setRubber] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
   const pointToNote = (e: { clientX: number; clientY: number }, el: HTMLElement) => {
     const r = el.getBoundingClientRect();
@@ -97,8 +169,29 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
   const onGridDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const el = e.currentTarget;
+
+    // Shift- or ⌘-drag selects the notes in a box.
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      const r = el.getBoundingClientRect();
+      const x0 = e.clientX - r.left, y0 = e.clientY - r.top;
+      const before = e.shiftKey ? selected : new Set<number>();
+      startDrag(e, (_dx, _dy, ev) => {
+        const box = { x0, y0, x1: ev.clientX - r.left, y1: ev.clientY - r.top };
+        setRubber(box);
+        const [xa, xb] = [Math.min(box.x0, box.x1), Math.max(box.x0, box.x1)];
+        const [ya, yb] = [Math.min(box.y0, box.y1), Math.max(box.y0, box.y1)];
+        const hit = stored.flatMap((n, i) => {
+          const top = (127 - (n.key ?? 60)) * keyH;
+          return n.start * px < xb && (n.start + n.length) * px > xa && top < yb && top + keyH > ya ? [i] : [];
+        });
+        setSelected(new Set([...before, ...hit]));
+      }, () => setRubber(null), "crosshair");
+      return;
+    }
+
     const { tick, key } = pointToNote(e, el);
     const start = floorTo(tick, step);
+    auditionNote(channelId, key);
     const created: Note = { channel: channelId, start, length: lastLength.current, key, velocity: 100 };
     const index = stored.length;
     setSelected(new Set([index]));
@@ -127,6 +220,9 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
     const copy = e.altKey;
     const base = stored;
     let next = base;
+    let lastDk = 0;
+
+    if (edge === "body") auditionNote(channelId, base[index].key ?? 60, base[index].velocity ?? 100);
 
     startDrag(e, (_dx, _dy, ev) => {
       const at = pointToNote(ev, grid);
@@ -141,6 +237,10 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
         const dk = at.key - origin.key;
         const minStart = Math.min(...[...sel].map((i) => base[i].start));
         const shift = Math.max(-minStart, dt);
+        if (dk !== lastDk) {
+          lastDk = dk;
+          auditionNote(channelId, Math.min(127, Math.max(0, (n.key ?? 60) + dk)));
+        }
         const moved = base.flatMap((m, i) => (sel.has(i) ? [{ ...m, start: m.start + shift, key: Math.min(127, Math.max(0, (m.key ?? 60) + dk)) }] : []));
         next = copy ? [...base, ...moved] : base.map((m, i) => (sel.has(i) ? moved[[...sel].sort((a, b) => a - b).indexOf(i)] : m));
       }
@@ -177,12 +277,12 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <PianoToolbar doc={doc} pattern={pattern} channelId={channelId} />
+    <div ref={root} className="flex h-full flex-col">
+      <PianoToolbar doc={doc} pattern={pattern} channelId={channelId} onQuantize={quantize} selection={selected.size} />
       <div className="flex min-h-0 flex-1">
         <div className="flex shrink-0 flex-col border-r border-line bg-panel" style={{ width: KEYS_W }}>
           <div className="relative min-h-0 flex-1 overflow-hidden" ref={keysRef}>
-            <Keyboard keyH={keyH} scroller={scroller} />
+            <Keyboard keyH={keyH} scroller={scroller} channel={channelId} />
           </div>
           <div className="flex shrink-0 items-start justify-end border-t border-line p-1 text-[9px] text-faint" style={{ height: VELOCITY_H }}>Velocity</div>
         </div>
@@ -199,6 +299,10 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
             <div className="relative" style={gridBackground} onPointerDown={onGridDown}>
               <div className="pointer-events-none absolute top-0 bottom-0 bg-black/35" style={{ left: loop * px, right: 0 }} />
               <PatternPlayhead pattern={pattern.id} px={px} />
+              {rubber && (
+                <div className="pointer-events-none absolute z-20 border border-accent/80 bg-accent/10"
+                  style={{ left: Math.min(rubber.x0, rubber.x1), top: Math.min(rubber.y0, rubber.y1), width: Math.abs(rubber.x1 - rubber.x0), height: Math.abs(rubber.y1 - rubber.y0) }} />
+              )}
               {others.map((n, i) => (
                 <div key={`o${i}`} className="pointer-events-none absolute rounded-[2px] bg-fg/10"
                   style={{ left: n.start * px, top: (127 - (n.key ?? 60)) * keyH, width: n.length * px, height: keyH - 1 }} />
@@ -235,12 +339,19 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
   );
 }
 
-function Keyboard({ keyH, scroller }: { keyH: number; scroller: React.RefObject<HTMLDivElement | null> }) {
+/** The keys play the channel while held. */
+function Keyboard({ keyH, scroller, channel }: { keyH: number; scroller: React.RefObject<HTMLDivElement | null>; channel: string }) {
   const keys = Array.from({ length: 128 }, (_, i) => 127 - i);
+  const play = (e: React.PointerEvent, key: number) => {
+    if (e.button !== 0) return;
+    void engine.call("live.noteOn", { channel, key, velocity: 100 }).catch(() => {});
+    startDrag(e, () => {}, () => void engine.call("live.noteOff", { key }).catch(() => {}));
+  };
   return (
     <div style={{ height: 128 * keyH }} onWheel={(e) => scroller.current && (scroller.current.scrollTop += e.deltaY)}>
       {keys.map((k) => (
-        <div key={k} className={cn("flex items-center justify-end border-b border-black/40 pr-1 text-[9px]", black.has(k % 12) ? "bg-[#202024] text-faint" : "bg-[#cfcfd4] text-[#3a3a40]")} style={{ height: keyH }}>
+        <div key={k} onPointerDown={(e) => play(e, k)}
+          className={cn("flex cursor-pointer items-center justify-end border-b border-black/40 pr-1 text-[9px] active:brightness-75", black.has(k % 12) ? "bg-[#202024] text-faint" : "bg-[#cfcfd4] text-[#3a3a40]")} style={{ height: keyH }}>
           {k % 12 === 0 && keyH >= 9 ? noteName(k) : ""}
         </div>
       ))}
@@ -287,7 +398,7 @@ function VelocityLane({ notes, px, width, color, selected, onChange, onPreview }
   );
 }
 
-function PianoToolbar({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; channelId: string }) {
+function PianoToolbar({ doc, pattern, channelId, onQuantize, selection }: { doc: Project; pattern: Pattern; channelId: string; onQuantize: () => void; selection: number }) {
   const { pianoZoom, pianoKeyHeight } = useUi();
   const channel = doc.channels.find((c) => c.id === channelId)!;
 
@@ -318,7 +429,8 @@ function PianoToolbar({ doc, pattern, channelId }: { doc: Project; pattern: Patt
           ))}
         </DropdownContent>
       </Dropdown>
-      <div className="text-2xs text-faint">Click to draw · drag to move · edge to resize · Alt-drag copies · double-click deletes</div>
+      <Button size="sm" title="Snap note starts to the grid (Q)" onClick={onQuantize}>Quantize{selection ? ` ${selection}` : ""}</Button>
+      <div className="truncate text-2xs text-faint">Click to draw · Shift-drag selects · Alt-drag copies · ↑↓ transpose · ⌘C ⌘V ⌘D · double-click deletes</div>
       <div className="flex-1" />
       <div className="flex items-center">
         <IconButton size="sm" title="Shorter keys" onClick={() => setUi({ pianoKeyHeight: Math.max(6, pianoKeyHeight - 2) })}><Minus size={12} /></IconButton>
