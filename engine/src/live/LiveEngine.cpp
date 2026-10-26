@@ -103,7 +103,10 @@ LiveEngine::~LiveEngine()
 void LiveEngine::openDefaultAudioDevice()
 {
     auto& devices = context.getEngine().getDeviceManager();
-    devices.initialise();
+
+    // Once per process: a LiveEngine for another project opened later uses the open device.
+    if (devices.deviceManager.getCurrentAudioDeviceType().isEmpty())
+        devices.initialise();
 
     // After Tracktion's own callback, so each cycle's clock is complete when it's sent.
     devices.deviceManager.removeAudioCallback (midiClock.get());

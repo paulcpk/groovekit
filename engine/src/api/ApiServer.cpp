@@ -9,7 +9,7 @@ namespace gk
 struct ApiServer::Impl
 {
     Impl (ApiHandler& h, int port)
-        : handler (h), server (port, "127.0.0.1")
+        : handler (&h), server (port, "127.0.0.1")
     {
         server.disablePerMessageDeflate();
 
@@ -34,17 +34,31 @@ struct ApiServer::Impl
             });
         });
 
-        handler.setBroadcast ([this] (const std::string& message)
+        attach();
+    }
+
+    ~Impl()
+    {
+        *alive = false;
+        handler->setBroadcast ({});
+    }
+
+    void attach()
+    {
+        handler->setBroadcast ([this] (const std::string& message)
         {
             for (auto& [id, client] : clients)
                 client.send (message);
         });
     }
 
-    ~Impl()
+    void setHandler (ApiHandler& h)
     {
-        *alive = false;
-        handler.setBroadcast ({});
+        handler = &h;
+        attach();
+
+        for (auto& [id, client] : clients)
+            client.send (handler->getSnapshotMessage());
     }
 
     void handle (std::weak_ptr<ix::WebSocket> weak, const std::string& id, ix::WebSocketMessageType type, const std::string& text)
@@ -59,13 +73,13 @@ struct ApiServer::Impl
                     if (auto ws = weak.lock())
                         ws->sendText (message);
                 };
-                client.send (handler.getSnapshotMessage());
+                client.send (handler->getSnapshotMessage());
                 break;
             }
 
             case ix::WebSocketMessageType::Message:
                 if (auto it = clients.find (id); it != clients.end())
-                    handler.handleMessage (text, it->second);
+                    handler->handleMessage (text, it->second);
 
                 break;
 
@@ -78,7 +92,7 @@ struct ApiServer::Impl
         }
     }
 
-    ApiHandler& handler;
+    ApiHandler* handler;
     ix::WebSocketServer server;
     std::map<std::string, ApiHandler::Client> clients; // message thread only
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
@@ -92,6 +106,11 @@ ApiServer::ApiServer (ApiHandler& handler, int p)
 ApiServer::~ApiServer()
 {
     stop();
+}
+
+void ApiServer::setHandler (ApiHandler& handler)
+{
+    impl->setHandler (handler);
 }
 
 void ApiServer::start()

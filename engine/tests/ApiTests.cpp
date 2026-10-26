@@ -2,6 +2,9 @@
 
 #include "api/ApiHandler.h"
 #include "library/SampleLibrary.h"
+#include "session/RecentProjects.h"
+
+#include <fstream>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -252,4 +255,37 @@ TEST_CASE ("The API gives waveform peaks of audio files")
     CHECK (std::any_of (peaks.begin(), peaks.end(), [] (auto& p) { return p.template get<double>() > 0.1; }));
 
     CHECK (h.call ("audio.peaks", { { "path", "/nowhere.wav" } })["error"]["code"] == 2);
+}
+
+TEST_CASE ("The API opens and creates projects through its host")
+{
+    Harness h;
+    const auto root = test::tempDir() / "api-projects";
+    std::filesystem::remove_all (root);
+    std::filesystem::create_directories (root / "existing");
+    Session::open (root / "existing");
+    std::filesystem::create_directories (root / "busy");
+    std::ofstream (root / "busy" / "notes.txt") << "x";
+
+    h.handler.recentFile = root / "recent.json";
+    CHECK (h.call ("project.open", { { "path", (root / "existing").string() } })["error"]["message"] == "this engine can't switch projects");
+
+    std::vector<std::filesystem::path> opened;
+    h.handler.onOpenProject = [&] (const std::filesystem::path& dir) { opened.push_back (dir); };
+
+    CHECK (h.call ("project.open", { { "path", (root / "existing").string() } })["result"]["project"] == (root / "existing").string());
+    CHECK_THAT (h.call ("project.open", { { "path", (root / "busy").string() } })["error"]["message"].get<std::string>(), ContainsSubstring ("isn't a GrooveKit project"));
+    CHECK_THAT (h.call ("project.new", { { "path", (root / "existing").string() } })["error"]["message"].get<std::string>(), ContainsSubstring ("already a project"));
+    CHECK_THAT (h.call ("project.new", { { "path", (root / "busy").string() } })["error"]["message"].get<std::string>(), ContainsSubstring ("isn't empty"));
+
+    CHECK (h.call ("project.new", { { "path", (root / "fresh" / "song").string() } })["result"]["project"] == (root / "fresh" / "song").string());
+    CHECK (std::filesystem::is_directory (root / "fresh" / "song"));
+
+    REQUIRE (opened.size() == 2);
+    CHECK (opened[1] == root / "fresh" / "song");
+
+    recent::add (root / "recent.json", root / "existing");
+    auto recent = h.call ("project.recent")["result"]["projects"];
+    REQUIRE (recent.size() == 1);
+    CHECK (recent[0]["name"] == "existing");
 }

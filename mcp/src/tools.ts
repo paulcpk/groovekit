@@ -215,6 +215,28 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
   );
 
   server.registerTool(
+    "project",
+    {
+      description: `The project (a folder holding song.json, its history and recordings) that the engine has open, shared with the user's GrooveKit window.
+- current: its folder and the recently opened ones.
+- open: opens another project folder.
+- new: creates a project in a new, empty folder and opens it.
+Opening or creating one switches the user's window too, so only do it when the user asks.`,
+      inputSchema: {
+        action: z.enum(["current", "open", "new"]),
+        path: z.string().optional().describe("For open and new: the project folder (absolute)"),
+      },
+    },
+    ({ action, path }) =>
+      attempt(async () => {
+        await engine.connect();
+        if (action === "current") return engine.call("project.recent");
+        if (!path) throw new Error(`${action} needs a path`);
+        return engine.call(`project.${action}`, { path });
+      })
+  );
+
+  server.registerTool(
     "record",
     {
       description: `Records audio inputs into clips, e.g. the user's Digitakt II over USB (16 tracks; each can be an audio or a MIDI track, so some outputs are silent).

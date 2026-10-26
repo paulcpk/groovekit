@@ -7,6 +7,7 @@
 #include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
 #include "render/Render.h"
+#include "session/RecentProjects.h"
 
 #include <nlohmann/json.hpp>
 #include <tracktion_engine/tracktion_engine.h>
@@ -156,7 +157,6 @@ Add --verbose to see engine log messages.
                                       + " (process " + std::to_string (other->value ("pid", 0)) + ")");
 
         gk::EngineContext context ({ .outOfProcessPluginScanning = true });
-        auto session = gk::Session::open (projectDir);
         gk::PluginCatalog plugins (context.getEngine(), gk::PluginCatalog::getDefaultListFile());
         gk::library::SampleLibrary library (args.get ("--library").value_or (gk::library::SampleLibrary::getDefaultIndexFile().string()));
 
@@ -166,28 +166,89 @@ Add --verbose to see engine log messages.
 
         // Catch up on files added or changed since last time.
         library.startScan();
-        gk::LiveEngine live (context, *session);
 
-        if (! args.get ("--no-audio"))
-            live.openDefaultAudioDevice();
+        const auto pid = static_cast<int> (getpid());
+        const auto registration = engineRegistry() / (std::to_string (pid) + ".json");
+        const auto recents = gk::EngineContext::getAppDataFolder() / "recent.json";
+        const bool audio = ! args.get ("--no-audio");
 
-        gk::ApiHandler handler (*session, context, &library, &live, &plugins);
-        gk::ApiServer server (handler, port);
-        server.start();
+        auto registerAs = [&] (const std::filesystem::path& project)
+        {
+            std::filesystem::create_directories (engineRegistry());
+            std::ofstream out (registration);
+            out << nlohmann::json { { "url", "ws://127.0.0.1:" + std::to_string (port) }, { "port", port }, { "pid", pid },
+                                    { "project", project.string() } }.dump (2);
+        };
+
+        // What belongs to the open project; project.open and project.new replace it.
+        struct Workspace
+        {
+            std::unique_ptr<gk::Session> session;
+            std::unique_ptr<gk::LiveEngine> live;
+            std::unique_ptr<gk::ApiHandler> handler;
+        };
+
+        Workspace workspace;
+        std::unique_ptr<gk::ApiServer> server;
+        std::function<void (const std::filesystem::path&)> openProject;
+
+        auto open = [&] (const std::filesystem::path& dir)
+        {
+            Workspace w;
+            w.session = gk::Session::open (dir);
+            w.live = std::make_unique<gk::LiveEngine> (context, *w.session);
+
+            if (audio)
+                w.live->openDefaultAudioDevice();
+
+            w.handler = std::make_unique<gk::ApiHandler> (*w.session, context, &library, w.live.get(), &plugins);
+            w.handler->onOpenProject = openProject;
+            return w;
+        };
+
+        openProject = [&] (const std::filesystem::path& dir)
+        {
+            if (auto other = findServingEngine (dir); other && other->value ("pid", 0) != pid)
+                throw std::runtime_error (dir.string() + " is already open in the engine at " + other->value ("url", std::string())
+                                          + " (process " + std::to_string (other->value ("pid", 0)) + ")");
+
+            // After the response to project.open has gone out, since this replaces the handler sending it.
+            juce::MessageManager::callAsync ([&, dir]
+            {
+                const auto previous = *workspace.session->getProjectDir();
+
+                // One project's Edit at a time on the audio device; each part uses the ones before it.
+                workspace.handler.reset();
+                workspace.live.reset();
+                workspace.session.reset();
+
+                try
+                {
+                    workspace = open (dir);
+                }
+                catch (const std::exception& e)
+                {
+                    std::cerr << "error: couldn't open " << dir.string() << ": " << e.what() << std::endl;
+                    workspace = open (previous);
+                }
+
+                server->setHandler (*workspace.handler);
+                registerAs (*workspace.session->getProjectDir());
+                gk::recent::add (recents, *workspace.session->getProjectDir());
+            });
+        };
+
+        workspace = open (projectDir);
+        server = std::make_unique<gk::ApiServer> (*workspace.handler, port);
+        server->start();
 
         std::signal (SIGINT, [] (int) { stopRequested = true; });
         std::signal (SIGTERM, [] (int) { stopRequested = true; });
 
         std::cout << "Serving " << args.positional[1] << " on ws://127.0.0.1:" << port << std::endl;
 
-        const auto pid = static_cast<int> (getpid());
-        const auto registration = engineRegistry() / (std::to_string (pid) + ".json");
-        {
-            std::filesystem::create_directories (engineRegistry());
-            std::ofstream out (registration);
-            out << nlohmann::json { { "url", "ws://127.0.0.1:" + std::to_string (port) }, { "port", port }, { "pid", pid },
-                                    { "project", session->getProjectDir()->string() } }.dump (2);
-        }
+        registerAs (*workspace.session->getProjectDir());
+        gk::recent::add (recents, *workspace.session->getProjectDir());
 
         // From before engines registered one file each.
         std::error_code ec;
@@ -207,7 +268,8 @@ Add --verbose to see engine log messages.
                 break;
         }
 
-        server.stop();
+        server->stop();
+        server.reset();
 
         std::filesystem::remove (registration, ec);
         return 0;

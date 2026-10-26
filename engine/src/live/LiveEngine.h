@@ -44,8 +44,9 @@ public:
     LiveEngine (EngineContext&, Session&, std::filesystem::path settingsFile = {});
     ~LiveEngine() override;
 
-    /** Opens the system's default audio device. Without this, the engine plays through
-        whatever device the device manager has (e.g. a hosted device in tests). */
+    /** Opens the system's default audio device (or the one chosen in settings), unless an earlier
+        LiveEngine did, and plays through it. Without this, the engine plays through whatever
+        device the device manager has (e.g. a hosted device in tests). */
     void openDefaultAudioDevice();
 
     /** Closes the input if it's a Bluetooth headset's microphone that wasn't chosen as the input

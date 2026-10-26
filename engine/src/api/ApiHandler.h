@@ -33,6 +33,14 @@ public:
     ApiHandler (Session&, EngineContext&, library::SampleLibrary* = nullptr, LiveEngine* = nullptr, PluginCatalog* = nullptr);
     ~ApiHandler();
 
+    /** Opens another project folder in place of this session (see project.open and project.new).
+        Throws if it can't (e.g. another engine serves it); the switch itself happens later,
+        after the response is sent, and replaces this handler. Not set: projects can't be switched. */
+    std::function<void (const std::filesystem::path&)> onOpenProject;
+
+    /** Where project.recent reads the list from; empty for <app data>/recent.json. */
+    std::filesystem::path recentFile;
+
     /** Called for every change; the server sends the message to all clients. */
     void setBroadcast (Send);
 
@@ -65,6 +73,7 @@ private:
     model::Json callLibrary (const std::string& method, const model::Json& params);
     model::Json callLive (const std::string& method, const model::Json& params, Client&);
     model::Json callPlugins (const std::string& method, const model::Json& params, Client&);
+    model::Json callProject (const std::string& method, const model::Json& params);
     void startLibraryScan();
 };
 

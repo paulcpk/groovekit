@@ -6,10 +6,10 @@ Types live in the schemas: [project.schema.json](../schema/project.schema.json) 
 
 ## Connecting
 
-On connect the engine sends a `snapshot` notification with the full document. After that, every change from any client arrives as a `patch` notification. Apply `ops` (JSON Patch) to the previous document to stay in sync.
+On connect the engine sends a `snapshot` notification with the full document. After that, every change from any client arrives as a `patch` notification. Apply `ops` (JSON Patch) to the previous document to stay in sync. When a client opens another project (`project.open` or `project.new`), every client gets a new `snapshot`, whose `project` names the folder now open; start over from it.
 
 ```json
-{ "jsonrpc": "2.0", "method": "snapshot", "params": { "document": { "...": "song.json" }, "head": 12 } }
+{ "jsonrpc": "2.0", "method": "snapshot", "params": { "document": { "...": "song.json" }, "head": 12, "project": "/Users/you/Music/GrooveKit/Scratch" } }
 { "jsonrpc": "2.0", "method": "patch", "params": {
     "kind": "execute", "entry": 13, "head": 13, "origin": "agent", "label": "Set tempo to 128",
     "ops": [ { "op": "add", "path": "/tempo", "value": 128 } ] } }
@@ -19,7 +19,7 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 
 While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second. While there's signal, `levels` notifications (`{ inserts: { id: [left, right] }, channels: { id: peak } }`, linear peaks since the last one) arrive at the same rate, and once more when it stops.
 
-A serving engine writes `~/Library/Application Support/GrooveKit/engine.json` (`{ url, port, pid, project }`), so other clients can connect to it rather than start another engine on the same project.
+A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<pid>.json` (`{ url, port, pid, project }`, rewritten when it opens another project), so other clients can connect to it rather than start another engine on the same project; an engine refuses to serve a project another one serves.
 
 ## Methods
 
@@ -55,6 +55,9 @@ A serving engine writes `~/Library/Application Support/GrooveKit/engine.json` (`
 | `plugins.describe` | `uid`, `query?`, `limit?` | the plugin with `parameterCount`, `parameters: [{ id, name, value, text }]` and a `pluginRef` for commands |
 | `plugins.openEditor` / `plugins.closeEditor` | `channel`, or `insert` and `effect` | `{ open }`; shows or closes a hosted plugin's own window. Closing it there saves its state into the project (as `captureState`); its state also carries over when the song is rebuilt |
 | `plugins.captureState` | `channel`, or `insert` and `effect` | `{ state, bytes, changed }`; saves the live plugin's state to `<project>/plugins/` and points the model at it (undoable) |
+| `project.recent` | | `{ projects: [{ path, name, modified }], current }`: project folders opened lately, most recent first (`modified` in ms since 1970) |
+| `project.open` | `path` | `{ project }`; switches the engine (and every client) to that project folder, which must hold a song.json. Refused if another engine serves it |
+| `project.new` | `path` | `{ project }`; creates a project in a new or empty folder and switches to it |
 | `library.status` | | `{ folders, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |
 | `library.scan` | | progress; `libraryProgress` notifications follow |

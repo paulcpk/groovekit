@@ -13,6 +13,7 @@
 #include "plugins/PluginWindows.h"
 #include "render/Render.h"
 #include "session/Mastering.h"
+#include "session/RecentProjects.h"
 #include "session/Summary.h"
 
 #include <juce_events/juce_events.h>
@@ -183,7 +184,12 @@ void ApiHandler::setBroadcast (Send b)
 
 std::string ApiHandler::getSnapshotMessage() const
 {
-    return notification ("snapshot", { { "document", session.getDocument() }, { "head", headJson (session.getHead()) } }).dump();
+    Json params { { "document", session.getDocument() }, { "head", headJson (session.getHead()) } };
+
+    if (auto dir = session.getProjectDir())
+        params["project"] = dir->string();
+
+    return notification ("snapshot", std::move (params)).dump();
 }
 
 void ApiHandler::handleMessage (const std::string& text, Client& client)
@@ -239,6 +245,9 @@ void ApiHandler::handleMessage (const std::string& text, Client& client)
 
 Json ApiHandler::call (const std::string& method, const Json& params, Client& client)
 {
+    if (method.starts_with ("project."))
+        return callProject (method, params);
+
     if (method == "hello")
     {
         if (params.contains ("origin"))
@@ -712,6 +721,63 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
     }
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+Json ApiHandler::callProject (const std::string& method, const Json& params)
+{
+    const auto recents = recentFile.empty() ? EngineContext::getAppDataFolder() / "recent.json" : recentFile;
+
+    if (method == "project.recent")
+    {
+        auto list = Json::array();
+
+        for (auto& dir : recent::load (recents))
+        {
+            const juce::File song ((dir / "song.json").string());
+            list.push_back ({ { "path", dir.string() }, { "name", dir.filename().string() },
+                              { "modified", song.getLastModificationTime().toMilliseconds() } });
+        }
+
+        Json result { { "projects", list } };
+
+        if (auto dir = session.getProjectDir())
+            result["current"] = dir->string();
+
+        return result;
+    }
+
+    if (method != "project.open" && method != "project.new")
+        throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+
+    if (! onOpenProject)
+        throw RpcError (operationFailed, "this engine can't switch projects");
+
+    const auto dir = std::filesystem::absolute (readParam<std::string> (params, "path")).lexically_normal();
+    std::error_code ec;
+
+    if (method == "project.open")
+    {
+        if (! recent::isProject (dir))
+            throw RpcError (invalidParams, dir.string() + " isn't a GrooveKit project (it has no song.json)");
+    }
+    else
+    {
+        if (recent::isProject (dir))
+            throw RpcError (invalidParams, dir.string() + " is already a project; open it instead");
+
+        if (std::filesystem::exists (dir, ec) && ! std::filesystem::is_empty (dir, ec))
+            throw RpcError (invalidParams, dir.string() + " isn't empty; choose a new folder for the project");
+
+        // A file system that's out of reach shows up here rather than after the switch.
+        if (! std::filesystem::create_directories (dir, ec) && ec)
+            throw RpcError (operationFailed, "Can't create " + dir.string() + ": " + ec.message());
+    }
+
+    if (auto current = session.getProjectDir(); current && std::filesystem::weakly_canonical (*current) == std::filesystem::weakly_canonical (dir))
+        return { { "project", dir.string() } };
+
+    onOpenProject (dir);
+    return { { "project", dir.string() } };
 }
 
 Json ApiHandler::callPlugins (const std::string& method, const Json& params, Client& client)
