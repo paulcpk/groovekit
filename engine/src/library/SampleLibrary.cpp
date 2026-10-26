@@ -387,6 +387,77 @@ std::optional<SampleEntry> SampleLibrary::find (const fs::path& path) const
     return {};
 }
 
+SampleLibrary::Listing SampleLibrary::list (const std::filesystem::path& folder) const
+{
+    // Finder order: case-insensitive, with numbers compared by value ("Kick 2" before "Kick 10").
+    const auto finderOrder = [] (const std::string& a, const std::string& b)
+    {
+        return juce::String (a).compareNatural (juce::String (b)) < 0;
+    };
+
+    Listing listing;
+    std::lock_guard lock (mutex);
+
+    // How many samples lie under a folder; entries are sorted by path.
+    const auto countBelow = [this] (const std::string& prefix)
+    {
+        size_t n = 0;
+
+        for (auto it = entries.lower_bound (prefix); it != entries.end() && it->first.starts_with (prefix); ++it)
+            ++n;
+
+        return n;
+    };
+
+    if (folder.empty())
+    {
+        for (auto& f : folders)
+            listing.folders.push_back ({ f, countBelow (f.string() + "/") });
+
+        return listing;
+    }
+
+    auto dir = folder.lexically_normal().string();
+
+    while (dir.size() > 1 && dir.ends_with ("/"))
+        dir.pop_back();
+
+    const auto prefix = dir + "/";
+    std::map<std::string, size_t, std::less<>> subfolders;
+
+    for (auto it = entries.lower_bound (prefix); it != entries.end() && it->first.starts_with (prefix); ++it)
+    {
+        const auto rest = std::string_view (it->first).substr (prefix.size());
+
+        if (const auto slash = rest.find ('/'); slash != std::string_view::npos)
+        {
+            const auto name = rest.substr (0, slash);
+
+            if (auto f = subfolders.find (name); f != subfolders.end())
+                ++f->second;
+            else
+                subfolders.emplace (name, 1);
+        }
+        else
+            listing.samples.push_back (it->second);
+    }
+
+    for (auto& [name, count] : subfolders)
+        listing.folders.push_back ({ std::filesystem::path (prefix + name), count });
+
+    std::sort (listing.folders.begin(), listing.folders.end(), [&] (auto& a, auto& b)
+    {
+        return finderOrder (a.path.filename().string(), b.path.filename().string());
+    });
+
+    std::sort (listing.samples.begin(), listing.samples.end(), [&] (auto& a, auto& b)
+    {
+        return finderOrder (std::filesystem::path (a.path).filename().string(), std::filesystem::path (b.path).filename().string());
+    });
+
+    return listing;
+}
+
 std::vector<SampleEntry> SampleLibrary::search (const SampleQuery& q) const
 {
     const auto words = tokenize (q.text);

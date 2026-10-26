@@ -518,6 +518,20 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
         return { { "results", results }, { "librarySize", library->size() } };
     }
 
+    if (method == "list")
+    {
+        const auto listing = library->list (params.contains ("path") ? readParam<std::string> (params, "path") : std::string());
+        auto folders = Json::array(), samples = Json::array();
+
+        for (auto& f : listing.folders)
+            folders.push_back ({ { "path", f.path.string() }, { "name", f.path.filename().string() }, { "samples", f.samples } });
+
+        for (auto& e : listing.samples)
+            samples.push_back (library::SampleLibrary::toJson (e, false));
+
+        return { { "folders", folders }, { "samples", samples } };
+    }
+
     if (method == "describe")
     {
         auto path = readParam<std::string> (params, "path");

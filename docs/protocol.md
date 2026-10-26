@@ -62,6 +62,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |
 | `library.scan` | | progress; `libraryProgress` notifications follow |
 | `library.search` | `query?`, `category?`, `loop?`, `tempo?`, `key?`, `minDuration?`, `maxDuration?`, `limit?` | `{ results: [{ path, description, category, loop, tempo?, key?, durationSeconds, rootKey? }], librarySize }` |
+| `library.list` | `path?` | `{ folders: [{ path, name, samples }], samples: [...] }`: the indexed subfolders (with how many samples are below each) and samples directly in a folder, in Finder order; without `path`, the library folders |
 | `library.describe` | `path` | the entry with full `features` and `classification` |
 
 ## Commands

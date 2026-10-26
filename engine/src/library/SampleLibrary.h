@@ -68,6 +68,22 @@ public:
 
     size_t size() const;
     std::vector<SampleEntry> search (const SampleQuery&) const;
+
+    struct Listing
+    {
+        struct Folder
+        {
+            std::filesystem::path path;
+            size_t samples = 0;     // anywhere below it
+        };
+
+        std::vector<Folder> folders;
+        std::vector<SampleEntry> samples;
+    };
+
+    /** The indexed subfolders and samples directly in a folder, in the order the Finder shows
+        them. With an empty path, the library's folders. */
+    Listing list (const std::filesystem::path& folder) const;
     std::optional<SampleEntry> find (const std::filesystem::path&) const;
 
     /** Analyses one file now, whether or not it's in a library folder. */
