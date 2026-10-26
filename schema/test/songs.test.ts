@@ -25,7 +25,7 @@ describe("test songs match the schema", () => {
 
 describe("the schema rejects bad input", () => {
   const minimal = (): Record<string, any> => ({
-    schemaVersion: 1,
+    schemaVersion: 2,
     tempo: 120,
     channels: [],
     patterns: [],

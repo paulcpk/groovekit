@@ -204,15 +204,22 @@ namespace
                                [&] (const Json& note) { return note.value ("channel", "") == c.channel; });
 
             e.removeAutomation ([&] (const Json& t) { return t.value ("scope", "") == "channel" && t.value ("channel", "") == c.channel; });
-            e.tx.remove (path);
+
+            // An audio channel's clips go with it.
+            e.removeWhere ("/playlist/clips", [&] (const Json& clip)
+            {
+                return clip.value ("type", "") == "audio" && clip.value ("channel", "") == c.channel;
+            });
+
+            e.tx.remove (e.channelPath (c.channel));
         }
 
-        void operator() (const UpdateSampler& c)
+        void operator() (const UpdateInstrument& c)
         {
             auto base = e.channelPath (c.channel) + "/instrument";
 
-            if (e.at (base).value ("type", "") != "sampler")
-                throw CommandError ("channel \"" + c.channel + "\" isn't a sampler");
+            if (e.at (base).value ("type", "") == "plugin")
+                throw CommandError ("channel \"" + c.channel + "\" plays a plugin: its settings are the plugin's");
 
             e.applyChanges (base, c.changes, { "type", "layers" });
         }
@@ -335,8 +342,6 @@ namespace
             auto any = [] (const Json&) { return true; };
 
             e.reroute ("/channels", "insert", c.insert, masterInsertId, any);
-            e.reroute ("/playlist/clips", "insert", c.insert, masterInsertId,
-                       [] (const Json& clip) { return clip.value ("type", "") == "audio"; });
             e.reroute ("/mixer/inserts", "output", c.insert, masterInsertId, any);
             e.reroute ("/playlist/tracks", "insert", c.insert, masterInsertId, any);
 
@@ -456,7 +461,7 @@ std::string describeCommand (const Command& command)
         else if constexpr (std::is_same_v<T, AddChannel>)       return "Add channel " + c.channel.id;
         else if constexpr (std::is_same_v<T, UpdateChannel>)    return "Update channel " + c.channel;
         else if constexpr (std::is_same_v<T, RemoveChannel>)    return "Remove channel " + c.channel;
-        else if constexpr (std::is_same_v<T, UpdateSampler>)    return "Update sampler " + c.channel;
+        else if constexpr (std::is_same_v<T, UpdateInstrument>) return "Update instrument of " + c.channel;
         else if constexpr (std::is_same_v<T, AddSamplerLayer>)  return "Add layer " + c.layer.id + " to " + c.channel;
         else if constexpr (std::is_same_v<T, UpdateSamplerLayer>) return "Update layer " + c.layer + " of " + c.channel;
         else if constexpr (std::is_same_v<T, RemoveSamplerLayer>) return "Remove layer " + c.layer + " from " + c.channel;

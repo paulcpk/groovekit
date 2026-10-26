@@ -112,7 +112,22 @@ export interface PluginInstrument {
   plugin: PluginRef;
 }
 
-export type Instrument = SamplerInstrument | PluginInstrument;
+/** An audio channel: the sample that the playlist's audio clips naming this channel play, and how they play it. Notes don't play it. */
+export interface AudioInstrument {
+  type: "audio";
+  /** Audio file path, absolute or relative to the project folder. */
+  sample: string;
+  /** Plays the file backwards; clip offsets then count from the file's end. */
+  reverse?: boolean;
+  /** Tempo the file was recorded at. When set, its clips are time-stretched (pitch kept) to the project tempo; offsets stay in the file's own seconds. */
+  sourceTempo?: number;
+  /** Volume over each clip: the attack starts where the clip starts and the release ends where it ends. */
+  envelope?: Envelope;
+  /** Filters the clips; its envelope runs over each clip like the volume envelope. */
+  filter?: SamplerFilter;
+}
+
+export type Instrument = SamplerInstrument | PluginInstrument | AudioInstrument;
 
 /** A channel-rack entry: one instrument whose output feeds a mixer insert. */
 export interface Channel {
@@ -155,7 +170,7 @@ export interface PlaylistTrack {
   mute?: boolean;
   /** While any track is soloed, only soloed tracks play. */
   solo?: boolean;
-  /** Mixer insert the audio clips on this track play into (overriding each clip's own). Pattern clips play through their channels' inserts. */
+  /** Mixer insert the audio clips on this track play into (overriding their channels' inserts). Pattern clips play through their channels' inserts. */
   insert?: Id;
   /** Level of the audio clips on this track. */
   volumeDb?: number;
@@ -183,10 +198,8 @@ export interface AudioClip {
   start: Ticks;
   length: TickLength;
   mute?: boolean;
-  /** Audio file path, absolute or relative to the project folder. */
-  sample: string;
-  /** Mixer insert this clip plays into. */
-  insert?: Id;
+  /** The audio channel whose sample the clip plays, with its settings and routing. */
+  channel: Id;
   /** Seconds into the file where playback starts. */
   offset?: number;
   gainDb?: number;
@@ -195,10 +208,6 @@ export interface AudioClip {
   fadeIn?: number;
   /** Seconds. */
   fadeOut?: number;
-  /** Plays the file backwards; offset then counts from the file's end. */
-  reverse?: boolean;
-  /** Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds. */
-  sourceTempo?: number;
 }
 
 /** What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id (for plugins: id or name, values normalized 0..1). send: param is level. */
@@ -286,7 +295,8 @@ export interface Mixer {
 
 /** A GrooveKit project (song.json). Times are integer ticks at 960 PPQ unless a field says otherwise. */
 export interface Project {
-  schemaVersion: 1;
+  /** 2 since audio clips play through audio channels. Older songs are converted when they open. */
+  schemaVersion: 2;
   name?: string;
   /** Beats per minute. */
   tempo: number;

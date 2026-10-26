@@ -519,7 +519,51 @@ inline Json toJson (const PluginInstrument& v)
     return j;
 }
 
-using Instrument = std::variant<SamplerInstrument, PluginInstrument>;
+/** An audio channel: the sample that the playlist's audio clips naming this channel play, and how they play it. Notes don't play it. */
+struct AudioInstrument
+{
+    /** Audio file path, absolute or relative to the project folder. */
+    std::string sample;
+    /** Plays the file backwards; clip offsets then count from the file's end. */
+    bool reverse = false;
+    /** Tempo the file was recorded at. When set, its clips are time-stretched (pitch kept) to the project tempo; offsets stay in the file's own seconds. */
+    std::optional<double> sourceTempo;
+    /** Volume over each clip: the attack starts where the clip starts and the release ends where it ends. */
+    Envelope envelope;
+    /** Filters the clips; its envelope runs over each clip like the volume envelope. */
+    SamplerFilter filter;
+
+    bool operator== (const AudioInstrument&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, AudioInstrument& out)
+{
+    r.expectObject (j, { "type", "sample", "reverse", "sourceTempo", "envelope", "filter" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "audio"); });
+    r.required (j, "sample", [&] (const Json& v) { readValue (r, v, out.sample); r.checkMinLength (out.sample, 1); });
+    r.optional (j, "reverse", [&] (const Json& v) { readValue (r, v, out.reverse); });
+    r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
+    r.optional (j, "envelope", [&] (const Json& v) { readValue (r, v, out.envelope); });
+    r.optional (j, "filter", [&] (const Json& v) { readValue (r, v, out.filter); });
+}
+
+inline Json toJson (const AudioInstrument& v)
+{
+    auto j = Json::object();
+    j["type"] = "audio";
+    j["sample"] = toJson (v.sample);
+    j["reverse"] = toJson (v.reverse);
+
+    if (v.sourceTempo)
+        j["sourceTempo"] = toJson (*v.sourceTempo);
+
+    j["envelope"] = toJson (v.envelope);
+    j["filter"] = toJson (v.filter);
+    return j;
+}
+
+using Instrument = std::variant<SamplerInstrument, PluginInstrument, AudioInstrument>;
 
 inline void readValue (Reader& r, const Json& j, Instrument& out)
 {
@@ -531,6 +575,7 @@ inline void readValue (Reader& r, const Json& j, Instrument& out)
 
     if (tag == "sampler") { readValue (r, j, out.emplace<SamplerInstrument>()); return; }
     if (tag == "plugin") { readValue (r, j, out.emplace<PluginInstrument>()); return; }
+    if (tag == "audio") { readValue (r, j, out.emplace<AudioInstrument>()); return; }
 
     r.fail ("unknown type \"" + tag + "\"");
 }
@@ -673,7 +718,7 @@ struct PlaylistTrack
     bool mute = false;
     /** While any track is soloed, only soloed tracks play. */
     bool solo = false;
-    /** Mixer insert the audio clips on this track play into (overriding each clip's own). Pattern clips play through their channels' inserts. */
+    /** Mixer insert the audio clips on this track play into (overriding their channels' inserts). Pattern clips play through their channels' inserts. */
     std::optional<Id> insert;
     /** Level of the audio clips on this track. */
     double volumeDb = 0;
@@ -767,10 +812,8 @@ struct AudioClip
     Ticks start {};
     TickLength length {};
     bool mute = false;
-    /** Audio file path, absolute or relative to the project folder. */
-    std::string sample;
-    /** Mixer insert this clip plays into. */
-    Id insert = "master";
+    /** The audio channel whose sample the clip plays, with its settings and routing. */
+    Id channel;
     /** Seconds into the file where playback starts. */
     double offset = 0;
     double gainDb = 0;
@@ -779,17 +822,13 @@ struct AudioClip
     double fadeIn = 0;
     /** Seconds. */
     double fadeOut = 0;
-    /** Plays the file backwards; offset then counts from the file's end. */
-    bool reverse = false;
-    /** Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds. */
-    std::optional<double> sourceTempo;
 
     bool operator== (const AudioClip&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, AudioClip& out)
 {
-    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "sample", "insert", "offset", "gainDb", "pan", "fadeIn", "fadeOut", "reverse", "sourceTempo" });
+    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "channel", "offset", "gainDb", "pan", "fadeIn", "fadeOut" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "audio"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
@@ -797,15 +836,12 @@ inline void readValue (Reader& r, const Json& j, AudioClip& out)
     r.required (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.required (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
-    r.required (j, "sample", [&] (const Json& v) { readValue (r, v, out.sample); r.checkMinLength (out.sample, 1); });
-    r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert); r.checkPattern (out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "offset", [&] (const Json& v) { readValue (r, v, out.offset); r.checkMin (out.offset, 0); });
     r.optional (j, "gainDb", [&] (const Json& v) { readValue (r, v, out.gainDb); r.checkMax (out.gainDb, 24); });
     r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "fadeIn", [&] (const Json& v) { readValue (r, v, out.fadeIn); r.checkMin (out.fadeIn, 0); });
     r.optional (j, "fadeOut", [&] (const Json& v) { readValue (r, v, out.fadeOut); r.checkMin (out.fadeOut, 0); });
-    r.optional (j, "reverse", [&] (const Json& v) { readValue (r, v, out.reverse); });
-    r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
 }
 
 inline Json toJson (const AudioClip& v)
@@ -817,17 +853,12 @@ inline Json toJson (const AudioClip& v)
     j["start"] = toJson (v.start);
     j["length"] = toJson (v.length);
     j["mute"] = toJson (v.mute);
-    j["sample"] = toJson (v.sample);
-    j["insert"] = toJson (v.insert);
+    j["channel"] = toJson (v.channel);
     j["offset"] = toJson (v.offset);
     j["gainDb"] = toJson (v.gainDb);
     j["pan"] = toJson (v.pan);
     j["fadeIn"] = toJson (v.fadeIn);
     j["fadeOut"] = toJson (v.fadeOut);
-    j["reverse"] = toJson (v.reverse);
-
-    if (v.sourceTempo)
-        j["sourceTempo"] = toJson (*v.sourceTempo);
     return j;
 }
 
@@ -1204,7 +1235,7 @@ inline void readValue (Reader& r, const Json& j, Project& out)
 {
     r.expectObject (j, { "schemaVersion", "name", "tempo", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
 
-    r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 1); });
+    r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 2); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.required (j, "tempo", [&] (const Json& v) { readValue (r, v, out.tempo); r.checkMin (out.tempo, 20); r.checkMax (out.tempo, 999); });
     r.optional (j, "timeSignature", [&] (const Json& v) { readValue (r, v, out.timeSignature); });
@@ -1218,7 +1249,7 @@ inline void readValue (Reader& r, const Json& j, Project& out)
 inline Json toJson (const Project& v)
 {
     auto j = Json::object();
-    j["schemaVersion"] = 1;
+    j["schemaVersion"] = 2;
     j["name"] = toJson (v.name);
     j["tempo"] = toJson (v.tempo);
     j["timeSignature"] = toJson (v.timeSignature);

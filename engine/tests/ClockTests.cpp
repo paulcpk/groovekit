@@ -377,7 +377,8 @@ TEST_CASE ("The Digitakt follows the clock evenly", "[.][digitakt]")
     auto& clips = session->getProject().playlist.clips;
     REQUIRE (clips.size() == 1);
     const auto take = std::get<model::AudioClip> (clips.front());
-    const auto audio = analysis::loadAudio (*session->getProjectDir() / take.sample);
+    const auto& sample = std::get<model::AudioInstrument> (model::findChannel (session->getProject(), take.channel)->instrument).sample;
+    const auto audio = analysis::loadAudio (*session->getProjectDir() / sample);
     const auto hits = analysis::detectOnsets (audio, -40.0f, 0.05);
     REQUIRE (hits.size() >= 8);
 

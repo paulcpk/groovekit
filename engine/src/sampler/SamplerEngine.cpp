@@ -220,14 +220,7 @@ void SamplerEngine::renderVoices (juce::AudioBuffer<float>& buffer, int startSam
 void SamplerEngine::updateFilter (Voice& v, float envelopeLevel)
 {
     const auto& f = config->filter;
-    const auto cutoff = juce::jlimit (16.0f, static_cast<float> (sampleRate * 0.45),
-                                      f.cutoff * std::exp2 (f.envelopeAmount * envelopeLevel));
-    const auto g = std::tan (juce::MathConstants<float>::pi * cutoff / static_cast<float> (sampleRate));
-
-    v.k = 1.0f / Filter::qFor (f.resonance);
-    v.a1 = 1.0f / (1.0f + g * (g + v.k));
-    v.a2 = g * v.a1;
-    v.a3 = g * v.a2;
+    v.svf.setup (f.cutoff * std::exp2 (f.envelopeAmount * envelopeLevel), f.resonance, sampleRate);
 }
 
 void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSamples)
@@ -240,26 +233,6 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
     const auto* srcL = audio.getReadPointer (0);
     const auto* srcR = audio.getReadPointer (audio.getNumChannels() > 1 ? 1 : 0);
     const auto filterType = config->filter.type;
-
-    // The TPT state-variable filter (Zavalishin), with coefficients refreshed every 16 samples.
-    auto filter = [&v, filterType] (float in, float* state)
-    {
-        const auto v3 = in - state[1];
-        const auto v1 = v.a1 * state[0] + v.a2 * v3;
-        const auto v2 = state[1] + v.a2 * state[0] + v.a3 * v3;
-        state[0] = 2.0f * v1 - state[0];
-        state[1] = 2.0f * v2 - state[1];
-
-        switch (filterType)
-        {
-            case Filter::Type::lowpass:   return v2;
-            case Filter::Type::highpass:  return in - v.k * v1 - v2;
-            case Filter::Type::bandpass:  return v.k * v1;
-            case Filter::Type::off:       break;
-        }
-
-        return in;
-    };
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -301,8 +274,8 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
                 v.samplesToCoefficients = 16;
             }
 
-            l = filter (l, v.filterState[0]);
-            r = filter (r, v.filterState[1]);
+            l = v.svf.process (l, v.filterState[0], filterType);
+            r = v.svf.process (r, v.filterState[1], filterType);
         }
 
         left[i] += l;

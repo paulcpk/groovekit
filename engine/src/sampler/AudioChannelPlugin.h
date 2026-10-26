@@ -1,0 +1,70 @@
+#pragma once
+
+#include "SamplerEngine.h"
+#include "model/Project.h"
+
+#include <tracktion_engine/tracktion_engine.h>
+
+namespace gk::sampler
+{
+
+/** An audio channel's envelope and filter, applied to the audio clips on its track.
+
+    Each clip is shaped like a note held for the clip's length: the volume envelope's attack
+    starts where the clip starts, and its release ends where the clip ends; the filter's
+    cutoff follows its own envelope the same way. Everything is computed from the timeline
+    position, so it's the same wherever playback starts, and in renders.
+*/
+class AudioChannelPlugin : public tracktion::Plugin
+{
+public:
+    AudioChannelPlugin (tracktion::PluginCreationInfo);
+    ~AudioChannelPlugin() override;
+
+    static const char* getPluginName()                  { return "GrooveKit Audio Channel"; }
+    static const char* xmlTypeName;
+
+    struct Clip { double start, end; };   // seconds on the timeline
+
+    /** Takes new settings (safe while playing). Clips must be sorted by start. */
+    void setSettings (const model::AudioInstrument&, std::vector<Clip>);
+
+    /** New envelope and filter settings for the same clips. */
+    void updateInstrument (const model::AudioInstrument&);
+
+    /** The envelope's level at a point of a note: since its start, and until its end. */
+    static float envelopeLevel (const juce::ADSR::Parameters&, double since, double untilEnd);
+
+    juce::String getName() const override               { return getPluginName(); }
+    juce::String getPluginType() override               { return xmlTypeName; }
+    juce::String getShortName (int) override            { return "Audio"; }
+    juce::String getSelectableDescription() override    { return getName(); }
+    bool takesAudioInput() override                     { return true; }
+    bool takesMidiInput() override                      { return false; }
+
+    int getNumOutputChannelsGivenInputs (int) override  { return 2; }
+    void initialise (const tracktion::PluginInitialisationInfo&) override;
+    void deinitialise() override {}
+    void applyToBuffer (const tracktion::PluginRenderContext&) override;
+
+private:
+    struct Settings
+    {
+        juce::ADSR::Parameters envelope;
+        Filter filter;
+        std::vector<Clip> clips;
+    };
+
+    juce::SpinLock settingsLock;
+    std::shared_ptr<const Settings> settings;
+    float filterState[2][2] {};
+    Svf svf;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioChannelPlugin)
+};
+
+/** The sampler filter's settings from the model. */
+Filter toFilter (const model::SamplerFilter&);
+juce::ADSR::Parameters toEnvelope (const model::Envelope&);
+
+} // namespace gk::sampler

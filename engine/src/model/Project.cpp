@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <functional>
+#include <map>
 #include <set>
 #include <sstream>
 
@@ -38,11 +39,116 @@ Ticks getSongEnd (const Project& project)
 }
 
 //==============================================================================
+namespace
+{
+    /** Schema 1 audio clips named their file, reverse, stretch and insert themselves; now an audio
+        channel does, shared by the clips that play the same file the same way. */
+    bool moveAudioClipsToChannels (Json& doc)
+    {
+        if (! doc.contains ("playlist") || ! doc["playlist"].contains ("clips"))
+            return false;
+
+        if (! doc.contains ("channels"))
+            doc["channels"] = Json::array();
+
+        auto& channels = doc["channels"];
+        std::set<std::string> ids;
+
+        for (auto& c : channels)
+            ids.insert (c.value ("id", ""));
+
+        std::map<std::string, std::string> channelFor;   // file, reverse, tempo, insert -> channel id
+        bool changed = false;
+
+        for (auto& clip : doc["playlist"]["clips"])
+        {
+            if (clip.value ("type", "") != "audio" || ! clip.contains ("sample"))
+                continue;
+
+            const auto sample = clip["sample"].get<std::string>();
+            const auto reverse = clip.value ("reverse", false);
+            const auto insert = clip.value ("insert", std::string (masterInsertId));
+            const auto tempo = clip.contains ("sourceTempo") ? clip["sourceTempo"].dump() : "";
+            const auto key = sample + "|" + (reverse ? "r" : "") + "|" + tempo + "|" + insert;
+
+            if (! channelFor.contains (key))
+            {
+                const auto name = std::filesystem::path (sample).stem().string();
+                std::string base;
+
+                for (auto ch : name)
+                    base += std::isalnum (static_cast<unsigned char> (ch)) || ch == '-' || ch == '_' || ch == '.' ? ch : '-';
+
+                base = base.substr (0, 56);
+
+                if (base.empty())
+                    base = "audio";
+
+                auto id = base;
+
+                for (int n = 2; ids.contains (id); ++n)
+                    id = base + "-" + std::to_string (n);
+
+                ids.insert (id);
+
+                Json instrument { { "type", "audio" }, { "sample", sample } };
+
+                if (reverse)                        instrument["reverse"] = true;
+                if (clip.contains ("sourceTempo"))  instrument["sourceTempo"] = clip["sourceTempo"];
+
+                Json channel { { "id", id }, { "name", name }, { "instrument", instrument } };
+
+                if (insert != masterInsertId)
+                    channel["insert"] = insert;
+
+                channels.push_back (channel);
+                channelFor[key] = id;
+            }
+
+            for (auto field : { "sample", "reverse", "sourceTempo", "insert" })
+                clip.erase (field);
+
+            clip["channel"] = channelFor[key];
+            changed = true;
+        }
+
+        return changed;
+    }
+}
+
+bool migrateProject (Json& doc)
+{
+    if (! doc.is_object())
+        return false;
+
+    bool changed = moveAudioClipsToChannels (doc);
+
+    if (doc.value ("schemaVersion", 0) == 1)
+    {
+        doc["schemaVersion"] = 2;
+        changed = true;
+    }
+
+    return changed;
+}
+
 Project parseProject (const Json& json)
 {
     Reader reader;
     Project project;
-    readValue (reader, json, project);
+
+    // Current documents are read as they are; older ones through a converted copy.
+    if (json.is_object() && json.value ("schemaVersion", 0) < 2)
+    {
+        auto copy = json;
+        migrateProject (copy);
+        readValue (reader, copy, project);
+    }
+    else
+    {
+        readValue (reader, json, project);
+    }
+
     return project;
 }
 
@@ -64,6 +170,7 @@ Project loadProject (const std::filesystem::path& songFile)
         throw std::runtime_error (songFile.string() + ": " + e.what());
     }
 
+    migrateProject (json);
     return parseProject (json);
 }
 
@@ -181,9 +288,16 @@ namespace
                 auto& pattern = project.patterns[i];
 
                 for (size_t n = 0; n < pattern.notes.size(); ++n)
-                    if (findChannel (project, pattern.notes[n].channel) == nullptr)
+                {
+                    auto channel = findChannel (project, pattern.notes[n].channel);
+
+                    if (channel == nullptr)
                         issue (at (at ("/patterns", i) + "/notes", n) + "/channel",
                                "no channel \"" + pattern.notes[n].channel + "\"");
+                    else if (std::holds_alternative<AudioInstrument> (channel->instrument))
+                        issue (at (at ("/patterns", i) + "/notes", n) + "/channel",
+                               "\"" + channel->id + "\" is an audio channel: it plays audio clips, not notes");
+                }
             }
         }
 
@@ -208,7 +322,12 @@ namespace
                 }
                 else if (auto ac = std::get_if<AudioClip> (&clip))
                 {
-                    checkInsertRef (ac->insert, path + "/insert");
+                    auto channel = findChannel (project, ac->channel);
+
+                    if (channel == nullptr)
+                        issue (path + "/channel", "no channel \"" + ac->channel + "\"");
+                    else if (! std::holds_alternative<AudioInstrument> (channel->instrument))
+                        issue (path + "/channel", "\"" + ac->channel + "\" isn't an audio channel (its instrument needs type \"audio\")");
                 }
                 else if (auto automation = std::get_if<AutomationClip> (&clip))
                 {

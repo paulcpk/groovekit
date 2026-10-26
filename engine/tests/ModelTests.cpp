@@ -11,7 +11,7 @@ namespace
     Json minimalProject()
     {
         return Json::parse (R"({
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "tempo": 120,
             "channels": [
                 { "id": "kick", "instrument": { "type": "sampler", "layers": [ { "id": "a", "sample": "kick.wav" } ] } }
@@ -126,7 +126,7 @@ TEST_CASE ("Schema errors report a JSON pointer")
 
     SECTION ("wrong schema version")
     {
-        j["schemaVersion"] = 2;
+        j["schemaVersion"] = 3;
         CHECK (readErrorPath (j) == "/schemaVersion");
     }
 }
@@ -215,4 +215,42 @@ TEST_CASE ("Pattern length defaults to whole bars")
     CHECK (getPatternLength (p, fourFour) == 1920);
 
     CHECK (getPatternLength (Pattern {}, TimeSignature { 3, 4 }) == 2880);
+}
+
+TEST_CASE ("Songs from schema 1 get audio channels for their audio clips")
+{
+    auto j = minimalProject();
+    j["schemaVersion"] = 1;
+    auto& clips = j["playlist"]["clips"];
+    clips.push_back ({ { "type", "audio" }, { "id", "a1" }, { "track", "t1" }, { "start", 0 }, { "length", 960 }, { "sample", "loops/Drum Loop.wav" }, { "insert", "master" } });
+    clips.push_back ({ { "type", "audio" }, { "id", "a2" }, { "track", "t1" }, { "start", 960 }, { "length", 960 }, { "sample", "loops/Drum Loop.wav" } });
+    clips.push_back ({ { "type", "audio" }, { "id", "a3" }, { "track", "t1" }, { "start", 1920 }, { "length", 960 }, { "sample", "loops/Drum Loop.wav" }, { "reverse", true } });
+
+    CHECK (migrateProject (j));
+    CHECK (j["schemaVersion"] == 2);
+    CHECK_FALSE (migrateProject (j));
+
+    auto project = parseProject (j);
+    CHECK (issuePaths (project).empty());
+    REQUIRE (project.channels.size() == 3);
+
+    // The same file played the same way shares a channel; reversed is another.
+    auto& a1 = std::get<AudioClip> (project.playlist.clips[1]);
+    auto& a2 = std::get<AudioClip> (project.playlist.clips[2]);
+    auto& a3 = std::get<AudioClip> (project.playlist.clips[3]);
+    CHECK (a1.channel == "Drum-Loop");
+    CHECK (a2.channel == a1.channel);
+    CHECK (a3.channel == "Drum-Loop-2");
+
+    auto& reversed = std::get<AudioInstrument> (findChannel (project, a3.channel)->instrument);
+    CHECK (reversed.sample == "loops/Drum Loop.wav");
+    CHECK (reversed.reverse);
+    CHECK (findChannel (project, a1.channel)->name == "Drum Loop");
+}
+
+TEST_CASE ("Notes can't play audio channels")
+{
+    auto j = minimalProject();
+    j["channels"][0]["instrument"] = { { "type", "audio" }, { "sample", "kick.wav" } };
+    CHECK (issuePaths (parseProject (j)) == std::vector<std::string> { "/patterns/0/notes/0/channel" });
 }

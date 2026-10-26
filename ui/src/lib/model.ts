@@ -1,4 +1,4 @@
-import type { Clip, Insert, Pattern, Project } from "@groovekit/schema/project";
+import type { AudioClip, Clip, Insert, Pattern, Project } from "@groovekit/schema/project";
 
 export const PPQ = 960;
 export const STEP = PPQ / 4; // a 16th
@@ -119,4 +119,11 @@ export function newGroup() {
 /** The snap step in ticks: 0 stands for a bar. */
 export function snapTicks(snap: number, doc: Project | undefined) {
   return snap === 0 ? ticksPerBar(doc) : snap;
+}
+
+/** What an audio clip plays, from its audio channel. */
+export function audioSource(doc: Project, clip: AudioClip) {
+  const channel = doc.channels.find((c) => c.id === clip.channel);
+  const audio = channel?.instrument.type === "audio" ? channel.instrument : undefined;
+  return { channel, sample: audio?.sample, reverse: !!audio?.reverse, sourceTempo: audio?.sourceTempo };
 }

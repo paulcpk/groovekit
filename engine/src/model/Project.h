@@ -21,10 +21,15 @@ TickLength getPatternLength (const Pattern&, const TimeSignature&);
 Ticks getSongEnd (const Project&);
 
 //==============================================================================
+/** Brings a song document written by an older GrooveKit up to the current schema, in place:
+    audio clips that named their own sample get audio channels. Returns whether it changed
+    anything. Safe to run on any document. */
+bool migrateProject (Json&);
+
 /** Parses and schema-checks a document. Throws ReadError. */
 Project parseProject (const Json&);
 
-/** Reads and schema-checks a song.json file. Throws ReadError or std::runtime_error. */
+/** Reads, migrates and schema-checks a song.json file. Throws ReadError or std::runtime_error. */
 Project loadProject (const std::filesystem::path& songFile);
 
 Json projectToJson (const Project&);

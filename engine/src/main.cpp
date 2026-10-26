@@ -36,6 +36,8 @@ Usage:
       ~/Library/Application Support/GrooveKit/library.json; with no folders set, ~/Music/Samples
       is added. Library folders are rescanned in the background on start.
   groovekit-engine validate <song.json>
+  groovekit-engine upgrade <song.json>
+      Rewrites a song made by an older GrooveKit in the current format.
   groovekit-engine analyze <file.wav>
   groovekit-engine effects
 
@@ -100,6 +102,29 @@ Add --verbose to see engine log messages.
             return 1;
 
         std::cout << "OK\n";
+        return 0;
+    }
+
+    /** Rewrites a song from an older GrooveKit in the current schema. */
+    int upgrade (const std::filesystem::path& song)
+    {
+        std::ifstream in (song);
+
+        if (! in)
+            throw std::runtime_error ("Can't open " + song.string());
+
+        auto json = gk::model::Json::parse (in);
+        in.close();
+
+        if (! gk::model::migrateProject (json))
+        {
+            std::cout << "Already up to date\n";
+            return 0;
+        }
+
+        gk::model::parseProject (json);
+        std::ofstream (song) << json.dump (2) << "\n";
+        std::cout << "Upgraded " << song.string() << "\n";
         return 0;
     }
 
@@ -332,6 +357,10 @@ int main (int argc, char* argv[])
         else if (command == "validate" && args.positional.size() == 2)
         {
             result = validate (args.positional[1]);
+        }
+        else if (command == "upgrade" && args.positional.size() == 2)
+        {
+            result = upgrade (args.positional[1]);
         }
         else if (command == "analyze" && args.positional.size() == 2)
         {

@@ -13,50 +13,29 @@ namespace
 
     struct Source
     {
-        std::string id;                 // "kick", or "audio:drums" for audio clips into an insert
+        std::string id;                 // the channel
         std::function<void (Project&)> isolate;
     };
 
+    /** Every channel heard on its own; audio channels carry the audio clips. */
     std::vector<Source> findSources (const Project& project)
     {
         std::vector<Source> sources;
-
-        auto muteAllAudioClips = [] (Project& p, const std::optional<Id>& exceptInsert)
-        {
-            for (auto& clip : p.playlist.clips)
-                if (auto ac = std::get_if<AudioClip> (&clip); ac != nullptr && (! exceptInsert || ac->insert != *exceptInsert))
-                    ac->mute = true;
-        };
 
         for (auto& c : project.channels)
         {
             if (c.mute)
                 continue;
 
-            sources.push_back ({ c.id, [id = c.id, muteAllAudioClips] (Project& p)
+            sources.push_back ({ c.id, [id = c.id] (Project& p)
             {
                 for (auto& other : p.channels)
-                    if (other.id != id)
-                        other.mute = true;
-
-                muteAllAudioClips (p, {});
+                {
+                    other.mute = other.id != id;
+                    other.solo = false;
+                }
             } });
         }
-
-        std::set<Id> audioInserts;
-
-        for (auto& clip : project.playlist.clips)
-            if (auto ac = std::get_if<AudioClip> (&clip); ac != nullptr && ! ac->mute)
-                audioInserts.insert (ac->insert);
-
-        for (auto& insert : audioInserts)
-            sources.push_back ({ "audio:" + insert, [insert, muteAllAudioClips] (Project& p)
-            {
-                for (auto& c : p.channels)
-                    c.mute = true;
-
-                muteAllAudioClips (p, insert);
-            } });
 
         return sources;
     }

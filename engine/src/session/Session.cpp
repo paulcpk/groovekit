@@ -90,7 +90,7 @@ namespace
 Json Session::createEmptyProject()
 {
     return Json::parse (R"({
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "name": "",
         "tempo": 120,
         "channels": [],
@@ -100,13 +100,22 @@ Json Session::createEmptyProject()
     })");
 }
 
+namespace
+{
+    Json migrated (Json doc)
+    {
+        migrateProject (doc);
+        return doc;
+    }
+}
+
 Session::Session (Json doc)
-    : document (std::move (doc)), project (parseAndValidate (document))
+    : document (migrated (std::move (doc))), project (parseAndValidate (document))
 {
 }
 
 Session::Session (Json doc, std::filesystem::path dir)
-    : document (std::move (doc)), project (parseAndValidate (document)), projectDir (std::move (dir))
+    : document (migrated (std::move (doc))), project (parseAndValidate (document)), projectDir (std::move (dir))
 {
 }
 
@@ -117,6 +126,16 @@ std::unique_ptr<Session> Session::open (const std::filesystem::path& dir)
     const bool exists = std::filesystem::exists (songFile);
 
     auto doc = exists ? readJsonFile (songFile) : createEmptyProject();
+
+    // A song from an older GrooveKit is converted, and its history set aside: its changes were
+    // recorded against the old layout and can't be undone in the new one.
+    const bool migrating = exists && migrateProject (doc);
+
+    if (migrating && std::filesystem::exists (dir / historyFileName))
+    {
+        std::error_code ec;
+        std::filesystem::rename (dir / historyFileName, dir / "history-before-update.jsonl", ec);
+    }
 
     std::unique_ptr<Session> session;
 
@@ -129,7 +148,7 @@ std::unique_ptr<Session> Session::open (const std::filesystem::path& dir)
         throw std::runtime_error (songFile.string() + " is invalid: " + e.what());
     }
 
-    if (! exists)
+    if (! exists || migrating)
         session->saveDocument();
 
     session->loadHistory();

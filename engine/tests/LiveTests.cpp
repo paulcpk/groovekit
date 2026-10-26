@@ -191,10 +191,11 @@ TEST_CASE ("Recording an input adds the take to the project")
     REQUIRE (it != clips.end());
 
     const auto take = std::get<model::AudioClip> (*it); // a copy: undo below rebuilds the project
+    const auto sample = std::get<model::AudioInstrument> (model::findChannel (session->getProject(), take.channel)->instrument).sample;
     CHECK (take.track == "takes");
-    INFO ("sample: " << take.sample);
-    CHECK (take.sample.starts_with ("recordings/"));
-    CHECK (std::filesystem::exists (*session->getProjectDir() / take.sample));
+    INFO ("sample: " << sample);
+    CHECK (sample.starts_with ("recordings/"));
+    CHECK (std::filesystem::exists (*session->getProjectDir() / sample));
     CHECK (model::getClipLength (*it) > 1500); // about a second at 120 BPM is 1920 ticks
 
     // The take renders like any other clip.
@@ -210,7 +211,8 @@ TEST_CASE ("Recording an input adds the take to the project")
     // And one undo removes it again, leaving the file on disk.
     session->undo();
     CHECK (session->getProject().playlist.clips.size() == 1);
-    CHECK (std::filesystem::exists (*session->getProjectDir() / take.sample));
+    CHECK (model::findChannel (session->getProject(), take.channel) == nullptr);
+    CHECK (std::filesystem::exists (*session->getProjectDir() / sample));
 }
 
 TEST_CASE ("Recording alignment is stored per input device")

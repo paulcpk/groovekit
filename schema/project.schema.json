@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "tempo", "channels", "patterns", "playlist", "mixer"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "description": "2 since audio clips play through audio channels. Older songs are converted when they open.", "const": 2 },
     "name": { "type": "string", "default": "" },
     "tempo": { "description": "Beats per minute.", "type": "number", "minimum": 20, "maximum": 999 },
     "timeSignature": { "$ref": "#/$defs/TimeSignature" },
@@ -56,7 +56,7 @@
     },
 
     "Instrument": {
-      "oneOf": [{ "$ref": "#/$defs/SamplerInstrument" }, { "$ref": "#/$defs/PluginInstrument" }],
+      "oneOf": [{ "$ref": "#/$defs/SamplerInstrument" }, { "$ref": "#/$defs/PluginInstrument" }, { "$ref": "#/$defs/AudioInstrument" }],
       "discriminator": { "propertyName": "type" }
     },
 
@@ -70,6 +70,24 @@
         "polyphony": { "description": "Maximum simultaneous voices; the oldest voice is stolen.", "type": "integer", "minimum": 1, "maximum": 256, "default": 32 },
         "filter": { "description": "Filters every voice, after its layer's volume envelope.", "$ref": "#/$defs/SamplerFilter" },
         "layers": { "type": "array", "items": { "$ref": "#/$defs/SamplerLayer" } }
+      }
+    },
+
+    "AudioInstrument": {
+      "description": "An audio channel: the sample that the playlist's audio clips naming this channel play, and how they play it. Notes don't play it.",
+      "type": "object",
+      "required": ["type", "sample"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "audio" },
+        "sample": { "description": "Audio file path, absolute or relative to the project folder.", "type": "string", "minLength": 1 },
+        "reverse": { "description": "Plays the file backwards; clip offsets then count from the file's end.", "type": "boolean", "default": false },
+        "sourceTempo": {
+          "description": "Tempo the file was recorded at. When set, its clips are time-stretched (pitch kept) to the project tempo; offsets stay in the file's own seconds.",
+          "type": "number", "minimum": 20, "maximum": 999
+        },
+        "envelope": { "description": "Volume over each clip: the attack starts where the clip starts and the release ends where it ends.", "$ref": "#/$defs/Envelope" },
+        "filter": { "description": "Filters the clips; its envelope runs over each clip like the volume envelope.", "$ref": "#/$defs/SamplerFilter" }
       }
     },
 
@@ -222,7 +240,7 @@
         "color": { "type": "string" },
         "mute": { "type": "boolean", "default": false },
         "solo": { "description": "While any track is soloed, only soloed tracks play.", "type": "boolean", "default": false },
-        "insert": { "description": "Mixer insert the audio clips on this track play into (overriding each clip's own). Pattern clips play through their channels' inserts.", "$ref": "#/$defs/Id" },
+        "insert": { "description": "Mixer insert the audio clips on this track play into (overriding their channels' inserts). Pattern clips play through their channels' inserts.", "$ref": "#/$defs/Id" },
         "volumeDb": { "description": "Level of the audio clips on this track.", "type": "number", "minimum": -100, "maximum": 24, "default": 0 },
         "pan": { "description": "Pan of the audio clips on this track.", "$ref": "#/$defs/Pan", "default": 0 }
       }
@@ -252,7 +270,7 @@
 
     "AudioClip": {
       "type": "object",
-      "required": ["type", "id", "track", "start", "length", "sample"],
+      "required": ["type", "id", "track", "start", "length", "channel"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "audio" },
@@ -261,15 +279,12 @@
         "start": { "$ref": "#/$defs/Ticks" },
         "length": { "$ref": "#/$defs/TickLength" },
         "mute": { "type": "boolean", "default": false },
-        "sample": { "description": "Audio file path, absolute or relative to the project folder.", "type": "string", "minLength": 1 },
-        "insert": { "description": "Mixer insert this clip plays into.", "$ref": "#/$defs/Id", "default": "master" },
+        "channel": { "description": "The audio channel whose sample the clip plays, with its settings and routing.", "$ref": "#/$defs/Id" },
         "offset": { "description": "Seconds into the file where playback starts.", "type": "number", "minimum": 0, "default": 0 },
         "gainDb": { "type": "number", "maximum": 24, "default": 0 },
         "pan": { "$ref": "#/$defs/Pan", "default": 0 },
         "fadeIn": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 },
-        "fadeOut": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 },
-        "reverse": { "description": "Plays the file backwards; offset then counts from the file's end.", "type": "boolean", "default": false },
-        "sourceTempo": { "description": "Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds.", "type": "number", "minimum": 20, "maximum": 999 }
+        "fadeOut": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 }
       }
     },
 

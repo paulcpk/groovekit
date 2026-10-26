@@ -3,7 +3,7 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import { rangePosition, rangeValue, targetRange } from "@/lib/automation";
 import { useCatalogue } from "@/lib/catalogue";
 import { snapTo, startDrag } from "@/lib/drag";
-import { patternLength } from "@/lib/model";
+import { audioSource, patternLength } from "@/lib/model";
 import { drawPeaks, usePeaks } from "@/lib/peaks";
 import { execute, useEngine } from "@/state/engine";
 
@@ -57,20 +57,21 @@ export const PatternContent = memo(function PatternContent({ clip, doc, width, h
 export function AudioContent({ clip, doc, width, height, color }: {
   clip: AudioClip; doc: Project; width: number; height: number; color: string;
 }) {
-  const peaks = usePeaks(clip.sample);
+  const { sample, reverse, sourceTempo } = audioSource(doc, clip);
+  const peaks = usePeaks(sample);
   const canvas = useRef<HTMLCanvasElement>(null);
   const pixels = Math.max(1, Math.min(4000, Math.round(width)));
 
   useEffect(() => {
     if (!peaks || !canvas.current) return;
     // Stretched clips play a beat of the file per beat of the song.
-    const fileSecondsPerTick = 60 / ((clip.sourceTempo ?? doc.tempo) * 960);
+    const fileSecondsPerTick = 60 / ((sourceTempo ?? doc.tempo) * 960);
     const start = clip.offset ?? 0;
     const end = start + clip.length * fileSecondsPerTick;
     // A reversed clip's offset counts from the file's end; it's drawn mirrored.
-    if (clip.reverse) drawPeaks(canvas.current, peaks, peaks.durationSeconds - end, peaks.durationSeconds - start, color);
+    if (reverse) drawPeaks(canvas.current, peaks, peaks.durationSeconds - end, peaks.durationSeconds - start, color);
     else drawPeaks(canvas.current, peaks, start, end, color);
-  }, [peaks, clip.offset, clip.length, clip.sourceTempo, clip.reverse, doc.tempo, color, pixels, height]);
+  }, [peaks, clip.offset, clip.length, sourceTempo, reverse, doc.tempo, color, pixels, height]);
 
   if (height < 4) return null;
   const ticksPerSecond = (doc.tempo * 960) / 60;
@@ -80,7 +81,7 @@ export function AudioContent({ clip, doc, width, height, color }: {
   return (
     <>
       <canvas ref={canvas} width={pixels} height={Math.max(1, Math.round(height))} className="absolute left-0"
-        style={{ width, height, transform: clip.reverse ? "scaleX(-1)" : undefined }} />
+        style={{ width, height, transform: reverse ? "scaleX(-1)" : undefined }} />
       {(fadeIn > 0 || fadeOut > 0) && (
         <svg className="pointer-events-none absolute left-0 top-0" width={width} height={height}>
           {fadeIn > 0 && <path d={`M0 0 L${fadeIn} 0 L0 ${height} Z`} fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.5)" strokeWidth={1} />}

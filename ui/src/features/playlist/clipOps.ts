@@ -1,6 +1,6 @@
-import type { AutomationPoint, Clip, Project } from "@groovekit/schema/project";
+import type { AudioClip, AutomationPoint, Clip, Project } from "@groovekit/schema/project";
 import type { Command } from "@groovekit/schema/protocol";
-import { uniqueId } from "@/lib/model";
+import { audioSource, uniqueId } from "@/lib/model";
 import { execute, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
@@ -29,7 +29,7 @@ export function splitCommands(clip: Clip, at: number, doc: Project, taken: Set<s
     second.offset = (clip.offset ?? 0) + cut;
   } else if (second.type === "audio" && clip.type === "audio") {
     // offset is in the file's own seconds, which a stretched clip plays at its source tempo.
-    const fileSecondsPerTick = 60 / ((clip.sourceTempo ?? doc.tempo) * 960);
+    const fileSecondsPerTick = 60 / ((audioSource(doc, clip).sourceTempo ?? doc.tempo) * 960);
     second.offset = Math.round(((clip.offset ?? 0) + cut * fileSecondsPerTick) * 1e6) / 1e6;
     second.fadeIn = 0;
     if (clip.fadeOut) firstChanges.fadeOut = 0;
@@ -76,4 +76,15 @@ export function splitAtPlayhead() {
     return;
   }
   splitClips(transport.position);
+}
+
+/** Gives an audio clip a copy of its channel, so its settings can change without the other clips'. */
+export async function makeAudioUnique(doc: Project, clip: AudioClip) {
+  const channel = doc.channels.find((c) => c.id === clip.channel);
+  if (!channel) return;
+  const id = uniqueId(channel.id, doc.channels);
+  await execute([
+    { type: "addChannel", channel: { ...channel, id, name: `${channel.name || channel.id} 2` }, index: doc.channels.indexOf(channel) + 1 },
+    { type: "updateClip", clip: clip.id, changes: { channel: id } },
+  ], { label: "Make clip unique" });
 }

@@ -1,10 +1,10 @@
-import type { AudioClip, Clip, PatternClip, Project } from "@groovekit/schema/project";
+import type { AudioClip, Channel, Clip, PatternClip, Project } from "@groovekit/schema/project";
 import { ChevronDown, Minus, Plus, ScrollText } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
-import { baseName, colorFor, patternLength, snapTicks, songEnd, ticksPerBar, ticksPerBeat, uniqueId } from "@/lib/model";
+import { audioSource, baseName, colorFor, patternLength, snapTicks, songEnd, ticksPerBar, ticksPerBeat, uniqueId } from "@/lib/model";
 import { getPeaks } from "@/lib/peaks";
 import { execute, reportError, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -302,7 +302,7 @@ function useZoomWheel(scroller: React.RefObject<HTMLDivElement | null>, pxPerTic
 
 //==============================================================================
 function secondsToTicks(seconds: number, clip: AudioClip, doc: Project) {
-  return (seconds * (clip.sourceTempo ?? doc.tempo) * 960) / 60;
+  return (seconds * (audioSource(doc, clip).sourceTempo ?? doc.tempo) * 960) / 60;
 }
 
 async function commitDrag(state: DragState, doc: Project) {
@@ -334,7 +334,7 @@ async function commitDrag(state: DragState, doc: Project) {
     await execute(clips.map((c) => {
       const changes: Record<string, unknown> = { start: c.start + state.dTicks, length: c.length - state.dTicks };
       if (c.type === "audio") {
-        changes.offset = Math.max(0, (c.offset ?? 0) + (state.dTicks * 60) / ((c.sourceTempo ?? doc.tempo) * 960));
+        changes.offset = Math.max(0, (c.offset ?? 0) + (state.dTicks * 60) / ((audioSource(doc, c).sourceTempo ?? doc.tempo) * 960));
       } else if (c.type === "pattern") {
         const pattern = doc.patterns.find((p) => p.id === c.pattern);
         const loop = pattern ? patternLength(pattern, doc) : 1;
@@ -364,11 +364,16 @@ async function dropSample(doc: Project, sample: DraggedSample, track: string, st
     const duration = sample.durationSeconds ?? (await getPeaks(sample.path)).durationSeconds;
     const loopTempo = sample.loop && sample.tempo ? sample.tempo : undefined;
     const length = Math.max(1, Math.round((duration * (loopTempo ?? doc.tempo) * 960) / 60));
-    const clip: AudioClip = {
-      type: "audio", id: uniqueId(baseName(sample.path), doc.playlist.clips), track, start, length, sample: sample.path,
-      ...(loopTempo ? { sourceTempo: loopTempo } : {}),
+    // The sample's audio channel: one already playing it the same way, or a new one.
+    const existing = doc.channels.find((c) => c.instrument.type === "audio" && c.instrument.sample === sample.path
+      && !c.instrument.reverse && c.instrument.sourceTempo === loopTempo);
+    const channel: Channel = existing ?? {
+      id: uniqueId(baseName(sample.path).replace(/[^A-Za-z0-9_.-]+/g, "-").slice(0, 56) || "audio", doc.channels),
+      name: baseName(sample.path),
+      instrument: { type: "audio", sample: sample.path, ...(loopTempo ? { sourceTempo: loopTempo } : {}) },
     };
-    await execute({ type: "addClip", clip }, { label: `Add ${baseName(sample.path)}` });
+    const clip: AudioClip = { type: "audio", id: uniqueId(baseName(sample.path), doc.playlist.clips), track, start, length, channel: channel.id };
+    await execute([...(existing ? [] : [{ type: "addChannel" as const, channel }]), { type: "addClip", clip }], { label: `Add ${baseName(sample.path)}` });
     setUi({ selectedClips: [clip.id] });
     return clip;
   } catch (e) {

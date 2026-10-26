@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "name": "Audio channel envelope",
+  "tempo": 120,
+  "channels": [
+    {
+      "id": "stereo_beep",
+      "name": "stereo_beep",
+      "instrument": {
+        "type": "audio",
+        "sample": "../../fixtures/samples/stereo_beep.wav",
+        "envelope": {
+          "attack": 0,
+          "decay": 0,
+          "sustain": 0.5,
+          "release": 0.01
+        }
+      }
+    }
+  ],
+  "patterns": [],
+  "playlist": {
+    "tracks": [
+      {
+        "id": "t"
+      }
+    ],
+    "clips": [
+      {
+        "type": "audio",
+        "id": "a",
+        "track": "t",
+        "start": 960,
+        "length": 960,
+        "offset": 0.25,
+        "gainDb": -6,
+        "channel": "stereo_beep"
+      }
+    ]
+  },
+  "mixer": {
+    "inserts": [
+      {
+        "id": "master"
+      }
+    ]
+  }
+}

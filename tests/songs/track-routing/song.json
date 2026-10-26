@@ -1,20 +1,90 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "name": "Track routing",
   "tempo": 120,
   "channels": [
-    { "id": "beep", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } }
+    {
+      "id": "beep",
+      "instrument": {
+        "type": "sampler",
+        "layers": [
+          {
+            "id": "l",
+            "sample": "../../fixtures/samples/beep.wav",
+            "pitchTracking": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "beep-2",
+      "name": "beep",
+      "instrument": {
+        "type": "audio",
+        "sample": "../../fixtures/samples/beep.wav"
+      }
+    }
   ],
   "patterns": [
-    { "id": "p", "notes": [{ "channel": "beep", "start": 0, "length": 240, "velocity": 127 }] }
+    {
+      "id": "p",
+      "notes": [
+        {
+          "channel": "beep",
+          "start": 0,
+          "length": 240,
+          "velocity": 127
+        }
+      ]
+    }
   ],
   "playlist": {
-    "tracks": [{ "id": "routed", "insert": "bus" }, { "id": "quiet", "volumeDb": -12 }],
+    "tracks": [
+      {
+        "id": "routed",
+        "insert": "bus"
+      },
+      {
+        "id": "quiet",
+        "volumeDb": -12
+      }
+    ],
     "clips": [
-      { "type": "audio", "id": "toBus", "track": "routed", "start": 0, "length": 480, "sample": "../../fixtures/samples/beep.wav" },
-      { "type": "audio", "id": "turnedDown", "track": "quiet", "start": 1920, "length": 480, "sample": "../../fixtures/samples/beep.wav" },
-      { "type": "pattern", "id": "throughChannel", "track": "routed", "start": 3840, "length": 960, "pattern": "p" }
+      {
+        "type": "audio",
+        "id": "toBus",
+        "track": "routed",
+        "start": 0,
+        "length": 480,
+        "channel": "beep-2"
+      },
+      {
+        "type": "audio",
+        "id": "turnedDown",
+        "track": "quiet",
+        "start": 1920,
+        "length": 480,
+        "channel": "beep-2"
+      },
+      {
+        "type": "pattern",
+        "id": "throughChannel",
+        "track": "routed",
+        "start": 3840,
+        "length": 960,
+        "pattern": "p"
+      }
     ]
   },
-  "mixer": { "inserts": [{ "id": "master" }, { "id": "bus", "volumeDb": -6 }] }
+  "mixer": {
+    "inserts": [
+      {
+        "id": "master"
+      },
+      {
+        "id": "bus",
+        "volumeDb": -6
+      }
+    ]
+  }
 }

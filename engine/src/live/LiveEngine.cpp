@@ -8,6 +8,7 @@
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
 #include "effects/BuiltinEffects.h"
+#include "sampler/AudioChannelPlugin.h"
 #include "sampler/SamplerPlugin.h"
 
 #include <fstream>
@@ -336,8 +337,14 @@ void LiveEngine::applyMutes()
                 c->setMuted (! isClipAudible (project, clip));
 
     for (auto& channel : project.channels)
+    {
         if (auto it = compiled.channelTracks.find (channel.id); it != compiled.channelTracks.end())
             it->second->setMute (! isChannelAudible (project, channel));
+
+        if (auto it = compiled.audioChannelTracks.find (channel.id); it != compiled.audioChannelTracks.end())
+            for (auto track : it->second)
+                track->setMute (! isChannelAudible (project, channel));
+    }
 
     const auto audible = audibleInserts (project);
 
@@ -403,9 +410,17 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             const auto i = index (keys[1]);
             if (! i || *i >= project.channels.size()) return false;
             const auto& channel = project.channels[*i];
-            const auto it = compiled.channelFaders.find (channel.id);
-            if (it == compiled.channelFaders.end()) return false;
-            actions.push_back ([fader = it->second, v = channel.volumeDb, p = channel.pan] { fader->setVolumeDb (static_cast<float> (v)); fader->setPan (static_cast<float> (p)); });
+            std::vector<mixer::FaderPlugin*> faders;
+
+            if (auto it = compiled.channelFaders.find (channel.id); it != compiled.channelFaders.end())
+                faders.push_back (it->second);
+
+            if (auto it = compiled.audioChannelFaders.find (channel.id); it != compiled.audioChannelFaders.end())
+                faders.insert (faders.end(), it->second.begin(), it->second.end());
+
+            for (auto fader : faders)
+                actions.push_back ([fader, v = channel.volumeDb, p = channel.pan] { fader->setVolumeDb (static_cast<float> (v)); fader->setPan (static_cast<float> (p)); });
+
             continue;
         }
 
@@ -415,6 +430,20 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             const auto i = index (keys[1]);
             if (! i || *i >= project.channels.size()) return false;
             const auto& channel = project.channels[*i];
+
+            // An audio channel's envelopes and filter; another sample, reverse or stretch rebuilds.
+            if (auto audio = std::get_if<AudioInstrument> (&channel.instrument))
+            {
+                if (keys.size() < 4 || (keys[3] != "envelope" && keys[3] != "filter"))
+                    return false;
+
+                if (auto it = compiled.audioChannelPlugins.find (channel.id); it != compiled.audioChannelPlugins.end())
+                    for (auto plugin : it->second)
+                        actions.push_back ([plugin, instrument = *audio] { plugin->updateInstrument (instrument); });
+
+                continue;
+            }
+
             auto sampler = std::get_if<SamplerInstrument> (&channel.instrument);
             const auto it = compiled.plugins.find ("channel:" + channel.id);
             auto plugin = it != compiled.plugins.end() ? dynamic_cast<sampler::SamplerPlugin*> (it->second) : nullptr;
@@ -932,6 +961,10 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
     for (auto& clip : project.playlist.clips)
         used.insert (getClipId (clip));
 
+    // Each take gets an audio channel (with the same id as its clip).
+    for (auto& channel : project.channels)
+        used.insert (channel.id);
+
     for (auto& r : recordings)
     {
         for (auto clip : r.track->getClips())
@@ -993,8 +1026,22 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             if (recordOptions.length)
                 ac.length = std::max<Ticks> (1, std::min (ac.length, recordStart + *recordOptions.length - ac.start));
 
-            ac.sample = relative.empty() || relative.string().starts_with ("..") ? file.string() : relative.string();
-            ac.insert = r.target.insert;
+            AudioInstrument instrument;
+            instrument.sample = relative.empty() || relative.string().starts_with ("..") ? file.string() : relative.string();
+
+            Channel channel;
+            channel.id = id;
+            channel.insert = r.target.insert;
+            channel.instrument = instrument;
+
+            if (auto track = findTrack (project, r.target.track); track != nullptr && ! track->name.empty())
+                channel.name = track->name + " " + id.substr (id.rfind ('-') + 1);
+            else
+                channel.name = id;
+
+            commands.push_back (AddChannel { channel, {} });
+
+            ac.channel = id;
             ac.offset = offset;
 
             if (recordOptions.normalizeLufs)
@@ -1231,6 +1278,20 @@ void LiveEngine::reportLevels()
         const auto [l, r] = fader->takePeaks();
         levels.channels[id] = std::max (l, r);
         signal = signal || levels.channels[id] > 1.0e-5f;
+    }
+
+    for (auto& [id, faders] : compiled.audioChannelFaders)
+    {
+        float level = 0;
+
+        for (auto fader : faders)
+        {
+            const auto [l, r] = fader->takePeaks();
+            level = std::max ({ level, l, r });
+        }
+
+        levels.channels[id] = level;
+        signal = signal || level > 1.0e-5f;
     }
 
     // Once more after the signal stops, so meters fall to zero.

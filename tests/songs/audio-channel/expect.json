@@ -1,0 +1,30 @@
+{
+  "durationSeconds": 1.0,
+  "onsets": [
+    0.5
+  ],
+  "segments": [
+    {
+      "start": 0,
+      "end": 0.5,
+      "silent": true
+    },
+    {
+      "start": 0.5,
+      "end": 0.75,
+      "channel": 0,
+      "peakDb": -18.04
+    },
+    {
+      "start": 0.5,
+      "end": 0.75,
+      "channel": 1,
+      "peakDb": -24.06
+    },
+    {
+      "start": 0.751,
+      "end": 1.0,
+      "silent": true
+    }
+  ]
+}

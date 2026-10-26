@@ -1,4 +1,5 @@
 #include "SamplerPlugin.h"
+#include "AudioChannelPlugin.h"
 
 namespace gk::sampler
 {
@@ -14,16 +15,7 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
     auto config = std::make_shared<Config>();
     config->polyphony = instrument.polyphony;
 
-    auto& f = instrument.filter;
-    config->filter.type = f.type == model::SamplerFilterType::lowpass  ? Filter::Type::lowpass
-                        : f.type == model::SamplerFilterType::highpass ? Filter::Type::highpass
-                        : f.type == model::SamplerFilterType::bandpass ? Filter::Type::bandpass
-                                                                       : Filter::Type::off;
-    config->filter.cutoff = static_cast<float> (f.cutoff);
-    config->filter.resonance = static_cast<float> (f.resonance);
-    config->filter.envelopeAmount = static_cast<float> (f.envelopeAmount);
-    config->filter.envelope = { static_cast<float> (f.envelope.attack), static_cast<float> (f.envelope.decay),
-                                static_cast<float> (f.envelope.sustain), static_cast<float> (f.envelope.release) };
+    config->filter = toFilter (instrument.filter);
 
     for (auto& l : instrument.layers)
     {
@@ -44,8 +36,7 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
         layer.gain = juce::Decibels::decibelsToGain (static_cast<float> (l.gainDb), -150.0f);
         layer.pan = static_cast<float> (l.pan);
         layer.oneShot = l.mode == model::SamplerLayerMode::oneShot;
-        layer.envelope = { static_cast<float> (l.envelope.attack), static_cast<float> (l.envelope.decay),
-                           static_cast<float> (l.envelope.sustain), static_cast<float> (l.envelope.release) };
+        layer.envelope = toEnvelope (l.envelope);
 
         const auto frames = layer.sample->audio.getNumSamples();
         const auto toFrame = [&] (double seconds) { return std::clamp (static_cast<int> (std::llround (seconds * layer.sample->sampleRate)), 0, frames); };

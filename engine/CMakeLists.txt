@@ -25,6 +25,7 @@ target_sources(gk_engine PRIVATE
     src/plugins/PluginWindows.cpp
     src/render/Render.cpp
     src/render/Stretch.cpp
+    src/sampler/AudioChannelPlugin.cpp
     src/sampler/SampleCache.cpp
     src/sampler/SamplerEngine.cpp
     src/sampler/SamplerPlugin.cpp

@@ -1,17 +1,42 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "name": "Audio clip",
   "tempo": 120,
-  "channels": [],
+  "channels": [
+    {
+      "id": "stereo_beep",
+      "name": "stereo_beep",
+      "instrument": {
+        "type": "audio",
+        "sample": "../../fixtures/samples/stereo_beep.wav"
+      }
+    }
+  ],
   "patterns": [],
   "playlist": {
-    "tracks": [{ "id": "t" }],
+    "tracks": [
+      {
+        "id": "t"
+      }
+    ],
     "clips": [
       {
-        "type": "audio", "id": "a", "track": "t", "start": 960, "length": 960,
-        "sample": "../../fixtures/samples/stereo_beep.wav", "offset": 0.25, "gainDb": -6
+        "type": "audio",
+        "id": "a",
+        "track": "t",
+        "start": 960,
+        "length": 960,
+        "offset": 0.25,
+        "gainDb": -6,
+        "channel": "stereo_beep"
       }
     ]
   },
-  "mixer": { "inserts": [{ "id": "master" }] }
+  "mixer": {
+    "inserts": [
+      {
+        "id": "master"
+      }
+    ]
+  }
 }

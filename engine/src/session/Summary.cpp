@@ -42,7 +42,22 @@ namespace
                 layers.push_back (std::move (layer));
             }
 
-            return { { "type", "sampler" }, { "layers", layers } };
+            Json j { { "type", "sampler" }, { "layers", layers } };
+
+            if (sampler->filter.type != SamplerFilterType::off)
+                j["filter"] = toString (sampler->filter.type);
+
+            return j;
+        }
+
+        if (auto audio = std::get_if<AudioInstrument> (&instrument))
+        {
+            Json j { { "type", "audio" }, { "sample", fileName (audio->sample) } };
+
+            if (audio->reverse)       j["reverse"] = true;
+            if (audio->sourceTempo)   j["sourceTempo"] = *audio->sourceTempo;
+
+            return j;
         }
 
         auto& plugin = std::get<PluginInstrument> (instrument).plugin;
@@ -60,7 +75,7 @@ namespace
         if (auto pc = std::get_if<PatternClip> (&clip))
             j["pattern"] = pc->pattern;
         else if (auto ac = std::get_if<AudioClip> (&clip))
-            j["audio"] = fileName (ac->sample);
+            j["audio"] = ac->channel;
         else if (auto automation = std::get_if<AutomationClip> (&clip))
         {
             auto& t = automation->target;

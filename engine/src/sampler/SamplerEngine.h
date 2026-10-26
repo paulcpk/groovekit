@@ -46,6 +46,42 @@ struct Filter
     static float qFor (float resonance)     { return 0.7071f * std::pow (25.0f / 0.7071f, juce::jlimit (0.0f, 1.0f, resonance)); }
 };
 
+/** The TPT state-variable filter (Zavalishin): coefficients for one cutoff, applied to a channel's
+    two-integrator state. */
+struct Svf
+{
+    float a1 = 1, a2 = 0, a3 = 0, k = 1.4142f;
+
+    void setup (float cutoff, float resonance, double sampleRate)
+    {
+        const auto fc = juce::jlimit (16.0f, static_cast<float> (sampleRate * 0.45), cutoff);
+        const auto g = std::tan (juce::MathConstants<float>::pi * fc / static_cast<float> (sampleRate));
+        k = 1.0f / Filter::qFor (resonance);
+        a1 = 1.0f / (1.0f + g * (g + k));
+        a2 = g * a1;
+        a3 = g * a2;
+    }
+
+    float process (float in, float* state, Filter::Type type) const
+    {
+        const auto v3 = in - state[1];
+        const auto v1 = a1 * state[0] + a2 * v3;
+        const auto v2 = state[1] + a2 * state[0] + a3 * v3;
+        state[0] = 2.0f * v1 - state[0];
+        state[1] = 2.0f * v2 - state[1];
+
+        switch (type)
+        {
+            case Filter::Type::lowpass:   return v2;
+            case Filter::Type::highpass:  return in - k * v1 - v2;
+            case Filter::Type::bandpass:  return k * v1;
+            case Filter::Type::off:       break;
+        }
+
+        return in;
+    }
+};
+
 struct Config
 {
     std::vector<Layer> layers;
@@ -100,7 +136,7 @@ private:
         float gainL = 0, gainR = 0;
         juce::ADSR envelope, filterEnvelope;
         float filterState[2][2] {};   // per channel: the SVF's two integrators
-        float a1 = 1, a2 = 0, a3 = 0, k = 1.4142f;
+        Svf svf;
         int samplesToCoefficients = 0;
         int fadeInSamples = 0, fadeOutSamples = 0;
         bool active = false;

@@ -6,6 +6,7 @@
 #include "mixer/FaderPlugin.h"
 #include "mixer/LimiterPlugin.h"
 #include "plugins/PluginWindows.h"
+#include "sampler/AudioChannelPlugin.h"
 #include "sampler/SamplerPlugin.h"
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -80,6 +81,7 @@ EngineContext::EngineContext (Options options) : impl (std::make_unique<Impl> (o
 {
     auto& plugins = impl->engine.getPluginManager();
     plugins.createBuiltInType<sampler::SamplerPlugin>();
+    plugins.createBuiltInType<sampler::AudioChannelPlugin>();
     plugins.createBuiltInType<mixer::FaderPlugin>();
     plugins.createBuiltInType<MidiClockPlugin>();
     plugins.createBuiltInType<mixer::LimiterPlugin>();

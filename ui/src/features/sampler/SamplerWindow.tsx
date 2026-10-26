@@ -81,7 +81,7 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
         ) : tab === "volume" ? (
           <VolumeTab channel={channel} layer={layer} color={color} />
         ) : (
-          <FilterTab channel={channel} sampler={sampler} color={color} />
+          <FilterTab channel={channel} filter={sampler.filter} color={color} />
         )}
         {layer && tab === "sample" && <div className="text-center text-2xs text-faint">Drop more samples to stack layers</div>}
       </div>
@@ -154,7 +154,7 @@ function SampleTab({ channel, sampler, layer, color }: { channel: Channel; sampl
         </label>
         <label className="flex items-center gap-1">Voices
           <DragNumber value={sampler.polyphony ?? 32} min={1} max={256} className="text-fg"
-            onCommit={(v) => void execute({ type: "updateSampler", channel: channel.id, changes: { polyphony: v } }, { label: "Sampler voices" })} />
+            onCommit={(v) => void execute({ type: "updateInstrument", channel: channel.id, changes: { polyphony: v } }, { label: "Sampler voices" })} />
         </label>
       </div>
     </div>
@@ -174,17 +174,18 @@ function VolumeTab({ channel, layer, color }: { channel: Channel; layer: Sampler
   );
 }
 
-function FilterTab({ channel, sampler, color }: { channel: Channel; sampler: SamplerInstrument; color: string }) {
-  const filter = useLiveControl<SamplerFilter>((f) => ({ type: "updateSampler", channel: channel.id, changes: { filter: f } }), "Sampler filter");
+/** A sampler's or audio channel's filter and its envelope. */
+export function FilterTab({ channel, filter: saved, color }: { channel: Channel; filter: SamplerFilter | undefined; color: string }) {
+  const filter = useLiveControl<SamplerFilter>((f) => ({ type: "updateInstrument", channel: channel.id, changes: { filter: f } }), "Filter");
   // A filter switched on here starts with a pluck: a quick fall back to the cutoff. One set up
   // elsewhere without an envelope has the engine's default.
-  const envelope: Envelope = sampler.filter?.envelope
-    ?? ((sampler.filter?.type ?? "off") === "off" ? { attack: 0, decay: 0.3, sustain: 0, release: 0.2 } : DEFAULT_ENVELOPE);
-  const current = (): SamplerFilter => ({ ...sampler.filter, envelope });
+  const envelope: Envelope = saved?.envelope
+    ?? ((saved?.type ?? "off") === "off" ? { attack: 0, decay: 0.3, sustain: 0, release: 0.2 } : DEFAULT_ENVELOPE);
+  const current = (): SamplerFilter => ({ ...saved, envelope });
 
   return (
     <div className="flex flex-col gap-3">
-      <FilterGraph filter={sampler.filter} color={color}
+      <FilterGraph filter={saved} color={color}
         onChange={(change) => filter.onChange({ ...current(), ...change })}
         onCommit={(change) => filter.onCommit({ ...current(), ...change })} />
       <EnvelopeGraph label="Cutoff envelope" envelope={envelope} color={color}

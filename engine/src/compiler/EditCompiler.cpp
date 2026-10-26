@@ -4,6 +4,7 @@
 #include "effects/BuiltinEffects.h"
 #include "mixer/FaderPlugin.h"
 #include "render/Stretch.h"
+#include "sampler/AudioChannelPlugin.h"
 #include "sampler/SamplerPlugin.h"
 
 #include <fstream>
@@ -19,7 +20,7 @@ namespace
     /** A parameter an automation clip can drive, with the conversion from model units. */
     struct AutomationTargetParam
     {
-        te::AutomatableParameter::Ptr param;
+        std::vector<te::AutomatableParameter::Ptr> params;
         std::function<float (double)> toNative;
         double min, max;
     };
@@ -65,8 +66,16 @@ namespace
         };
 
         std::map<Id, std::map<Id, EffectInstance>> effectPlugins;
-        /** Audio clips' tracks, one per playlist track and insert, with the insert they feed. */
-        std::map<std::pair<Id, Id>, te::AudioTrack*> audioClipTracks;
+        /** Audio clips' tracks, one per playlist track and audio channel, with the insert they feed. */
+        struct AudioClipTrack
+        {
+            te::AudioTrack* track;
+            Id insert;
+            sampler::AudioChannelPlugin* shaper;
+            std::vector<sampler::AudioChannelPlugin::Clip> clips;
+        };
+
+        std::map<std::pair<Id, Id>, AudioClipTrack> audioClipTracks;
 
         //==============================================================================
         te::TimePosition toTime (Ticks ticks) const
@@ -231,6 +240,10 @@ namespace
         {
             for (auto& channel : project.channels)
             {
+                // Audio channels play on their clips' tracks (createAudioClips).
+                if (std::holds_alternative<AudioInstrument> (channel.instrument))
+                    continue;
+
                 auto& track = addTrack ("channel:" + channel.id);
                 result.channelTracks[channel.id] = &track;
 
@@ -247,10 +260,9 @@ namespace
                         throw std::runtime_error ("Channel \"" + channel.id + "\": " + e.what());
                     }
                 }
-                else
+                else if (auto pi = std::get_if<PluginInstrument> (&channel.instrument))
                 {
-                    auto& pi = std::get<PluginInstrument> (channel.instrument);
-                    auto plugin = createHostedPlugin (pi.plugin, "Channel \"" + channel.id + "\"");
+                    auto plugin = createHostedPlugin (pi->plugin, "Channel \"" + channel.id + "\"");
                     track.pluginList.insertPlugin (plugin, -1, nullptr);
                     result.plugins["channel:" + channel.id] = plugin.get();
                 }
@@ -317,21 +329,27 @@ namespace
             }
         }
 
-        /** Where a playlist track's audio clips play: its volume and pan, into the insert. */
-        te::AudioTrack& getAudioClipTrack (const Id& trackId, const Id& insertId)
+        /** Where an audio channel's clips on a playlist track play: the channel's envelope and filter,
+            the track's volume and pan, the channel's volume and pan, into the track's insert or the
+            channel's. */
+        AudioClipTrack& getAudioClipTrack (const PlaylistTrack* playlistTrack, const Id& trackId, const Channel& channel)
         {
-            const auto key = std::make_pair (trackId, insertId);
+            const auto key = std::make_pair (trackId, channel.id);
 
             if (auto it = audioClipTracks.find (key); it != audioClipTracks.end())
-                return *it->second;
+                return it->second;
 
-            auto& track = addTrack ("audio:" + trackId + ":" + insertId);
-            const auto playlistTrack = findTrack (project, trackId);
+            const auto insert = playlistTrack && playlistTrack->insert ? *playlistTrack->insert : channel.insert;
+            auto& track = addTrack ("audio:" + trackId + ":" + channel.id);
+            auto& shaper = addPlugin<sampler::AudioChannelPlugin> (track);
             result.trackFaders[trackId].push_back (&addFader (track, playlistTrack ? playlistTrack->volumeDb : 0.0,
                                                               playlistTrack ? playlistTrack->pan : 0.0));
-            track.getOutput().setOutputToTrack (result.insertTracks.at (insertId));
-            audioClipTracks[key] = &track;
-            return track;
+            result.audioChannelFaders[channel.id].push_back (&addFader (track, channel.volumeDb, channel.pan));
+            result.audioChannelTracks[channel.id].push_back (&track);
+            result.audioChannelPlugins[channel.id].push_back (&shaper);
+            track.setMute (! isChannelAudible (project, channel));
+            track.getOutput().setOutputToTrack (result.insertTracks.at (insert));
+            return audioClipTracks[key] = { &track, insert, &shaper, {} };
         }
 
         void createAudioClips()
@@ -343,20 +361,24 @@ namespace
                 if (ac == nullptr)
                     continue;
 
-                auto file = juce::File (resolve (ac->sample).string());
+                auto channel = findChannel (project, ac->channel);
+                auto audio = channel != nullptr ? std::get_if<AudioInstrument> (&channel->instrument) : nullptr;
+
+                if (audio == nullptr)
+                    throw std::runtime_error ("Audio clip \"" + ac->id + "\": \"" + ac->channel + "\" isn't an audio channel");
+
+                auto file = juce::File (resolve (audio->sample).string());
 
                 if (! file.existsAsFile())
                     throw std::runtime_error ("Audio clip \"" + ac->id + "\": file not found: " + file.getFullPathName().toStdString());
 
-                // The playlist track's insert, when it has one, routes every audio clip on it.
-                const auto playlistTrack = findTrack (project, ac->track);
-                auto& track = getAudioClipTrack (ac->track, playlistTrack && playlistTrack->insert ? *playlistTrack->insert : ac->insert);
+                auto& target = getAudioClipTrack (findTrack (project, ac->track), ac->track, *channel);
 
-                if (ac->reverse)
+                if (audio->reverse)
                     file = juce::File (getReversedFile (file.getFullPathName().toStdString(), options.cacheDir).string());
 
-                // A clip recorded at another tempo plays a stretched copy, pitch kept.
-                const auto speed = ac->sourceTempo ? project.tempo / *ac->sourceTempo : 1.0;
+                // A channel recorded at another tempo plays a stretched copy, pitch kept.
+                const auto speed = audio->sourceTempo ? project.tempo / *audio->sourceTempo : 1.0;
 
                 if (std::abs (speed - 1.0) > 1.0e-6)
                     file = juce::File (getStretchedFile (file.getFullPathName().toStdString(), speed, options.cacheDir).string());
@@ -364,7 +386,7 @@ namespace
                 te::ClipPosition position { { toTime (ac->start), toTime (ac->start + ac->length) },
                                             te::TimeDuration::fromSeconds (ac->offset / speed) };
 
-                auto waveClip = track.insertWaveClip (ac->id, file, position, false);
+                auto waveClip = target.track->insertWaveClip (ac->id, file, position, false);
 
                 if (waveClip == nullptr)
                     throw std::runtime_error ("Couldn't create audio clip \"" + ac->id + "\"");
@@ -382,24 +404,43 @@ namespace
                 waveClip->setFadeOut (te::TimeDuration::fromSeconds (ac->fadeOut));
                 waveClip->setMuted (ac->mute || isTrackMuted (ac->track));
                 result.clips[ac->id].push_back (waveClip.get());
+                target.clips.push_back ({ position.getStart().inSeconds(), position.getEnd().inSeconds() });
+            }
+
+            for (auto& [key, target] : audioClipTracks)
+            {
+                std::sort (target.clips.begin(), target.clips.end(), [] (auto& a, auto& b) { return a.start < b.start; });
+                const auto& channel = *findChannel (project, key.second);
+                target.shaper->setSettings (std::get<AudioInstrument> (channel.instrument), target.clips);
             }
         }
 
         //==============================================================================
         AutomationTargetParam findTarget (const AutomationTarget& target)
         {
-            auto faderParam = [&] (mixer::FaderPlugin& fader) -> AutomationTargetParam
+            auto faderParams = [&] (const std::vector<mixer::FaderPlugin*>& faders) -> AutomationTargetParam
             {
-                if (target.param == "volume")
-                    return { fader.volumeParam, [] (double v) { return static_cast<float> (v); }, mixer::FaderPlugin::minDb, mixer::FaderPlugin::maxDb };
+                std::vector<te::AutomatableParameter::Ptr> params;
 
-                return { fader.panParam, [] (double v) { return static_cast<float> (v); }, -1, 1 };
+                for (auto fader : faders)
+                    params.push_back (target.param == "volume" ? fader->volumeParam : fader->panParam);
+
+                if (target.param == "volume")
+                    return { params, [] (double v) { return static_cast<float> (v); }, mixer::FaderPlugin::minDb, mixer::FaderPlugin::maxDb };
+
+                return { params, [] (double v) { return static_cast<float> (v); }, -1, 1 };
             };
+
+            auto faderParam = [&] (mixer::FaderPlugin& fader) { return faderParams ({ &fader }); };
 
             switch (target.scope)
             {
                 case AutomationTargetScope::channel:
-                    return faderParam (*channelFaders.at (*target.channel));
+                    if (auto it = channelFaders.find (*target.channel); it != channelFaders.end())
+                        return faderParam (*it->second);
+
+                    // An audio channel: every track its clips play on.
+                    return faderParams (result.audioChannelFaders[*target.channel]);
 
                 case AutomationTargetScope::insert:
                     return faderParam (*insertFaders.at (*target.insert));
@@ -407,7 +448,7 @@ namespace
                 case AutomationTargetScope::send:
                 {
                     auto send = sendPlugins.at (*target.insert).at (*target.send);
-                    return { send->gain,
+                    return { { send->gain },
                              [] (double db) { return te::decibelsToVolumeFaderPosition (static_cast<float> (db)); },
                              -100, 6 };
                 }
@@ -423,11 +464,11 @@ namespace
                         if (param == nullptr)
                             throw std::runtime_error ("plugin \"" + plugin->getName().toStdString() + "\" has no parameter \"" + target.param + "\"");
 
-                        return { param, [] (double v) { return static_cast<float> (v); }, 0, 1 };
+                        return { { param }, [] (double v) { return static_cast<float> (v); }, 0, 1 };
                     }
 
                     auto [param, info] = effects::findAutomatableParam (*plugin, *kind, target.param);
-                    return { param, [convert = info->toNative] (double v) { auto f = static_cast<float> (v); return convert != nullptr ? convert (f) : f; },
+                    return { { param }, [convert = info->toNative] (double v) { auto f = static_cast<float> (v); return convert != nullptr ? convert (f) : f; },
                              info->min, info->max };
                 }
             }
@@ -473,11 +514,11 @@ namespace
 
             double latency = 0;
 
-            for (auto& channel : project.channels)
-                latency = std::max (latency, trackLatency (*result.channelTracks.at (channel.id)) + insertLatency (channel.insert));
+            for (auto& [id, track] : result.channelTracks)
+                latency = std::max (latency, trackLatency (*track) + insertLatency (findChannel (project, id)->insert));
 
-            for (auto& [key, track] : audioClipTracks)
-                latency = std::max (latency, insertLatency (key.second));
+            for (auto& [key, target] : audioClipTracks)
+                latency = std::max (latency, insertLatency (target.insert));
 
             return latency;
         }
@@ -585,26 +626,29 @@ namespace
                     return ! b.empty() && (a.empty() || a.front().seconds < b.front().seconds);
                 });
 
-                auto& curve = target.param->getCurve();
-                std::optional<Point> previous;
-
-                for (auto& points : clips)
+                for (auto& param : target.params)
                 {
-                    if (points.empty())
-                        continue;
+                    auto& curve = param->getCurve();
+                    std::optional<Point> previous;
 
-                    // Hold the previous clip's last value until this clip starts.
-                    if (previous && points.front().seconds > previous->seconds + stepSeconds)
-                        curve.addPoint (te::TimePosition::fromSeconds (points.front().seconds - stepSeconds), previous->value, 0.0f);
+                    for (auto& points : clips)
+                    {
+                        if (points.empty())
+                            continue;
 
-                    for (auto& p : points)
-                        curve.addPoint (te::TimePosition::fromSeconds (p.seconds), p.value, p.curve);
+                        // Hold the previous clip's last value until this clip starts.
+                        if (previous && points.front().seconds > previous->seconds + stepSeconds)
+                            curve.addPoint (te::TimePosition::fromSeconds (points.front().seconds - stepSeconds), previous->value, 0.0f);
 
-                    previous = points.back();
+                        for (auto& p : points)
+                            curve.addPoint (te::TimePosition::fromSeconds (p.seconds), p.value, p.curve);
+
+                        previous = points.back();
+                    }
+
+                    // Tracktion normally rebuilds the playback stream on a timer; offline renders don't run the message loop.
+                    param->updateStream();
                 }
-
-                // Tracktion normally rebuilds the playback stream on a timer; offline renders don't run the message loop.
-                target.param->updateStream();
             }
         }
     };
@@ -621,6 +665,9 @@ CompiledEdit& CompiledEdit::operator= (CompiledEdit&& other)
         insertFaders = std::move (other.insertFaders);
         channelFaders = std::move (other.channelFaders);
         trackFaders = std::move (other.trackFaders);
+        audioChannelTracks = std::move (other.audioChannelTracks);
+        audioChannelFaders = std::move (other.audioChannelFaders);
+        audioChannelPlugins = std::move (other.audioChannelPlugins);
         clips = std::move (other.clips);
         plugins = std::move (other.plugins);
         sends = std::move (other.sends);

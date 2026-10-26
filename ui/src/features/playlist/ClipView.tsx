@@ -3,7 +3,9 @@ import { AudioLines, Spline, VolumeX } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/menu";
 import { targetLabel } from "@/lib/automation";
 import { cn } from "@/lib/cn";
-import { baseName, colorFor, uniqueId } from "@/lib/model";
+import { colorFor, uniqueId } from "@/lib/model";
+import { openWindow } from "@/state/windows";
+import { makeAudioUnique } from "./clipOps";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { useState } from "react";
@@ -17,13 +19,19 @@ export function clipColor(clip: Clip, doc: Project) {
     const pattern = doc.patterns.find((p) => p.id === clip.pattern);
     return colorFor(clip.pattern, pattern?.color);
   }
-  if (clip.type === "audio") return colorFor(clip.sample);
+  if (clip.type === "audio") {
+    const channel = doc.channels.find((c) => c.id === clip.channel);
+    return colorFor(clip.channel, channel?.color);
+  }
   return "#9fb0c2";
 }
 
 export function clipName(clip: Clip, doc: Project) {
   if (clip.type === "pattern") return doc.patterns.find((p) => p.id === clip.pattern)?.name ?? clip.pattern;
-  if (clip.type === "audio") return baseName(clip.sample);
+  if (clip.type === "audio") {
+    const channel = doc.channels.find((c) => c.id === clip.channel);
+    return channel?.name || clip.channel;
+  }
   return targetLabel(clip.target, doc);
 }
 
@@ -68,7 +76,7 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
         setMenuTick(Math.round(clip.start + snapTo(x / pxPerTick, snap)));
       }}
       onDoubleClick={() => {
-        if (clip.type === "audio") setUi({ clipEditor: clip.id });
+        if (clip.type === "audio") openWindow({ kind: "channel", channel: clip.channel });
         if (clip.type === "pattern") setUi({ selectedPattern: clip.pattern, bottomOpen: true, bottomPanel: "rack" });
       }}
     >
@@ -150,11 +158,9 @@ function ClipMenu({ clip, doc, at }: { clip: Clip; doc: Project; at: number }) {
       {clip.type === "audio" && (
         <>
           <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => setUi({ clipEditor: clip.id })}>Gain, fades and stretch…</ContextMenuItem>
-          <ContextMenuItem onSelect={() => void execute(targets.filter((c) => c.type === "audio").map((c) => ({ type: "updateClip" as const, clip: c.id, changes: { reverse: !clip.reverse } })),
-            { label: clip.reverse ? "Play forwards" : "Reverse" })}>
-            {clip.reverse ? "Play forwards" : "Reverse"}{plural}
-          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => openWindow({ kind: "channel", channel: clip.channel })}>Open the audio channel</ContextMenuItem>
+          <ContextMenuItem onSelect={() => setUi({ clipEditor: clip.id })}>Gain and fades…</ContextMenuItem>
+          <ContextMenuItem onSelect={() => void makeAudioUnique(doc, clip)}>Make unique</ContextMenuItem>
           <ContextMenuItem onSelect={() => void execute({ type: "updateClip", clip: clip.id, changes: { gainDb: null } }, { label: "Reset clip gain" })} disabled={clip.gainDb === undefined}>
             Reset gain{clip.gainDb !== undefined ? ` (${clip.gainDb > 0 ? "+" : ""}${clip.gainDb.toFixed(1)} dB)` : ""}
           </ContextMenuItem>

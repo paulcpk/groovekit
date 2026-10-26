@@ -49,9 +49,9 @@ export interface RemoveChannel {
   channel: Id;
 }
 
-/** Changes a sampler channel's own settings (polyphony, filter); layers have their own commands. */
-export interface UpdateSampler {
-  type: "updateSampler";
+/** Changes a sampler or audio channel's instrument settings (a sampler's polyphony and filter; an audio channel's sample, reverse, sourceTempo, envelope and filter). A sampler's layers have their own commands. */
+export interface UpdateInstrument {
+  type: "updateInstrument";
   channel: Id;
   changes: Changes;
 }
@@ -237,7 +237,7 @@ export interface Patch {
   ops: PatchOp[];
 }
 
-export type Command = SetTempo | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | UpdateSampler | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | AddTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
+export type Command = SetTempo | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | UpdateInstrument | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | AddTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
 
 /** One applied change. Entries form a tree: undo moves to the parent, new changes after an undo start a branch. */
 export interface HistoryEntry {

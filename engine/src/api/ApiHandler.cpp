@@ -1048,10 +1048,10 @@ Json ApiHandler::importIntoProject (const std::string& method, const Json& param
                 if (auto path = collect (layer.sample))
                     commands.push_back (model::UpdateSamplerLayer { channel.id, layer.id, Json { { "sample", *path } } });
 
-    for (auto& clip : project.playlist.clips)
-        if (auto audio = std::get_if<model::AudioClip> (&clip))
+    for (auto& channel : project.channels)
+        if (auto audio = std::get_if<model::AudioInstrument> (&channel.instrument))
             if (auto path = collect (audio->sample))
-                commands.push_back (model::UpdateClip { audio->id, Json { { "sample", *path } } });
+                commands.push_back (model::Patch { { model::PatchOp { model::PatchOpOp::replace, "/channels/" + std::to_string (&channel - project.channels.data()) + "/instrument/sample", Json (*path) } } });
 
     if (! commands.empty())
         session.execute (commands, { "ui", {}, "Collect samples into the project" });

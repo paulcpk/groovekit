@@ -9,7 +9,8 @@ const W = 920, H = 200;
     the channel (with its envelopes and filter) for as long as it's held, with a playhead. */
 export function Waveform({ path, start, end, reverse, color, onRegion, onPress, onRelease }: {
   path: string; start: number; end: number | undefined; reverse: boolean; color: string;
-  onRegion: (start: number, end: number | null, commit: boolean) => void;
+  /** Without it, the whole file plays and there are no handles. */
+  onRegion?: (start: number, end: number | null, commit: boolean) => void;
   onPress: () => void; onRelease: () => void;
 }) {
   const peaks = usePeaks(path);
@@ -37,10 +38,10 @@ export function Waveform({ path, start, end, reverse, color, onRegion, onPress, 
         ? { ...from, start: round(Math.min(Math.max(0, s), from.end - 0.005)) }
         : { ...from, end: round(Math.max(Math.min(duration, s), from.start + 0.005)) };
       setLive(next);
-      onRegion(next.start, next.end >= duration - 0.0005 ? null : next.end, false);
+      onRegion?.(next.start, next.end >= duration - 0.0005 ? null : next.end, false);
     }, (_dx, _dy, _ev, moved) => {
       setLive(null);
-      if (moved) onRegion(next.start, next.end >= duration - 0.0005 ? null : next.end, true);
+      if (moved) onRegion?.(next.start, next.end >= duration - 0.0005 ? null : next.end, true);
     }, "ew-resize");
   };
 
@@ -76,7 +77,7 @@ export function Waveform({ path, start, end, reverse, color, onRegion, onPress, 
         <>
           <div className="pointer-events-none absolute inset-y-0 left-0 bg-black/55" style={{ width: `${toX(region.start)}%` }} />
           <div className="pointer-events-none absolute inset-y-0 right-0 bg-black/55" style={{ width: `${100 - toX(region.end)}%` }} />
-          {(["start", "end"] as const).map((which) => (
+          {onRegion && (["start", "end"] as const).map((which) => (
             <div key={which} className="group absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize" style={{ left: `${toX(region[which])}%` }}
               onPointerDown={(e) => dragHandle(e, which)} title={which === "start" ? "Start" : "End"}>
               <div className="mx-auto h-full w-px bg-fg/70 group-hover:bg-accent" />

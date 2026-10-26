@@ -1,5 +1,5 @@
 import type { Channel, Note, Pattern, Project } from "@groovekit/schema/project";
-import { ChevronDown, Copy, Plus, Trash2, Volume2 } from "lucide-react";
+import { AudioLines, ChevronDown, Copy, Plus, Trash2, Volume2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton, Knob, ToggleChip } from "@/components/controls";
 import { ActivityLed } from "@/components/fader";
@@ -245,9 +245,8 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
   const volume = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { volumeDb: Math.round(v * 10) / 10 } }), "Channel volume");
   const pan = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan channel");
 
-  const preview = () => {
-    if (channel.instrument.type === "sampler" && channel.instrument.layers[0]) void call("preview.play", { path: channel.instrument.layers[0].sample });
-  };
+  const previewPath = channel.instrument.type === "sampler" ? channel.instrument.layers[0]?.sample : channel.instrument.type === "audio" ? channel.instrument.sample : undefined;
+  const preview = () => previewPath && void call("preview.play", { path: previewPath });
 
   return (
     <div className={cn("relative flex h-[30px] items-center gap-2 px-2", selected && "bg-raised")}>
@@ -283,11 +282,11 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
               channel.mute ? "bg-control text-faint" : "bg-hover text-fg",
               selected && "ring-1 ring-accent",
             )}
-            title={channel.instrument.type === "sampler" ? "Open the sampler" : "Open the plugin's window"}
+            title={channel.instrument.type === "plugin" ? "Open the plugin's window" : channel.instrument.type === "audio" ? "Open the audio channel" : "Open the sampler"}
             onClick={() => openChannel(channel, true)}
-            onDragOver={(e) => channel.instrument.type === "sampler" && (isSampleDrag(e) || isFileDrag(e)) && (e.preventDefault(), e.stopPropagation())}
+            onDragOver={(e) => channel.instrument.type !== "plugin" && (isSampleDrag(e) || isFileDrag(e)) && (e.preventDefault(), e.stopPropagation())}
             onDrop={(e) => {
-              if (channel.instrument.type !== "sampler") return;
+              if (channel.instrument.type === "plugin") return;
               e.stopPropagation();
               e.preventDefault();
               const replace = (path: string) => void replaceSample(channel, path);
@@ -301,8 +300,12 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}>{channel.mute ? "Unmute" : "Mute"}</ContextMenuItem>
-          <ContextMenuItem onSelect={() => openChannel(channel)}>{channel.instrument.type === "sampler" ? "Open the sampler" : "Open the plugin's window"}</ContextMenuItem>
-          <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
+          <ContextMenuItem onSelect={() => openChannel(channel)}>
+            {channel.instrument.type === "plugin" ? "Open the plugin's window" : channel.instrument.type === "audio" ? "Open the audio channel" : "Open the sampler"}
+          </ContextMenuItem>
+          {channel.instrument.type !== "audio" && (
+            <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
+          )}
           <ContextMenuItem onSelect={() => void routeToNewInsert(doc, channel)}>Route to a new insert</ContextMenuItem>
           <ContextMenuSub label="Colour">
             <div className="grid grid-cols-6 gap-1 p-1">
@@ -325,11 +328,13 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
       <ToggleChip on={!!channel.solo} label="S" tone="dim" title={channel.solo ? "Unsolo" : "Solo: only soloed channels play"}
         className={cn("h-4 min-w-4 px-0.5 text-[9px]", channel.solo && "bg-accent text-black")}
         onClick={() => update({ solo: !channel.solo }, channel.solo ? "Unsolo channel" : "Solo channel")} />
-      {channel.instrument.type === "sampler" && channel.instrument.layers.length > 0 && (
+      {previewPath && (
         <IconButton size="sm" title="Preview sample" className="h-5 w-5" onClick={preview}><Volume2 size={11} /></IconButton>
       )}
 
-      {pattern && (melodic ? (
+      {channel.instrument.type === "audio" ? (
+        <AudioRowInfo doc={doc} channel={channel} />
+      ) : pattern && (melodic ? (
         <MiniRoll notes={notes} length={patternLength(pattern, doc)} color={color} width={steps * 22}
           onOpen={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })} />
       ) : (
@@ -366,6 +371,17 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
         <span key={touched} className="pointer-events-none absolute inset-0 animate-agent-flash bg-agent/20" />
       )}
     </div>
+  );
+}
+
+/** An audio channel has no steps: its clips are in the playlist. */
+function AudioRowInfo({ doc, channel }: { doc: Project; channel: Channel }) {
+  const clips = doc.playlist.clips.filter((c) => c.type === "audio" && c.channel === channel.id).length;
+  return (
+    <button type="button" onClick={() => openChannel(channel)} title="Open the audio channel"
+      className="flex h-[22px] items-center gap-1.5 rounded-[3px] bg-[#232328] px-2 text-2xs text-faint hover:bg-[#2a2a30] hover:text-dim">
+      <AudioLines size={11} /> Audio · {clips} clip{clips === 1 ? "" : "s"} in the playlist
+    </button>
   );
 }
 

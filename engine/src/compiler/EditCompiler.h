@@ -7,6 +7,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 namespace gk::mixer { class FaderPlugin; }
+namespace gk::sampler { class AudioChannelPlugin; }
 
 namespace gk
 {
@@ -19,7 +20,9 @@ namespace gk
     - each channel becomes a hidden track with its instrument and fader, feeding its insert
     - each pattern clip becomes one MIDI clip per channel that has notes in the pattern,
       with the pattern repeated to fill the clip
-    - audio clips go on one hidden track per target insert
+    - an audio channel's clips go on one hidden track per playlist track they're on, holding
+      the channel's envelope and filter, the playlist track's fader and the channel's fader,
+      feeding the track's insert if it has one, else the channel's
     - automation clips become automation curves on the targeted parameters
 */
 struct CompiledEdit
@@ -39,8 +42,14 @@ struct CompiledEdit
     /** The volume and pan stage of each insert and channel, which also meters them. */
     std::map<model::Id, mixer::FaderPlugin*> insertFaders, channelFaders;
 
-    /** The volume and pan stages of each playlist track's audio clips (one per insert they play into). */
+    /** The volume and pan stages of each playlist track's audio clips (one per audio channel on it). */
     std::map<model::Id, std::vector<mixer::FaderPlugin*>> trackFaders;
+
+    /** Audio channels: their tracks, faders and envelope stages, one of each per playlist track
+        their clips are on. */
+    std::map<model::Id, std::vector<tracktion::AudioTrack*>> audioChannelTracks;
+    std::map<model::Id, std::vector<mixer::FaderPlugin*>> audioChannelFaders;
+    std::map<model::Id, std::vector<sampler::AudioChannelPlugin*>> audioChannelPlugins;
 
     /** The Tracktion clips that play each playlist clip (a pattern clip has one per channel). */
     std::map<model::Id, std::vector<tracktion::Clip*>> clips;

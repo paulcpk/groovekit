@@ -12,11 +12,11 @@ Model: channels (instruments: the built-in sampler with one or more sample layer
 
 Units: time is integer ticks at 960 per quarter note (in 4/4 a 16th is 240, a beat 960, a bar 3840). Volumes in dB, pan -1..1, velocity 1-127, keys are MIDI numbers (60 = C4). Sample paths are absolute or relative to the project folder.
 
-Sounds: search_samples finds samples in the user's library by words, category, loop, tempo and key, with a description of each sound. Use one-shots as sampler layers; set rootKey from the result's rootKey so pitched samples play in tune, and pitchTracking false for drums. Use loops as audio clips (their tempo must match the song's for now). describe_sample gives full measurements (spectrum bands, attack, pitch, loudness). Paths in results are absolute.
+Sounds: search_samples finds samples in the user's library by words, category, loop, tempo and key, with a description of each sound. Use one-shots as sampler layers; set rootKey from the result's rootKey so pitched samples play in tune, and pitchTracking false for drums. Use loops as audio clips: an audio clip plays the sample of an audio channel (instrument {"type":"audio","sample":path}, with sourceTempo set to the loop's tempo to stretch it to the song), so add the channel, then clips naming it. The audio channel holds reverse, stretch, a volume envelope and a filter for all its clips, and its insert routes them unless the playlist track has one. describe_sample gives full measurements (spectrum bands, attack, pitch, loudness). Paths in results are absolute.
 
 Plugins: the user's VST3/AU plugins are listed by plugins (scan first if the list is empty). describe_plugin gives a pluginRef and parameter names; use it in a channel instrument {"type":"plugin","plugin":pluginRef} or an insert effect {"type":"plugin","id":...,"plugin":pluginRef}, set "params" by name (normalized 0-1), and automate them with effect-scope automation clips.
 
-Recording: the record tool captures hardware like the user's Digitakt II per track into clips, with GrooveKit as MIDI clock master. After a recording, the takes are audio clips you can cut (updateClip offset/length), copy and arrange like any other.
+Recording: the record tool captures hardware like the user's Digitakt II per track into clips, with GrooveKit as MIDI clock master. After a recording, each take is an audio clip on its own audio channel; cut (updateClip offset/length), copy and arrange them like any other.
 
 Workflow: get_summary to see the song, get_schema once for exact shapes, edit_project to change it (commands apply atomically; errors name the offending field), render to hear it as numbers (LUFS, peak, onsets), then adjust and re-render. Every edit is undoable; edits made close together form one group that undo reverts in one step.`;
 
@@ -318,7 +318,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "analyze_mix",
     {
-      description: "Renders the mix plus one stem per channel (and per insert with audio clips) and reports: the mix's loudness, true peak, loudness range, spectral balance and stereo image; each source's loudness and share of every frequency band; and masking, i.e. pairs of sources that both carry a big share of the same band (e.g. kick and bass at 60-120 Hz). Slower than render: one render per source.",
+      description: "Renders the mix plus one stem per channel (audio channels carry the audio clips) and reports: the mix's loudness, true peak, loudness range, spectral balance and stereo image; each source's loudness and share of every frequency band; and masking, i.e. pairs of sources that both carry a big share of the same band (e.g. kick and bass at 60-120 Hz). Slower than render: one render per source.",
       inputSchema: {
         startBar: z.number().min(1).optional(),
         endBar: z.number().min(1).optional(),

@@ -1,3 +1,4 @@
+import { AudioWindow } from "@/features/sampler/AudioWindow";
 import { SamplerWindow } from "@/features/sampler/SamplerWindow";
 import { useEngine } from "@/state/engine";
 import { closeWindow, useWindows } from "@/state/windows";
@@ -12,7 +13,9 @@ export function Windows() {
     const spec = w.spec;
     if (spec.kind === "channel") {
       const channel = doc?.channels.find((c) => c.id === spec.channel);
-      return channel?.instrument.type === "sampler" ? <SamplerWindow key={w.key} window={w} channel={channel} sampler={channel.instrument} /> : null;
+      if (channel?.instrument.type === "sampler") return <SamplerWindow key={w.key} window={w} channel={channel} sampler={channel.instrument} />;
+      if (channel?.instrument.type === "audio") return <AudioWindow key={w.key} window={w} channel={channel} audio={channel.instrument} />;
+      return null;
     }
     return null;
   });
