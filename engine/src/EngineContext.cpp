@@ -2,6 +2,7 @@
 
 #include "compiler/EditGraveyard.h"
 
+#include "live/MidiClockPlugin.h"
 #include "mixer/FaderPlugin.h"
 #include "mixer/LimiterPlugin.h"
 #include "sampler/SamplerPlugin.h"
@@ -78,6 +79,7 @@ EngineContext::EngineContext (Options options) : impl (std::make_unique<Impl> (o
     auto& plugins = impl->engine.getPluginManager();
     plugins.createBuiltInType<sampler::SamplerPlugin>();
     plugins.createBuiltInType<mixer::FaderPlugin>();
+    plugins.createBuiltInType<MidiClockPlugin>();
     plugins.createBuiltInType<mixer::LimiterPlugin>();
 }
 EngineContext::~EngineContext()

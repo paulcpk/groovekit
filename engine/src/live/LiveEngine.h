@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/EditCompiler.h"
+#include "live/MidiClock.h"
 #include "session/Session.h"
 
 #include <juce_events/juce_events.h>
@@ -79,6 +80,7 @@ public:
     /** Sends MIDI clock, start and stop to an output, so hardware like the Digitakt follows
         GrooveKit's tempo and starts with its transport. Throws if there's no such output. */
     void setMidiClock (const std::string& output, bool enabled);
+    MidiClock& getMidiClock()           { return *midiClock; }
 
     /** Pairs input channels named "... L" and "... R" (as the Digitakt names its per-track outputs)
         into stereo inputs and leaves the rest mono. Call after the input device changes. */
@@ -138,6 +140,8 @@ private:
     EngineContext& context;
     Session& session;
     CompiledEdit compiled;
+    std::shared_ptr<MidiClock> midiClock = std::make_shared<MidiClock>();
+    const void* clockPlugin = nullptr;  // the live Edit's, the clock's source
     int listenerId = 0;
     bool needsRebuild = false;
 
@@ -168,6 +172,8 @@ private:
     TransportState lastNotified;
 
     void rebuild();
+    void addClockTrack();
+    void stopTransport();
     bool hasAudioDevice() const;
     void requireAudioDevice();
     tracktion::TransportControl& transport() const;

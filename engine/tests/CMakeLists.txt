@@ -1,5 +1,6 @@
 add_executable(gk_tests
     AnalysisTests.cpp
+    ClockTests.cpp
     ApiTests.cpp
     LibraryTests.cpp
     LimiterTests.cpp

@@ -2,6 +2,7 @@
 
 #include "EngineContext.h"
 #include "compiler/EditGraveyard.h"
+#include "live/MidiClockPlugin.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
 
@@ -17,6 +18,19 @@ namespace
 {
     /** Takes quieter than this throughout count as silent. */
     constexpr float silentTakeDb = -50.0f;
+
+    /** Tracktion's default for how often it looks for new MIDI devices. */
+    constexpr int defaultMidiScanSeconds = 4;
+
+    /** Runs the messages already posted to the message thread (it's first in, first out). */
+    void runPostedMessages()
+    {
+        auto done = std::make_shared<bool> (false);
+        juce::MessageManager::callAsync ([done] { *done = true; });
+
+        while (! *done)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (1);
+    }
 }
 
 LiveEngine::LiveEngine (EngineContext& c, Session& s, std::filesystem::path file)
@@ -24,6 +38,18 @@ LiveEngine::LiveEngine (EngineContext& c, Session& s, std::filesystem::path file
       settingsFile (file.empty() ? EngineContext::getAppDataFolder() / "recording.json" : std::move (file))
 {
     loadSettings();
+
+    // GrooveKit sends the clock itself (MidiClock); Tracktion's would double it, and it may
+    // still be switched on in settings from earlier versions.
+    auto& devices = context.getEngine().getDeviceManager();
+
+    for (int i = 0; i < devices.getNumMidiOutDevices(); ++i)
+        if (auto d = devices.getMidiOutDevice (i); d != nullptr && d->isSendingClock())
+            d->setSendingClock (false);
+
+    // Paused while recording (see startRecording); back on if a recording never finished.
+    if (devices.getMidiDeviceScanIntervalSeconds() == 0)
+        devices.setMidiDeviceScanIntervalSeconds (defaultMidiScanSeconds);
 
     listenerId = session.addListener ([this] (const Change&)
     {
@@ -40,13 +66,23 @@ LiveEngine::~LiveEngine()
     stopTimer();
     session.removeListener (listenerId);
 
+    midiClock->setSource (nullptr);
+    midiClock->stopNow();
+    context.getEngine().getDeviceManager().deviceManager.removeAudioCallback (midiClock.get());
+
     if (compiled.edit != nullptr)
         transport().stop (false, true);
 }
 
 void LiveEngine::openDefaultAudioDevice()
 {
-    context.getEngine().getDeviceManager().initialise();
+    auto& devices = context.getEngine().getDeviceManager();
+    devices.initialise();
+
+    // After Tracktion's own callback, so each cycle's clock is complete when it's sent.
+    devices.deviceManager.removeAudioCallback (midiClock.get());
+    devices.deviceManager.addAudioCallback (midiClock.get());
+
     pairStereoInputs();
 
     if (hasAudioDevice())
@@ -80,6 +116,9 @@ void LiveEngine::rebuild()
     if (compiled.edit != nullptr && transport().looping.get())
         loop = transport().getLoopRange();
 
+    // The clock carries on into the new Edit if it plays on from the same place.
+    midiClock->setSource (nullptr);
+
     if (compiled.edit != nullptr)
         transport().stop (false, true);
 
@@ -93,6 +132,7 @@ void LiveEngine::rebuild()
     next.edit->editFileRetriever = [editFile] { return editFile; };
 
     compiled = std::move (next);
+    addClockTrack();
 
     auto& tc = transport();
 
@@ -110,6 +150,23 @@ void LiveEngine::rebuild()
 
     if (wasPlaying)
         tc.play (false);
+}
+
+void LiveEngine::addClockTrack()
+{
+    auto& edit = *compiled.edit;
+    auto track = edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr, false);
+    track->setName ("GrooveKit clock");
+
+    auto plugin = edit.getPluginCache().createNewPlugin (MidiClockPlugin::xmlTypeName, {});
+    track->pluginList.insertPlugin (plugin, 0, nullptr);
+
+    if (auto p = dynamic_cast<MidiClockPlugin*> (plugin.get()))
+    {
+        p->setClock (midiClock);
+        clockPlugin = p;
+        midiClock->setSource (clockPlugin);
+    }
 }
 
 void LiveEngine::updateNow()
@@ -155,8 +212,18 @@ void LiveEngine::stop()
         return;
     }
 
-    transport().stop (false, true);
+    stopTransport();
     notifyTransport (true);
+}
+
+void LiveEngine::stopTransport()
+{
+    // Tracktion clears the playback graph when it stops, so the clock plugin never sees a stopped
+    // block; the clock is stopped here instead, ignoring any block still on its way.
+    midiClock->setSource (nullptr);
+    transport().stop (false, true);
+    midiClock->stopNow();
+    midiClock->setSource (clockPlugin);
 }
 
 bool LiveEngine::isPlaying() const      { return transport().isPlaying(); }
@@ -219,7 +286,7 @@ std::vector<LiveEngine::MidiPort> LiveEngine::getMidiOutputs() const
 
     for (int i = 0; i < devices.getNumMidiOutDevices(); ++i)
         if (auto d = devices.getMidiOutDevice (i))
-            ports.push_back ({ d->getName().toStdString(), d->isEnabled(), d->isSendingClock() });
+            ports.push_back ({ d->getName().toStdString(), d->isEnabled(), midiClock->isSendingTo (d->getName().toStdString()) });
 
     return ports;
 }
@@ -242,20 +309,11 @@ void LiveEngine::setMidiClock (const std::string& output, bool enabled)
     {
         if (auto d = devices.getMidiOutDevice (i); d != nullptr && d->getName().toStdString() == output)
         {
-            if (enabled && ! d->isEnabled())
-                d->setEnabled (true);
+            if (d->isSendingClock())
+                d->setSendingClock (false);
 
-            d->setSendingClock (enabled);
-
-            // Timing is corrected on the recorded side (calibrateAlignment), not by delaying MIDI.
-            if (d->getPreDelayMs() != 0)
-                d->setPreDelayMs (0);
-
-            devices.dispatchPendingUpdates();
-
-            // The playback context picks up output devices when it's created.
-            if (hasAudioDevice())
-                transport().ensureContextAllocated (true);
+            if (! midiClock->setOutput (output, enabled))
+                throw std::runtime_error ("Can't open MIDI output \"" + output + "\"");
 
             return;
         }
@@ -350,19 +408,35 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const
     }
 
     edit.dispatchPendingUpdatesSynchronously();
+
+    // Arming an input queues Tracktion's update of its recording state. Running once the
+    // transport records, that update stops the takes of the inputs it sees as changed, so it
+    // has to happen first.
+    runPostedMessages();
+
     recordOptions = options;
     recordStart = getPosition();
     EditGraveyard::getInstance().hold();
+
+    // When the MIDI device list changes, Tracktion detaches and reattaches every device, which
+    // cuts takes short. Its periodic check for changes waits until the recording is done.
+    context.getEngine().getDeviceManager().setMidiDeviceScanIntervalSeconds (0);
+
+    midiClock->setRecording (true);
     transport().record (false);
     notifyTransport (true);
 }
 
 std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
 {
-    transport().stop (false, true);
+    stopTransport();
+    midiClock->setRecording (false);
 
     if (! recordings.empty())
+    {
         EditGraveyard::getInstance().release();
+        context.getEngine().getDeviceManager().setMidiDeviceScanIntervalSeconds (defaultMidiScanSeconds);
+    }
 
     auto& project = session.getProject();
     const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");

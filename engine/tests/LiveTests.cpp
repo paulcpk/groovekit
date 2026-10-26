@@ -166,6 +166,10 @@ TEST_CASE ("Recording an input adds the take to the project")
     live.startRecording ({ { inputs[0], "master", "takes" } });
     REQUIRE (live.isRecording());
 
+    // Audio and messages run while recording, as in the app; Tracktion's own updates mustn't stop the take.
+    audio.silence (0.05);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+
     // One second of a 220 Hz tone into the input.
     juce::AudioBuffer<float> tone (2, static_cast<int> (rate));
 
@@ -221,4 +225,53 @@ TEST_CASE ("Recording alignment is stored per input device")
 
     LiveEngine live (test::getEngineContext(), *session, file);
     CHECK (live.getAlignmentMs() == 37.5);
+}
+
+TEST_CASE ("Recording sends MIDI clock that starts once and ticks evenly")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-clock");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
+
+    // The hosted device has no audio callback of its own, so each block is followed by the clock's,
+    // with the host time a device would give it.
+    std::vector<std::pair<juce::MidiMessage, double>> sent;
+    live.getMidiClock().onSend = [&] (const juce::MidiMessage& m, juce::uint64 ns) { sent.push_back ({ m, static_cast<double> (ns) / 1.0e9 }); };
+    double hostSeconds = 1000;
+
+    auto runBlocks = [&] (int n)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            audio.silence (block / rate);
+            auto ns = static_cast<juce::uint64> (std::llround (hostSeconds * 1.0e9));
+            live.getMidiClock().audioDeviceIOCallbackWithContext (nullptr, 0, nullptr, 0, block, { &ns });
+            hostSeconds += block / rate;
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (1);
+        }
+    };
+
+    live.startRecording ({ { live.getInputNames()[0], "master", "t" } }, { .addClips = false });
+    runBlocks (200); // about two seconds
+    live.stopRecording();
+
+    REQUIRE (sent.size() > 10);
+
+    std::vector<double> clocks;
+    int starts = 0, others = 0;
+
+    for (auto& [m, t] : sent)
+    {
+        if (m.isMidiClock())        clocks.push_back (t);
+        else if (m.isMidiStart())   starts++;
+        else if (! m.isSongPositionPointer() && ! m.isMidiStop()) others++;
+    }
+
+    CHECK (starts == 1);
+    CHECK (others == 0);
+    CHECK (sent.back().first.isMidiStop());
+    REQUIRE (clocks.size() > 80);
+
+    for (size_t i = 1; i < clocks.size(); ++i)
+        CHECK (clocks[i] - clocks[i - 1] == Approx (0.5 / 24).margin (1.0e-6));
 }
