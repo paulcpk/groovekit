@@ -5,11 +5,13 @@ import { FloatingWindow } from "@/components/window";
 import { EqEditor } from "@/features/effects/EqEditor";
 import { ChorusEditor, CompressorEditor, DelayEditor, DistortionEditor, ReverbEditor } from "@/features/effects/editors";
 import { ParamKnob } from "@/features/effects/params";
+import { PresetMenu } from "@/features/effects/PresetMenu";
 import { useCatalogue } from "@/lib/catalogue";
 import { useLiveControl } from "@/lib/liveControl";
 import { insertName } from "@/lib/model";
 import { execute, useEngine } from "@/state/engine";
 import type { OpenWindow } from "@/state/windows";
+import { isSendTarget } from "./InsertPanel";
 import { effectName } from "./Strip";
 
 /** Effects with an editor of their own; the rest get a knob per parameter. */
@@ -46,7 +48,17 @@ export function EffectWindow({ window: w, insert, effect }: { window: OpenWindow
       }
       extra={
         <div className="flex items-center gap-1.5 text-2xs text-dim" data-no-drag>
-          Mix
+          <PresetMenu kind={effect.kind}
+            current={() => ({ params: effect.params ?? {}, mix: effect.mix ?? 1 })}
+            apply={(preset) => {
+              // Every parameter: the preset's, or its default, so nothing of the old setting stays.
+              const params = Object.fromEntries(Object.entries(info?.params ?? {}).map(([id, p]) => [id, (preset.params as Record<string, number> | undefined)?.[id] ?? p.default]));
+              // On a send bus the effect stays fully wet; elsewhere it takes the preset's mix.
+              const mix = typeof preset.mix === "number" && !isSendTarget(doc, insert.id) ? { mix: preset.mix } : {};
+              void execute({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { params, ...mix } },
+                { label: `${name} preset: ${preset.name}` });
+            }} />
+          <span className="ml-1.5">Mix</span>
           <Knob size={22} value={effect.mix ?? 1} min={0} max={1} defaultValue={1} format={(v) => `${Math.round(v * 100)}%`}
             onChange={mix.onChange} onCommit={mix.onCommit} />
           <span className="w-7 tabular">{Math.round((effect.mix ?? 1) * 100)}%</span>

@@ -7,6 +7,7 @@ add_executable(gk_tests
     LiveTests.cpp
     ModelTests.cpp
     PluginTests.cpp
+    PresetTests.cpp
     RenderTests.cpp
     SamplerTests.cpp
     SessionTests.cpp

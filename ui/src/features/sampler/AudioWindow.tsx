@@ -6,7 +6,8 @@ import { useLiveControl } from "@/lib/liveControl";
 import { colorFor, fileName } from "@/lib/model";
 import { call, execute, useEngine } from "@/state/engine";
 import type { OpenWindow } from "@/state/windows";
-import { EnvelopeGraph } from "./EnvelopeGraph";
+import { PresetMenu } from "@/features/effects/PresetMenu";
+import { DEFAULT_ENVELOPE, EnvelopeGraph } from "./EnvelopeGraph";
 import { FilterTab } from "./SamplerWindow";
 import { Waveform } from "./Waveform";
 
@@ -25,6 +26,12 @@ export function AudioWindow({ window: w, channel, audio }: { window: OpenWindow;
 
   return (
     <FloatingWindow window={w} width={520} accent={color}
+      extra={
+        <PresetMenu kind="sampler"
+          current={() => ({ filter: audio.filter ?? { type: "off" }, envelope: audio.envelope ?? DEFAULT_ENVELOPE })}
+          apply={(preset) => void execute({ type: "updateInstrument", channel: channel.id, changes: { ...(preset.filter ? { filter: preset.filter } : {}), ...(preset.envelope ? { envelope: preset.envelope } : {}) } },
+            { label: `Audio channel preset: ${preset.name}` })} />
+      }
       title={<><span className="h-3 w-1 shrink-0 rounded-sm" style={{ background: color }} /><span className="truncate">{channel.name || channel.id}</span><span className="text-2xs font-normal text-faint">Audio channel</span></>}>
       <div className="flex flex-col gap-3 p-3">
         <div className="flex items-center gap-2">

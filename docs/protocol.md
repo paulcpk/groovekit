@@ -35,7 +35,11 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `analyze` | `path`, `start?`, `end?` (seconds) | `{ peakDb, truePeakDb, rmsDb, crestDb, integratedLufs, momentaryMaxLufs, shortTermMaxLufs, loudnessRangeLu, spectrum, stereo, onsets }` |
 | `master` | `targetLufs?` (default -14), `ceilingDb?` (-1), `releaseMs?`, `start?`, `end?`, `group?` | `{ inputGainDb, integratedLufs, truePeakDb, reachedTarget, renders }`; sets the master limiter as one history entry |
 | `analyzeMix` | `start?`, `end?` (ticks), `tailSeconds?` | `{ mix, bands, stems: [{ source, integratedLufs, peakDb, bandShare }], masking: [{ a, b, bands }] }` |
-| `listEffects` | | built-in effects with parameter names, units and ranges |
+| `listEffects` | | built-in effects with parameter names, units, ranges and `choices` (for parameters that pick an option by index), `defaultMix`, and their factory `presets` |
+| `presets.list` | `kind` (an effect kind, or `sampler` for channel filter and envelope presets) | `{ factory: [preset], user: [preset] }`; an effect preset is `{ name, params, mix? }`, a channel preset `{ name, filter?, envelope? }` |
+| `presets.save` / `presets.delete` | `kind`, and `preset` (with a `name`) or `name` | the list again; the user's presets are files in `<app data>/presets/<kind>/` |
+| `mixer.spectrum` | `insert`, `effect` | `{ bins, fromHz, toHz }`: what the effect slot outputs (after its mix) as 160 dB values, log-spaced from 20 Hz to 20 kHz |
+| `mixer.waveform` | `insert`, `effect`, `samples?` (1024) | `{ samples }`: the slot's latest output, mono |
 | `transport.state` / `transport.play` / `transport.stop` | | `{ playing, recording, position (ticks), seconds, mode, pattern? }`; stop keeps the position |
 | `transport.setPosition` | `position` (ticks) | transport state |
 | `transport.setLoop` | `start`, `end` (ticks); omit both to stop looping | transport state; in pattern mode it's kept for the song |
@@ -51,7 +55,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `record.alignment` | `ms?` | `{ alignmentMs }` for the current input device |
 | `midi.devices` | | `{ outputs: [{ name, enabled, clock }], inputs }` |
 | `midi.setClock` | `output`, `enabled?` (true) | same as `midi.devices`; sends clock, start and stop so hardware follows GrooveKit |
-| `record.stop` | `group?` | `{ clips: [id], transport }`; the takes become audio clips (files in `<project>/recordings`) |
+| `record.stop` | `group?` | `{ clips: [id], transport }`; each take becomes an audio clip on an audio channel of its own (files in `<project>/recordings`) |
 | `audio.peaks` | `path` (absolute or relative to the project), `resolution?` (peaks a second, default 100) | `{ durationSeconds, sampleRate, channels, resolution, peaks: [0..1] }`, the highest level of each slice over all channels, for drawing waveforms |
 | `preview.play` / `preview.stop` | `path`, `gainDb?` (-6) | `{ playing }`; auditions a file on the audio device, independent of the song |
 | `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, bluetoothInput, sampleRate, bufferSize } }` |
@@ -84,7 +88,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 { "jsonrpc": "2.0", "id": 3, "error": { "code": 1, "message": "/channels/0: unknown property \"volme\"" } }
 ```
 
-Commands add, update or remove channels, sampler layers, patterns, notes, playlist tracks, clips, inserts, effects and sends. `update*` commands take a `changes` object; `null` removes an optional field. Removals cascade: removing a channel removes its notes and the automation targeting it. A raw `patch` command (RFC 6902 add/remove/replace) covers everything else.
+Commands add, update or remove channels, sampler layers, patterns, notes, playlist tracks, clips, inserts, effects and sends; `updateInstrument` changes a sampler's or audio channel's own settings (filter, envelopes, sample). `update*` commands take a `changes` object; `null` removes an optional field. Removals cascade: removing a channel removes its notes, its audio clips and the automation targeting it. A raw `patch` command (RFC 6902 add/remove/replace) covers everything else.
 
 ## History
 

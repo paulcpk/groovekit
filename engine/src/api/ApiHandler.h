@@ -41,6 +41,9 @@ public:
     /** Where project.recent reads the list from; empty for <app data>/recent.json. */
     std::filesystem::path recentFile;
 
+    /** Where the user's presets are kept; empty for <app data>/presets. */
+    std::filesystem::path presetsFolder;
+
     /** Called for every change; the server sends the message to all clients. */
     void setBroadcast (Send);
 

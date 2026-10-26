@@ -9,7 +9,7 @@ import { effectNames, getCatalogue } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
 import { useLiveControl } from "@/lib/liveControl";
 import { colorFor, formatDb, insertName, uniqueId } from "@/lib/model";
-import { call, execute } from "@/state/engine";
+import { call, execute, useEngine } from "@/state/engine";
 import { openWindow, useWindows, windowKey } from "@/state/windows";
 import { effectName } from "./Strip";
 
@@ -114,6 +114,11 @@ function EffectSlot({ doc, insert, effect, index, count }: { doc: Project; inser
   );
 }
 
+/** Whether other inserts send to this one: a bus whose effects run fully wet. */
+export function isSendTarget(doc: Project | undefined, insert: string) {
+  return !!doc?.mixer.inserts.some((i) => i.sends?.some((s) => s.target === insert));
+}
+
 /** Opens an effect: ours in a window of its own, a plugin in the plugin's window. */
 export function openEffect(insert: string, effect: Effect) {
   if (effect.type === "plugin") void call("plugins.openEditor", { insert, effect: effect.id });
@@ -135,7 +140,8 @@ function AddEffect({ insert }: { insert: Insert }) {
       <DropdownContent>
         <DropdownLabel>Built in</DropdownLabel>
         {Object.entries(effectNames).map(([kind, name]) => {
-          const mix = getCatalogue()?.[kind]?.defaultMix;
+          // Mixed in where it's inserted; fully wet on a send bus.
+          const mix = isSendTarget(useEngine.getState().doc, insert.id) ? undefined : getCatalogue()?.[kind]?.defaultMix;
           return <DropdownItem key={kind} onSelect={() => add({ type: "builtin", id: id(kind), kind: kind as never, ...(mix !== undefined && mix < 1 ? { mix } : {}) }, name)}>{name}</DropdownItem>;
         })}
         <DropdownSeparator />

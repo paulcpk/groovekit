@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { DragNumber, IconButton, Knob, Tabs, ToggleChip } from "@/components/controls";
 import { FloatingWindow } from "@/components/window";
+import { PresetMenu } from "@/features/effects/PresetMenu";
 import { droppedSample, isSampleDrag } from "@/features/playlist/geometry";
 import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { cn } from "@/lib/cn";
@@ -38,6 +39,14 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
 
   return (
     <FloatingWindow window={w} width={520} accent={color}
+      extra={
+        <PresetMenu kind="sampler"
+          current={() => ({ filter: sampler.filter ?? { type: "off" }, envelope: layer?.envelope ?? DEFAULT_ENVELOPE })}
+          apply={(preset) => void execute([
+            ...(preset.filter ? [{ type: "updateInstrument" as const, channel: channel.id, changes: { filter: preset.filter } }] : []),
+            ...(preset.envelope ? sampler.layers.map((l) => ({ type: "updateSamplerLayer" as const, channel: channel.id, layer: l.id, changes: { envelope: preset.envelope } })) : []),
+          ], { label: `Sampler preset: ${preset.name}` })} />
+      }
       title={<><span className="h-3 w-1 shrink-0 rounded-sm" style={{ background: color }} /><span className="truncate">{channel.name ?? channel.id}</span><span className="text-2xs font-normal text-faint">Sampler</span></>}>
       <div
         className={cn("flex flex-col gap-3 p-3", over && "bg-accent/5")}

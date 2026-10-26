@@ -13,6 +13,7 @@
 #include "plugins/PluginWindows.h"
 #include "render/Render.h"
 #include "session/Mastering.h"
+#include "session/Presets.h"
 #include "session/RecentProjects.h"
 #include "session/Summary.h"
 
@@ -365,8 +366,48 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
                                                             optionalNumber (params, "end"), {} }), true);
     }
 
+    // The effect catalogue, with each effect's factory presets.
     if (method == "listEffects")
-        return effects::catalogueToJson();
+    {
+        auto catalogue = effects::catalogueToJson();
+
+        for (auto& [kind, info] : catalogue.items())
+            if (presets::factory().contains (kind))
+                info["presets"] = presets::factory()[kind];
+
+        return catalogue;
+    }
+
+    if (method.starts_with ("presets."))
+    {
+        const auto folder = presetsFolder.empty() ? EngineContext::getAppDataFolder() / "presets" : presetsFolder;
+        const auto kind = readParam<std::string> (params, "kind");
+
+        try
+        {
+            if (method == "presets.list")
+                return presets::list (kind, folder);
+
+            if (method == "presets.save")
+            {
+                auto preset = params.contains ("preset") ? params["preset"] : Json();
+                presets::save (kind, preset, folder);
+                return presets::list (kind, folder);
+            }
+
+            if (method == "presets.delete")
+            {
+                presets::remove (kind, readParam<std::string> (params, "name"), folder);
+                return presets::list (kind, folder);
+            }
+        }
+        catch (const std::runtime_error& e)
+        {
+            throw RpcError (invalidParams, e.what());
+        }
+
+        throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+    }
 
     if (method == "audio.peaks")
         return peaks (params);

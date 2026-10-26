@@ -426,7 +426,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "list_effects",
     {
-      description: "Built-in effects (eq, compressor, limiter, reverb, delay, phaser, chorus, distortion, lowpass, highpass) with every parameter's id, unit, range, default, choices (for parameters that pick an option by index) and whether it can be automated; defaultMix is where a new one's mix usually starts.",
+      description: "Built-in effects (eq, compressor, limiter, reverb, delay, phaser, chorus, distortion, lowpass, highpass) with every parameter's id, unit, range, default, choices (for parameters that pick an option by index) and whether it can be automated; defaultMix is where a new one's mix usually starts; presets are starting points (copy their params, and mix, into the effect).",
       annotations: { readOnlyHint: true },
     },
     () => attempt(() => engine.call("listEffects"))
