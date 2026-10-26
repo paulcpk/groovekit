@@ -1,0 +1,18 @@
+# Build output
+/build/
+/build-*/
+/out/
+
+# Node
+node_modules/
+*.tsbuildinfo
+
+# Renders and scratch output
+*.render.wav
+/renders/
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/

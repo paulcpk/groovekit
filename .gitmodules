@@ -1,0 +1,3 @@
+[submodule "engine/external/tracktion_engine"]
+	path = engine/external/tracktion_engine
+	url = https://github.com/Tracktion/tracktion_engine.git
