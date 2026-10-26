@@ -2,7 +2,8 @@
 add_library(gk_engine STATIC)
 
 target_sources(gk_engine PRIVATE
-    src/EngineContext.cpp)
+    src/EngineContext.cpp
+    src/model/Project.cpp)
 
 target_include_directories(gk_engine PUBLIC src)
 
