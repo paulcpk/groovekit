@@ -13,6 +13,7 @@ target_sources(gk_engine PRIVATE
     src/library/SampleFeatures.cpp
     src/library/SampleLibrary.cpp
     src/mixer/FaderPlugin.cpp
+    src/mixer/LimiterPlugin.cpp
     src/model/Project.cpp
     src/render/Render.cpp
     src/render/Stretch.cpp
@@ -20,6 +21,7 @@ target_sources(gk_engine PRIVATE
     src/sampler/SamplerEngine.cpp
     src/sampler/SamplerPlugin.cpp
     src/session/Commands.cpp
+    src/session/Mastering.cpp
     src/session/Session.cpp
     src/session/Summary.cpp
     src/session/Transaction.cpp)

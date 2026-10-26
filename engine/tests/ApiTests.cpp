@@ -181,3 +181,32 @@ TEST_CASE ("Mix analysis finds sources that mask each other")
     CHECK (result["masking"][0]["b"] == "bassB");
     CHECK (result["masking"][0]["bands"][0] == "60-120 Hz");
 }
+
+TEST_CASE ("Mastering reaches a target loudness with the limiter")
+{
+    Harness h;
+    auto bass = test::fixture ("bass_a2.wav").string();
+
+    h.call ("execute", { { "commands", Json::array ({
+        Json::parse (R"({ "type": "addChannel", "channel": { "id": "b", "instrument": { "type": "sampler", "layers": [
+                         { "id": "l", "sample": ")" + bass + R"(", "rootKey": 45 } ] } } })"),
+        Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "b", "start": 0, "length": 960, "key": 45 },
+                         { "channel": "b", "start": 1920, "length": 960, "key": 48 } ] } })"),
+        Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 15360, "pattern": "p" } })"),
+    }) } });
+
+    auto r = h.call ("master", { { "targetLufs", -10 }, { "ceilingDb", -1 } });
+    REQUIRE (r.contains ("result"));
+    CHECK (r["result"]["reachedTarget"] == true);
+    CHECK (std::abs (r["result"]["integratedLufs"].get<double>() + 10) <= 0.2);
+    CHECK (r["result"]["truePeakDb"].get<double>() < -0.5);
+
+    auto& effects = model::findInsert (h.session.getProject(), "master")->effects;
+    REQUIRE (effects.size() == 1);
+    CHECK (model::getEffectId (effects[0]) == "master-limiter");
+
+    // One undo removes it again.
+    h.call ("undo");
+    CHECK (model::findInsert (h.session.getProject(), "master")->effects.empty());
+}

@@ -2,6 +2,7 @@ add_executable(gk_tests
     AnalysisTests.cpp
     ApiTests.cpp
     LibraryTests.cpp
+    LimiterTests.cpp
     ModelTests.cpp
     RenderTests.cpp
     SamplerTests.cpp

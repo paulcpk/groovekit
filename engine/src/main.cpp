@@ -144,7 +144,7 @@ Add --verbose to see engine log messages.
         gk::EngineContext context;
         auto compiled = gk::compileProject (context.getEngine(), project,
                                             { std::filesystem::absolute (song).parent_path(), tracktion::Edit::forRendering });
-        gk::renderToWav (*compiled.edit, project, output, options);
+        gk::renderToWav (compiled, project, output, options);
 
         std::cout << output.string() << "\n";
         return 0;

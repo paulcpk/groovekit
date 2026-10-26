@@ -7,6 +7,7 @@
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
 #include "render/Render.h"
+#include "session/Mastering.h"
 #include "session/Summary.h"
 
 #include <juce_events/juce_events.h>
@@ -244,6 +245,21 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
     if (method == "render")
         return render (params);
 
+    if (method == "master")
+    {
+        MasterOptions options;
+        options.execute.origin = client.origin;
+
+        if (auto v = optionalNumber (params, "targetLufs"))     options.targetLufs = *v;
+        if (auto v = optionalNumber (params, "ceilingDb"))      options.ceilingDb = *v;
+        if (auto v = optionalNumber (params, "releaseMs"))      options.releaseMs = *v;
+        if (auto v = optionalNumber (params, "start"))          options.render.start = static_cast<model::Ticks> (*v);
+        if (auto v = optionalNumber (params, "end"))            options.render.end = static_cast<model::Ticks> (*v);
+        if (params.contains ("group"))                          options.execute.group = readParam<std::string> (params, "group");
+
+        return masterToLoudness (context.getEngine(), session, options);
+    }
+
     if (method == "analyzeMix")
     {
         RenderOptions options;
@@ -296,7 +312,7 @@ Json ApiHandler::render (const Json& params)
     }
 
     auto compiled = compileProject (context.getEngine(), session.getProject(), { projectDir, tracktion::Edit::forRendering });
-    renderToWav (*compiled.edit, session.getProject(), output, options);
+    renderToWav (compiled, session.getProject(), output, options);
 
     return { { "path", std::filesystem::absolute (output).string() },
              { "analysis", analysis::analyse (analysis::loadAudio (output), true) } };

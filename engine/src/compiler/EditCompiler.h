@@ -24,6 +24,10 @@ struct CompiledEdit
 
     std::map<model::Id, tracktion::AudioTrack*> insertTracks;
     std::map<model::Id, tracktion::AudioTrack*> channelTracks;
+
+    /** Plugin latency on the longest path to the output. Tracktion aligns every path to it and
+        removes it from offline renders; live playback (and recording alignment) will need it. */
+    double outputLatencySeconds = 0;
 };
 
 struct CompileOptions

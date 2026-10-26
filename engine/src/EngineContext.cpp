@@ -1,6 +1,7 @@
 #include "EngineContext.h"
 
 #include "mixer/FaderPlugin.h"
+#include "mixer/LimiterPlugin.h"
 #include "sampler/SamplerPlugin.h"
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -28,6 +29,7 @@ EngineContext::EngineContext() : impl (std::make_unique<Impl>())
     auto& plugins = impl->engine.getPluginManager();
     plugins.createBuiltInType<sampler::SamplerPlugin>();
     plugins.createBuiltInType<mixer::FaderPlugin>();
+    plugins.createBuiltInType<mixer::LimiterPlugin>();
 }
 EngineContext::~EngineContext() = default;
 

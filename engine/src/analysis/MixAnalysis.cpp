@@ -89,7 +89,7 @@ Json analyseMix (tracktion::Engine& engine, const Project& project, const Compil
     {
         auto file = workDir / (name + ".wav");
         auto compiled = compileProject (engine, p, compileOptions);
-        renderToWav (*compiled.edit, project, file, renderOptions);
+        renderToWav (compiled, project, file, renderOptions);
         auto audio = loadAudio (file);
         std::filesystem::remove (file);
         return audio;

@@ -337,7 +337,7 @@
       "properties": {
         "type": { "const": "builtin" },
         "id": { "$ref": "#/$defs/Id" },
-        "kind": { "type": "string", "enum": ["eq", "compressor", "reverb", "delay", "phaser", "chorus", "lowpass", "highpass"] },
+        "kind": { "type": "string", "enum": ["eq", "compressor", "limiter", "reverb", "delay", "phaser", "chorus", "lowpass", "highpass"] },
         "bypass": { "type": "boolean", "default": false },
         "params": {
           "description": "Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults.",

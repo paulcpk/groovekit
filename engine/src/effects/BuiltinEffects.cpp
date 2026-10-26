@@ -1,5 +1,7 @@
 #include "BuiltinEffects.h"
 
+#include "mixer/LimiterPlugin.h"
+
 namespace gk::effects
 {
 
@@ -41,6 +43,14 @@ namespace
                   { "attackMs", "ms", 0.3, 200, 100, "Attack time.", "attack" },
                   { "releaseMs", "ms", 10, 300, 100, "Release time.", "release" },
                   { "outputDb", "dB", -10, 24, 0, "Make-up gain.", "output gain" },
+              } },
+
+            { BuiltinEffectKind::limiter, mixer::LimiterPlugin::xmlTypeName,
+              "Lookahead brickwall limiter (5 ms latency): no sample exceeds the ceiling. Put it last on master.",
+              {
+                  { "inputGainDb", "dB", -24, 24, 0, "Gain before limiting; raises loudness.", "inputGain" },
+                  { "ceilingDb", "dB", -12, 0, -1, "Maximum output level.", "ceiling" },
+                  { "releaseMs", "ms", 1, 1000, 100, "How fast gain recovers after a peak.", "release" },
               } },
 
             { BuiltinEffectKind::reverb, tracktion::ReverbPlugin::xmlTypeName,

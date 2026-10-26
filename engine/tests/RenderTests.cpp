@@ -70,7 +70,7 @@ namespace
 
         auto output = test::tempDir() / (songDir.filename().string() + ".wav");
         auto compiled = compileProject (test::getEngine(), project, { songDir, tracktion::Edit::forRendering });
-        renderToWav (*compiled.edit, project, output, options);
+        renderToWav (compiled, project, output, options);
 
         auto audio = analysis::loadAudio (output);
         REQUIRE (audio.buffer.getNumChannels() == 2);

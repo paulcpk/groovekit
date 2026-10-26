@@ -164,6 +164,32 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
   );
 
   server.registerTool(
+    "master",
+    {
+      description: "Brings the song to a target loudness with the master limiter (added last on master as \"master-limiter\" if missing): renders, measures integrated LUFS and adjusts the limiter's input gain until within 0.2 LU. Shape the tone first with your own chain on master, e.g. eq (gentle shelves) then compressor (ratio 2, thresholdDb -18, attackMs 30, releaseMs 100) for glue. Typical targets: -14 LUFS streaming, -9 to -7 club. Undoable like any edit.",
+      inputSchema: {
+        targetLufs: z.number().min(-40).max(-3).optional().describe("Default -14"),
+        ceilingDb: z.number().min(-12).max(0).optional().describe("Limiter ceiling; default -1"),
+        releaseMs: z.number().min(1).max(1000).optional(),
+        startBar: z.number().min(1).optional().describe("Measure only from here; default the whole song"),
+        endBar: z.number().min(1).optional(),
+      },
+    },
+    ({ targetLufs, ceilingDb, releaseMs, startBar, endBar }) =>
+      attempt(async () => {
+        await engine.connect();
+        return engine.call("master", {
+          ...(targetLufs !== undefined ? { targetLufs } : {}),
+          ...(ceilingDb !== undefined ? { ceilingDb } : {}),
+          ...(releaseMs !== undefined ? { releaseMs } : {}),
+          ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
+          ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
+          group: groups.next(),
+        });
+      })
+  );
+
+  server.registerTool(
     "analyze_mix",
     {
       description: "Renders the mix plus one stem per channel (and per insert with audio clips) and reports: the mix's loudness, true peak, loudness range, spectral balance and stereo image; each source's loudness and share of every frequency band; and masking, i.e. pairs of sources that both carry a big share of the same band (e.g. kick and bass at 60-120 Hz). Slower than render: one render per source.",

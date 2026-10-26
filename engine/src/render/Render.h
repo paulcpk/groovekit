@@ -1,8 +1,6 @@
 #pragma once
 
-#include "model/Project.h"
-
-#include <tracktion_engine/tracktion_engine.h>
+#include "compiler/EditCompiler.h"
 
 namespace gk
 {
@@ -20,7 +18,7 @@ struct RenderOptions
     double tailSeconds = 0;
 };
 
-/** Renders an Edit compiled from the project to a stereo WAV file, blocking. Throws on failure. */
-void renderToWav (tracktion::Edit&, const model::Project&, const std::filesystem::path& output, const RenderOptions&);
+/** Renders a compiled project to a stereo WAV file, blocking; plugin latency is compensated. Throws on failure. */
+void renderToWav (const CompiledEdit&, const model::Project&, const std::filesystem::path& output, const RenderOptions&);
 
 } // namespace gk

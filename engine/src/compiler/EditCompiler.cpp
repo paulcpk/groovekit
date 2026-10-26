@@ -39,6 +39,7 @@ namespace
             createPatternClips();
             createAudioClips();
             createAutomation();
+            result.outputLatencySeconds = computeOutputLatency();
             return std::move (result);
         }
 
@@ -367,6 +368,53 @@ namespace
             }
 
             throw std::logic_error ("Unknown automation scope");
+        }
+
+        /** Latency of a track's plugins, all of them or up to (not including) one. */
+        static double trackLatency (te::AudioTrack& track, const te::Plugin* upTo = nullptr)
+        {
+            double total = 0;
+
+            for (auto plugin : track.pluginList)
+            {
+                if (plugin == upTo)
+                    break;
+
+                total += plugin->getLatencySeconds();
+            }
+
+            return total;
+        }
+
+        double computeOutputLatency()
+        {
+            std::map<Id, double> toOutput;
+
+            // From an insert's input to the device: the slowest of its output and its sends.
+            std::function<double (const Id&)> insertLatency = [&] (const Id& id) -> double
+            {
+                if (auto it = toOutput.find (id); it != toOutput.end())
+                    return it->second;
+
+                auto& track = *result.insertTracks.at (id);
+                auto& insert = *findInsert (project, id);
+                auto latency = trackLatency (track) + (id == masterInsertId ? 0.0 : insertLatency (insert.output));
+
+                for (auto& send : insert.sends)
+                    latency = std::max (latency, trackLatency (track, sendPlugins[id][send.id]) + insertLatency (send.target));
+
+                return toOutput[id] = latency;
+            };
+
+            double latency = 0;
+
+            for (auto& channel : project.channels)
+                latency = std::max (latency, trackLatency (*result.channelTracks.at (channel.id)) + insertLatency (channel.insert));
+
+            for (auto& [insertId, track] : audioClipTracks)
+                latency = std::max (latency, insertLatency (insertId));
+
+            return latency;
         }
 
         void createAutomation()

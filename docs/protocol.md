@@ -29,6 +29,7 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 | `getHistory` | | `{ entries: [{ id, parent?, time, origin, group?, label }], head }` |
 | `render` | `start?`, `end?` (ticks), `tailSeconds?`, `path?` | `{ path, analysis }` (the detailed analysis, as for `analyze`) |
 | `analyze` | `path`, `start?`, `end?` (seconds) | `{ peakDb, truePeakDb, rmsDb, crestDb, integratedLufs, momentaryMaxLufs, shortTermMaxLufs, loudnessRangeLu, spectrum, stereo, onsets }` |
+| `master` | `targetLufs?` (default -14), `ceilingDb?` (-1), `releaseMs?`, `start?`, `end?`, `group?` | `{ inputGainDb, integratedLufs, truePeakDb, reachedTarget, renders }`; sets the master limiter as one history entry |
 | `analyzeMix` | `start?`, `end?` (ticks), `tailSeconds?` | `{ mix, bands, stems: [{ source, integratedLufs, peakDb, bandShare }], masking: [{ a, b, bands }] }` |
 | `listEffects` | | built-in effects with parameter names, units and ranges |
 | `library.status` | | `{ folders, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |

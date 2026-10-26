@@ -120,6 +120,7 @@ enum class BuiltinEffectKind
 {
     eq,
     compressor,
+    limiter,
     reverb,
     delay,
     phaser,
@@ -134,6 +135,7 @@ inline const char* toString (BuiltinEffectKind v)
     {
         case BuiltinEffectKind::eq: return "eq";
         case BuiltinEffectKind::compressor: return "compressor";
+        case BuiltinEffectKind::limiter: return "limiter";
         case BuiltinEffectKind::reverb: return "reverb";
         case BuiltinEffectKind::delay: return "delay";
         case BuiltinEffectKind::phaser: return "phaser";
@@ -154,6 +156,7 @@ inline void readValue (Reader& r, const Json& j, BuiltinEffectKind& out)
 
     if (s == "eq") { out = BuiltinEffectKind::eq; return; }
     if (s == "compressor") { out = BuiltinEffectKind::compressor; return; }
+    if (s == "limiter") { out = BuiltinEffectKind::limiter; return; }
     if (s == "reverb") { out = BuiltinEffectKind::reverb; return; }
     if (s == "delay") { out = BuiltinEffectKind::delay; return; }
     if (s == "phaser") { out = BuiltinEffectKind::phaser; return; }
