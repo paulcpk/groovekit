@@ -17,10 +17,18 @@ export interface ClientEvents {
   notification(method: string, params: any): void;
 }
 
-/** Where to connect: ?engine=ws://... in the address, the dev server's engine finder, or the default port. */
+export const inDesktopApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** Where to connect: ?engine=ws://... in the address, the desktop app's engine, the dev server's
+    engine finder, or the default port. */
 async function findEngineUrl(): Promise<string> {
   const fromQuery = new URLSearchParams(location.search).get("engine");
   if (fromQuery) return fromQuery;
+
+  if (inDesktopApp) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<string>("engine_url");
+  }
 
   try {
     const response = await fetch("/__engine");

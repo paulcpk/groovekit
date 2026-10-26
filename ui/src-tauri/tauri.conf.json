@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "GrooveKit",
+  "version": "0.1.0",
+  "identifier": "dev.groovekit.app",
+  "build": {
+    "beforeDevCommand": "node scripts/prepare-engine.ts && pnpm dev",
+    "devUrl": "http://localhost:5178",
+    "beforeBuildCommand": "node scripts/prepare-engine.ts && pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "GrooveKit",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 640,
+        "theme": "Dark",
+        "backgroundColor": "#111113",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "category": "Music",
+    "copyright": "GrooveKit contributors, AGPL-3.0",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.png"],
+    "externalBin": ["binaries/groovekit-engine"],
+    "macOS": { "minimumSystemVersion": "12.0" }
+  }
+}

@@ -3,6 +3,7 @@ import { Button, DragNumber, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { cn } from "@/lib/cn";
 import { formatPosition, formatTime } from "@/lib/model";
+import { inDesktopApp } from "@/engine/client";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi, type BottomPanel } from "@/state/ui";
 import { masterSong, redo, renderSong, setTempo, toggleLoop, togglePlay, undo } from "./actions";
@@ -124,8 +125,10 @@ export function TopBar() {
   const head = useEngine((s) => s.head);
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-3 bg-panel px-3">
-      <div className="flex items-center gap-2">
+    // In the desktop app the bar is also the title bar: it moves the window, and leaves room
+    // for the window buttons.
+    <div className={cn("flex h-11 shrink-0 items-center gap-3 bg-panel px-3", inDesktopApp && "pl-[84px]")} data-tauri-drag-region>
+      <div className="flex items-center gap-2" data-tauri-drag-region>
         <div className="text-[13px] font-semibold tracking-tight text-fg">GrooveKit</div>
         <ProjectName />
       </div>
