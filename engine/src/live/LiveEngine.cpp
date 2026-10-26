@@ -1,6 +1,7 @@
 #include "LiveEngine.h"
 
 #include "EngineContext.h"
+#include "live/AudioDevices.h"
 #include "compiler/EditGraveyard.h"
 #include "live/MidiClockPlugin.h"
 #include "mixer/FaderPlugin.h"
@@ -88,6 +89,7 @@ LiveEngine::~LiveEngine()
 {
     stopTimer();
     session.removeListener (listenerId);
+    context.getEngine().getDeviceManager().deviceManager.removeChangeListener (this);
 
     midiClock->setSource (nullptr);
     midiClock->stopNow();
@@ -109,10 +111,31 @@ void LiveEngine::openDefaultAudioDevice()
     devices.deviceManager.removeAudioCallback (&preview);
     devices.deviceManager.addAudioCallback (&preview);
 
+    releaseBluetoothMicrophone();
+    devices.deviceManager.addChangeListener (this);
     pairStereoInputs();
 
     if (hasAudioDevice())
         transport().ensureContextAllocated();
+}
+
+void LiveEngine::releaseBluetoothMicrophone()
+{
+    auto& devices = context.getEngine().getDeviceManager().deviceManager;
+
+    if (! hasUnchosenBluetoothInput (devices))
+        return;
+
+    auto setup = devices.getAudioDeviceSetup();
+    setup.inputDeviceName = {};
+    devices.setAudioDeviceSetup (setup, false);
+    pairStereoInputs();
+}
+
+void LiveEngine::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    // E.g. AirPods connected, or a device came back and the system defaults were opened.
+    releaseBluetoothMicrophone();
 }
 
 //==============================================================================

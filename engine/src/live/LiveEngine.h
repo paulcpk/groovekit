@@ -36,7 +36,8 @@ struct LiveRecordOptions
     project (one undoable change) and the files stay in <project>/recordings.
 */
 class LiveEngine : private juce::AsyncUpdater,
-                   private juce::Timer
+                   private juce::Timer,
+                   private juce::ChangeListener
 {
 public:
     /** settingsFile keeps per-device recording alignment; empty for <app data>/recording.json. */
@@ -46,6 +47,11 @@ public:
     /** Opens the system's default audio device. Without this, the engine plays through
         whatever device the device manager has (e.g. a hosted device in tests). */
     void openDefaultAudioDevice();
+
+    /** Closes the input if it's a Bluetooth headset's microphone that wasn't chosen as the input
+        (see isBluetoothAudioDevice): macOS makes it the default input along with the output. Also
+        done whenever the device changes. */
+    void releaseBluetoothMicrophone();
 
     //==============================================================================
     void play();
@@ -196,6 +202,7 @@ private:
 
     void rebuild();
     void addClockTrack();
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     /** Applies a change that only moves mixer values (volume, pan, send levels, effect
         parameters) to the playing Edit, without rebuilding it. False if it can't. */

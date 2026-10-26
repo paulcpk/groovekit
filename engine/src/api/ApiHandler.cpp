@@ -7,6 +7,7 @@
 #include "compiler/EditGraveyard.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
+#include "live/AudioDevices.h"
 #include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
 #include "plugins/PluginWindows.h"
@@ -678,6 +679,7 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         return { { "types", types },
                  { "current", { { "type", devices.getCurrentAudioDeviceType().toStdString() },
                                 { "output", setup.outputDeviceName.toStdString() }, { "input", setup.inputDeviceName.toStdString() },
+                                { "bluetoothInput", isBluetoothAudioDevice (setup.inputDeviceName) },
                                 { "sampleRate", setup.sampleRate }, { "bufferSize", setup.bufferSize } } } };
     }
 
@@ -686,7 +688,12 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         if (params.contains ("type"))
             devices.setCurrentAudioDeviceType (readParam<std::string> (params, "type"), true);
 
+        // Keep a Bluetooth headset's microphone closed unless it's the chosen input; this setup becomes the chosen one.
+        const bool releaseInput = ! params.contains ("input") && hasUnchosenBluetoothInput (devices);
         auto setup = devices.getAudioDeviceSetup();
+
+        if (releaseInput)
+            setup.inputDeviceName = {};
 
         if (params.contains ("output"))                             setup.outputDeviceName = readParam<std::string> (params, "output");
         if (params.contains ("input"))                              setup.inputDeviceName = readParam<std::string> (params, "input");

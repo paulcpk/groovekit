@@ -13,6 +13,7 @@ target_sources(gk_engine PRIVATE
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp
     src/library/SampleLibrary.cpp
+    src/live/AudioDevices.cpp
     src/live/LiveEngine.cpp
     src/live/MidiClock.cpp
     src/live/MidiClockPlugin.cpp

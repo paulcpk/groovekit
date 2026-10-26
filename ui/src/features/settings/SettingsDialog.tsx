@@ -8,7 +8,7 @@ import { ChevronDown } from "lucide-react";
 
 interface AudioDevices {
   types: { type: string; outputs: string[]; inputs: string[] }[];
-  current: { type: string; output: string; input: string; sampleRate: number; bufferSize: number } | null;
+  current: { type: string; output: string; input: string; bluetoothInput?: boolean; sampleRate: number; bufferSize: number } | null;
 }
 
 interface MidiDevices {
@@ -25,13 +25,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Picker({ value, options, onPick }: { value: string; options: string[]; onPick: (v: string) => void }) {
+function Picker({ value, options, onPick, none }: { value: string; options: string[]; onPick: (v: string) => void; none?: boolean }) {
   return (
     <Dropdown>
       <DropdownTrigger asChild>
         <Button size="sm" className="w-full justify-between bg-control text-fg"><span className="truncate">{value || "None"}</span><ChevronDown size={11} /></Button>
       </DropdownTrigger>
       <DropdownContent>
+        {none && <DropdownItem checked={value === ""} onSelect={() => onPick("")}>None</DropdownItem>}
         {options.map((o) => <DropdownItem key={o} checked={o === value} onSelect={() => onPick(o)}>{o}</DropdownItem>)}
       </DropdownContent>
     </Dropdown>
@@ -73,7 +74,10 @@ export function SettingsDialog() {
             <span className="text-dim">Output</span>
             <Picker value={audio.current?.output ?? ""} options={type?.outputs ?? []} onPick={(v) => void setDevice({ output: v })} />
             <span className="text-dim">Input</span>
-            <Picker value={audio.current?.input ?? ""} options={type?.inputs ?? []} onPick={(v) => void setDevice({ input: v })} />
+            <Picker value={audio.current?.input ?? ""} options={type?.inputs ?? []} onPick={(v) => void setDevice({ input: v })} none />
+            {audio.current?.bluetoothInput && (
+              <span className="col-start-2 text-2xs text-faint">Using this headset's microphone switches it to call quality for playback too.</span>
+            )}
             <span className="text-dim">Buffer</span>
             <Picker value={`${audio.current?.bufferSize ?? ""} samples`} options={["64", "128", "256", "512", "1024", "2048"].map((b) => `${b} samples`)}
               onPick={(v) => void setDevice({ bufferSize: Number.parseInt(v) })} />

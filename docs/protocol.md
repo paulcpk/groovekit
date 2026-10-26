@@ -48,8 +48,8 @@ A serving engine writes `~/Library/Application Support/GrooveKit/engine.json` (`
 | `record.stop` | `group?` | `{ clips: [id], transport }`; the takes become audio clips (files in `<project>/recordings`) |
 | `audio.peaks` | `path` (absolute or relative to the project), `resolution?` (peaks a second, default 100) | `{ durationSeconds, sampleRate, channels, resolution, peaks: [0..1] }`, the highest level of each slice over all channels, for drawing waveforms |
 | `preview.play` / `preview.stop` | `path`, `gainDb?` (-6) | `{ playing }`; auditions a file on the audio device, independent of the song |
-| `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, sampleRate, bufferSize } }` |
-| `audio.setDevice` | `type?`, `output?`, `input?`, `sampleRate?`, `bufferSize?` | same as `audio.devices` |
+| `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, bluetoothInput, sampleRate, bufferSize } }` |
+| `audio.setDevice` | `type?`, `output?`, `input?` (`""` for none), `sampleRate?`, `bufferSize?` | same as `audio.devices`. A Bluetooth headset's microphone (which switches it to call quality) is only opened when chosen as `input`; the engine closes one that macOS made the default |
 | `plugins.scan` / `plugins.status` | | `{ running, scanned, total, current, plugins }`; `pluginScanProgress` notifications while scanning |
 | `plugins.list` | `query?`, `instrument?` | `{ plugins: [{ uid, name, manufacturer, format, instrument, category, inputs, outputs }] }` |
 | `plugins.describe` | `uid`, `query?`, `limit?` | the plugin with `parameterCount`, `parameters: [{ id, name, value, text }]` and a `pluginRef` for commands |
