@@ -57,6 +57,11 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
     el.scrollTop = (127 - centre) * keyH - el.clientHeight / 2;
   }, []); // only when the editor opens
 
+  // The keyboard follows the grid's vertical scroll, also after the grid re-renders.
+  useLayoutEffect(() => {
+    if (keysRef.current && scroller.current) keysRef.current.scrollTop = scroller.current.scrollTop;
+  });
+
   const save = (next: Note[], label: string) => {
     setDraft(next);
     void execute({ type: "setNotes", pattern: pattern.id, channel: channelId, notes: next.map((n) => ({ ...n, channel: channelId })) }, { label })

@@ -189,6 +189,10 @@ private:
 
     void rebuild();
     void addClockTrack();
+
+    /** Applies a change that only moves mixer values (volume, pan, send levels, effect
+        parameters) to the playing Edit, without rebuilding it. False if it can't. */
+    bool applyToLiveEdit (const Change&);
     void stopTransport();
     bool hasAudioDevice() const;
     void requireAudioDevice();

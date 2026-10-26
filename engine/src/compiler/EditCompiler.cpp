@@ -191,6 +191,7 @@ namespace
                             aux.setMute (true);
 
                         sendPlugins[insert.id][send.id] = &aux;
+                        result.sends[insert.id + "/" + send.id] = &aux;
                     }
                 };
 
@@ -584,7 +585,10 @@ CompiledEdit& CompiledEdit::operator= (CompiledEdit&& other)
         edit = std::move (other.edit);
         insertTracks = std::move (other.insertTracks);
         channelTracks = std::move (other.channelTracks);
+        insertFaders = std::move (other.insertFaders);
+        channelFaders = std::move (other.channelFaders);
         plugins = std::move (other.plugins);
+        sends = std::move (other.sends);
         outputLatencySeconds = other.outputLatencySeconds;
     }
 

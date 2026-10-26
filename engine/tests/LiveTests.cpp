@@ -4,6 +4,7 @@
 
 #include "analysis/Analysis.h"
 #include "live/LiveEngine.h"
+#include "mixer/FaderPlugin.h"
 #include "render/Render.h"
 
 #include <catch2/catch_approx.hpp>
@@ -139,7 +140,8 @@ TEST_CASE ("Live playback follows the song")
         CHECK (live.isPlaying());
         CHECK (live.getPosition() >= before);
 
-        auto later = audio.silence (1.0);
+        // The song carries on from about a second in; its next beeps are at two seconds.
+        auto later = audio.silence (2.0);
         CHECK (analysis::peakDb (later) == Approx (-12.04).margin (0.1));
     }
 
@@ -275,3 +277,63 @@ TEST_CASE ("Recording sends MIDI clock that starts once and ticks evenly")
     for (size_t i = 1; i < clocks.size(); ++i)
         CHECK (clocks[i] - clocks[i - 1] == Approx (0.5 / 24).margin (1.0e-6));
 }
+
+TEST_CASE ("Mixer moves apply to the playing Edit without rebuilding it")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-fast-path");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
+    live.updateNow();
+    auto edit = live.getEdit();
+
+    model::Reader r;
+    std::vector<model::Command> commands (2);
+    readValue (r, Json::parse (R"({ "type": "updateInsert", "insert": "master", "changes": { "volumeDb": -6, "pan": 0.5 } })"), commands[0]);
+    readValue (r, Json::parse (R"({ "type": "addEffect", "insert": "master", "effect": { "type": "builtin", "id": "lp", "kind": "lowpass" } })"), commands[1]);
+    session->execute ({ commands[0] });
+    live.updateNow();
+
+    CHECK (live.getEdit() == edit);
+    // The master fader is the last plugin on the master insert's track.
+    bool found = false;
+    for (auto t : te::getAudioTracks (*edit))
+        for (auto p : t->pluginList)
+            if (auto f = dynamic_cast<mixer::FaderPlugin*> (p); f != nullptr && f->volumeParam->getCurrentValue() == Approx (-6.0f))
+                found = f->panParam->getCurrentValue() == Approx (0.5f);
+    CHECK (found);
+
+    // Adding an effect changes the graph, so that rebuilds.
+    session->execute ({ commands[1] });
+    live.updateNow();
+    CHECK (live.getEdit() != edit);
+    edit = live.getEdit();
+
+    readValue (r, Json::parse (R"({ "type": "updateEffect", "insert": "master", "effect": "lp", "changes": { "params": { "frequency": 500 } } })"), commands[0]);
+    session->execute ({ commands[0] });
+    live.updateNow();
+    CHECK (live.getEdit() == edit);
+    CHECK (live.findPlugin ("effect:master/lp")->getAutomatableParameterByID ("frequency")->getCurrentValue() == Approx (500.0f).margin (1.0f));
+}
+
+TEST_CASE ("Levels report what plays")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-levels");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
+
+    float master = 0, channel = 0;
+    live.onLevels = [&] (const LiveEngine::Levels& levels)
+    {
+        master = std::max (master, levels.inserts.at ("master").first);
+        channel = std::max (channel, levels.channels.at ("beep"));
+    };
+
+    live.play();
+    audio.silence (0.5);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+    live.stop();
+
+    CHECK (master > 0.1f);
+    CHECK (channel > 0.1f);
+}
+

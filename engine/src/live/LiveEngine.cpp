@@ -6,6 +6,7 @@
 #include "mixer/FaderPlugin.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
+#include "effects/BuiltinEffects.h"
 
 #include <fstream>
 
@@ -52,8 +53,12 @@ LiveEngine::LiveEngine (EngineContext& c, Session& s, std::filesystem::path file
     if (devices.getMidiDeviceScanIntervalSeconds() == 0)
         devices.setMidiDeviceScanIntervalSeconds (defaultMidiScanSeconds);
 
-    listenerId = session.addListener ([this] (const Change&)
+    listenerId = session.addListener ([this] (const Change& change)
     {
+        // Mixer moves apply to the playing Edit as they are; anything else rebuilds it.
+        if (! needsRebuild && applyToLiveEdit (change))
+            return;
+
         needsRebuild = true;
         triggerAsyncUpdate();
     });
@@ -171,6 +176,107 @@ void LiveEngine::addClockTrack()
         clockPlugin = p;
         midiClock->setSource (clockPlugin);
     }
+}
+
+bool LiveEngine::applyToLiveEdit (const Change& change)
+{
+    if (compiled.edit == nullptr || change.ops.empty())
+        return false;
+
+    auto& project = session.getProject();
+    std::vector<std::function<void()>> actions;
+
+    auto index = [] (const std::string& s) -> std::optional<size_t>
+    {
+        if (s.empty() || ! std::all_of (s.begin(), s.end(), [] (char c) { return std::isdigit (static_cast<unsigned char> (c)); }))
+            return {};
+        return std::stoul (s);
+    };
+
+    for (auto& op : change.ops)
+    {
+        std::vector<std::string> keys;
+
+        for (size_t start = 1; start <= op.path.size();)
+        {
+            const auto end = std::min (op.path.find ('/', start), op.path.size());
+            keys.push_back (op.path.substr (start, end - start));
+            start = end + 1;
+        }
+
+        // /channels/<i>/volumeDb or /pan
+        if (keys.size() == 3 && keys[0] == "channels" && (keys[2] == "volumeDb" || keys[2] == "pan"))
+        {
+            const auto i = index (keys[1]);
+            if (! i || *i >= project.channels.size()) return false;
+            const auto& channel = project.channels[*i];
+            const auto it = compiled.channelFaders.find (channel.id);
+            if (it == compiled.channelFaders.end()) return false;
+            actions.push_back ([fader = it->second, v = channel.volumeDb, p = channel.pan] { fader->setVolumeDb (static_cast<float> (v)); fader->setPan (static_cast<float> (p)); });
+            continue;
+        }
+
+        if (keys.size() < 4 || keys[0] != "mixer" || keys[1] != "inserts")
+            return false;
+
+        const auto i = index (keys[2]);
+        if (! i || *i >= project.mixer.inserts.size()) return false;
+        const auto& insert = project.mixer.inserts[*i];
+
+        // /mixer/inserts/<i>/volumeDb or /pan
+        if (keys.size() == 4 && (keys[3] == "volumeDb" || keys[3] == "pan"))
+        {
+            const auto it = compiled.insertFaders.find (insert.id);
+            if (it == compiled.insertFaders.end()) return false;
+            actions.push_back ([fader = it->second, v = insert.volumeDb, p = insert.pan] { fader->setVolumeDb (static_cast<float> (v)); fader->setPan (static_cast<float> (p)); });
+            continue;
+        }
+
+        // /mixer/inserts/<i>/sends/<j>/levelDb
+        if (keys.size() == 6 && keys[3] == "sends" && keys[5] == "levelDb")
+        {
+            const auto j = index (keys[4]);
+            if (! j || *j >= insert.sends.size() || insert.mute) return false;
+            const auto it = compiled.sends.find (insert.id + "/" + insert.sends[*j].id);
+            if (it == compiled.sends.end()) return false;
+            actions.push_back ([aux = it->second, v = insert.sends[*j].levelDb] { aux->setGainDb (static_cast<float> (v)); });
+            continue;
+        }
+
+        // /mixer/inserts/<i>/effects/<j>/params[/<p>] or /bypass
+        if (keys.size() >= 6 && keys[3] == "effects" && (keys[5] == "params" || (keys[5] == "bypass" && keys.size() == 6)))
+        {
+            const auto j = index (keys[4]);
+            if (! j || *j >= insert.effects.size()) return false;
+            const auto& effect = insert.effects[*j];
+            const auto id = std::visit ([] (auto& e) { return e.id; }, effect);
+            const auto it = compiled.plugins.find ("effect:" + insert.id + "/" + id);
+            if (it == compiled.plugins.end()) return false;
+
+            if (auto builtin = std::get_if<BuiltinEffect> (&effect))
+                actions.push_back ([plugin = it->second, e = *builtin] { effects::applyParams (*plugin, e); });
+            else if (keys[5] == "bypass")
+                actions.push_back ([plugin = it->second, b = std::get<PluginEffect> (effect).bypass] { plugin->setEnabled (! b); });
+            else
+                return false;
+
+            continue;
+        }
+
+        return false;
+    }
+
+    try
+    {
+        for (auto& a : actions)
+            a();
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+
+    return true;
 }
 
 void LiveEngine::updateNow()

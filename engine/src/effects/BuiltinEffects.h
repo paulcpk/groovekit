@@ -44,6 +44,9 @@ model::Json catalogueToJson();
 /** Creates and configures the Tracktion plugin for an effect. Throws on unknown or out-of-range parameters. */
 tracktion::Plugin::Ptr createEffect (tracktion::Edit&, const model::BuiltinEffect&);
 
+/** Sets an existing effect plugin's parameters and bypass from the model. Throws like createEffect. */
+void applyParams (tracktion::Plugin&, const model::BuiltinEffect&);
+
 /** The automatable parameter behind a GrooveKit parameter id. Throws if it doesn't exist or can't be automated. */
 std::pair<tracktion::AutomatableParameter::Ptr, const ParamInfo*>
     findAutomatableParam (tracktion::Plugin&, model::BuiltinEffectKind, const std::string& paramId);

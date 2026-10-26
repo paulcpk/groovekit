@@ -167,6 +167,14 @@ tracktion::Plugin::Ptr createEffect (tracktion::Edit& edit, const model::Builtin
     if (effect.kind == BuiltinEffectKind::lowpass || effect.kind == BuiltinEffectKind::highpass)
         plugin->state.setProperty ("mode", effect.kind == BuiltinEffectKind::highpass ? "highpass" : "lowpass", nullptr);
 
+    applyParams (*plugin, effect);
+    return plugin;
+}
+
+void applyParams (tracktion::Plugin& plugin, const model::BuiltinEffect& effect)
+{
+    auto& info = getEffectInfo (effect.kind);
+
     for (auto& p : info.params)
     {
         auto it = effect.params.find (p.id);
@@ -180,7 +188,7 @@ tracktion::Plugin::Ptr createEffect (tracktion::Edit& edit, const model::Builtin
 
         if (p.tracktionParam != nullptr)
         {
-            auto param = plugin->getAutomatableParameterByID (p.tracktionParam);
+            auto param = plugin.getAutomatableParameterByID (p.tracktionParam);
 
             if (param == nullptr)
                 throw std::logic_error (std::string ("Tracktion parameter missing: ") + p.tracktionParam);
@@ -190,7 +198,7 @@ tracktion::Plugin::Ptr createEffect (tracktion::Edit& edit, const model::Builtin
         }
         else
         {
-            plugin->state.setProperty (p.stateProperty, native, nullptr);
+            plugin.state.setProperty (p.stateProperty, native, nullptr);
         }
     }
 
@@ -199,8 +207,7 @@ tracktion::Plugin::Ptr createEffect (tracktion::Edit& edit, const model::Builtin
             throw std::runtime_error ("Effect \"" + effect.id + "\": " + model::toString (effect.kind)
                                       + " has no parameter \"" + id + "\" (has: " + listParams (info, false) + ")");
 
-    plugin->setEnabled (! effect.bypass);
-    return plugin;
+    plugin.setEnabled (! effect.bypass);
 }
 
 std::pair<tracktion::AutomatableParameter::Ptr, const ParamInfo*>
