@@ -88,7 +88,7 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
   it("lists the tools", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual(
-      expect.arrayContaining(["get_summary", "edit_project", "render", "undo", "get_schema", "list_effects"])
+      expect.arrayContaining(["get_summary", "edit_project", "render", "undo", "get_schema", "list_effects", "transport"])
     );
   });
 

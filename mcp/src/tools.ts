@@ -192,6 +192,27 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
   );
 
   server.registerTool(
+    "transport",
+    {
+      description: "Plays the song through the user's speakers, stops it, or moves the playhead, so the user can listen. loop repeats bars until stopped. Rendering doesn't need this.",
+      inputSchema: {
+        action: z.enum(["play", "stop", "state"]),
+        fromBar: z.number().min(1).optional().describe("For play: start here (1-based)"),
+        loopBars: z.tuple([z.number().min(1), z.number().min(1)]).optional().describe("For play: [first bar, bar to stop before] to loop"),
+      },
+    },
+    ({ action, fromBar, loopBars }) =>
+      attempt(async () => {
+        await engine.connect();
+        if (action === "play") {
+          await engine.call("transport.setLoop", loopBars ? { start: barToTicks(loopBars[0]), end: barToTicks(loopBars[1]) } : {});
+          if (fromBar !== undefined || loopBars) await engine.call("transport.setPosition", { position: barToTicks(fromBar ?? loopBars![0]) });
+        }
+        return engine.call(`transport.${action}`);
+      })
+  );
+
+  server.registerTool(
     "analyze_mix",
     {
       description: "Renders the mix plus one stem per channel (and per insert with audio clips) and reports: the mix's loudness, true peak, loudness range, spectral balance and stereo image; each source's loudness and share of every frequency band; and masking, i.e. pairs of sources that both carry a big share of the same band (e.g. kick and bass at 60-120 Hz). Slower than render: one render per source.",
