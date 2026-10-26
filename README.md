@@ -6,6 +6,14 @@ Songs are built from channels (a built-in multi-layer sampler or hosted VST3/AU 
 
 Status: early development. The engine, command API, MCP server, sample library, analysis, mastering, live playback and recording (including clock-synced hardware), plugin hosting and a first desktop UI work. See [docs/architecture.md](docs/architecture.md) and [docs/roadmap.md](docs/roadmap.md).
 
+## Download
+
+The latest macOS app (Apple silicon): [GrooveKit-macOS.zip](https://github.com/paulcpk/groovekit/releases/latest/download/GrooveKit-macOS.zip). Every version is on the [releases page](https://github.com/paulcpk/groovekit/releases).
+
+Unzip it and move GrooveKit to Applications. The app isn't notarized yet, so macOS asks before opening it the first time: open it once, then choose Open Anyway in System Settings → Privacy & Security.
+
+To publish a release, push a version tag: `git tag v0.2.0 && git push origin v0.2.0`. The release workflow builds the app and attaches the zip.
+
 ## Building (macOS)
 
 Requirements: Xcode Command Line Tools, CMake ≥ 3.22, Ninja, Node ≥ 24 and pnpm.
@@ -52,7 +60,7 @@ pnpm app        # as a desktop app (needs Rust: brew install rust)
 pnpm app:build  # a .app and .dmg, with the engine bundled (build the release preset first)
 ```
 
-Both find the engine serving the project (for example the one Claude Code's MCP server started, so you watch the agent's changes live) or start one. The project folder is `GROOVEKIT_PROJECT` or `~/Music/GrooveKit/Scratch`; one engine serves a project at a time.
+Both find the engine serving the project (for example the one Claude Code's MCP server started, so you watch the agent's changes live) or start one. The app opens the project opened last (or `GROOVEKIT_PROJECT`, or `~/Music/GrooveKit/Scratch`); one engine serves a project at a time, and opening another project switches every client of that engine to it.
 
 Songs are JSON files described by [schema/project.schema.json](schema/project.schema.json). The examples in [tests/songs](tests/songs) double as render tests.
 
@@ -67,3 +75,5 @@ Songs are JSON files described by [schema/project.schema.json](schema/project.sc
 ## License
 
 AGPLv3. GrooveKit builds on [JUCE 8](https://juce.com) (AGPLv3), [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) (GPLv3), [Rubber Band](https://breakfastquay.com/rubberband/) (GPLv2+) and [IXWebSocket](https://github.com/machinezone/IXWebSocket) (BSD).
+
+Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).

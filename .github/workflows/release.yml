@@ -1,0 +1,65 @@
+name: Release
+
+# Pushing a tag like v0.2.0 builds the macOS app and publishes it as a GitHub release, with the
+# app zipped under a fixed name so this link always downloads the newest one:
+# https://github.com/paulcpk/groovekit/releases/latest/download/GrooveKit-macOS.zip
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: macOS app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out submodules
+        run: |
+          # JUCE is referenced over SSH inside Tracktion's .gitmodules
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --recursive --depth 1
+
+      - name: Install tools
+        run: brew install ninja
+
+      - name: Build the engine
+        run: |
+          cmake --preset release
+          cmake --build --preset release --target groovekit-engine
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ui/src-tauri
+
+      - name: Build the app
+        working-directory: ui
+        run: pnpm exec tauri build --bundles app --config "{\"version\":\"${GITHUB_REF_NAME#v}\"}"
+
+      # Without a Developer ID the app is signed ad hoc, so macOS asks once before opening it
+      # (see "Download" in the README) rather than calling it damaged.
+      - name: Sign ad hoc and zip
+        run: |
+          app=ui/src-tauri/target/release/bundle/macos/GrooveKit.app
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --keepParent "$app" GrooveKit-macOS.zip
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" GrooveKit-macOS.zip
+          --title "GrooveKit ${GITHUB_REF_NAME#v}"
+          --generate-notes
