@@ -161,7 +161,7 @@ export interface AudioClip {
   fadeIn?: number;
   /** Seconds. */
   fadeOut?: number;
-  /** Tempo the file was recorded at. Reserved for time-stretching; not applied yet. */
+  /** Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds. */
   sourceTempo?: number;
 }
 

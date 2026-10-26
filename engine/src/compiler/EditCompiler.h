@@ -31,6 +31,9 @@ struct CompileOptions
     /** Relative sample paths resolve against this folder. */
     std::filesystem::path projectDir;
     tracktion::Edit::EditRole role = tracktion::Edit::forRendering;
+
+    /** Where time-stretched copies of audio clips are kept. Empty means the default. */
+    std::filesystem::path cacheDir;
 };
 
 /** Validates the project and builds the Edit. Throws std::runtime_error on invalid input or missing files. */

@@ -239,7 +239,7 @@
         "pan": { "$ref": "#/$defs/Pan", "default": 0 },
         "fadeIn": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 },
         "fadeOut": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 },
-        "sourceTempo": { "description": "Tempo the file was recorded at. Reserved for time-stretching; not applied yet.", "type": "number", "minimum": 20, "maximum": 999 }
+        "sourceTempo": { "description": "Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds.", "type": "number", "minimum": 20, "maximum": 999 }
       }
     },
 

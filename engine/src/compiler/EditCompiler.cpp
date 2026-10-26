@@ -2,6 +2,7 @@
 
 #include "effects/BuiltinEffects.h"
 #include "mixer/FaderPlugin.h"
+#include "render/Stretch.h"
 #include "sampler/SamplerPlugin.h"
 
 namespace gk
@@ -299,13 +300,27 @@ namespace
                     throw std::runtime_error ("Audio clip \"" + ac->id + "\": file not found: " + file.getFullPathName().toStdString());
 
                 auto& track = getAudioClipTrack (ac->insert);
+
+                // A clip recorded at another tempo plays a stretched copy, pitch kept.
+                const auto speed = ac->sourceTempo ? project.tempo / *ac->sourceTempo : 1.0;
+
+                if (std::abs (speed - 1.0) > 1.0e-6)
+                    file = juce::File (getStretchedFile (file.getFullPathName().toStdString(), speed, options.cacheDir).string());
+
                 te::ClipPosition position { { toTime (ac->start), toTime (ac->start + ac->length) },
-                                            te::TimeDuration::fromSeconds (ac->offset) };
+                                            te::TimeDuration::fromSeconds (ac->offset / speed) };
 
                 auto waveClip = track.insertWaveClip (ac->id, file, position, false);
 
                 if (waveClip == nullptr)
                     throw std::runtime_error ("Couldn't create audio clip \"" + ac->id + "\"");
+
+                // Tracktion guesses a tempo from names like "Loop 120bpm" and then syncs and resizes the
+                // clip on its own (and offline renders wait forever for the proxy). The model decides.
+                waveClip->setAutoTempo (false);
+                waveClip->setAutoPitch (false);
+                waveClip->setTimeStretchMode (te::TimeStretcher::disabled);
+                waveClip->setPosition (position);
 
                 waveClip->setGainDB (static_cast<float> (ac->gainDb));
                 waveClip->setPan (static_cast<float> (ac->pan));
@@ -432,7 +447,12 @@ namespace
 
 CompiledEdit compileProject (te::Engine& engine, const Project& project, const CompileOptions& options)
 {
-    return Compiler (engine, project, options).run();
+    auto withDefaults = options;
+
+    if (withDefaults.cacheDir.empty())
+        withDefaults.cacheDir = getDefaultCacheDir();
+
+    return Compiler (engine, project, withDefaults).run();
 }
 
 } // namespace gk

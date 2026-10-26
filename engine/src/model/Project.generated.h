@@ -655,7 +655,7 @@ struct AudioClip
     double fadeIn = 0;
     /** Seconds. */
     double fadeOut = 0;
-    /** Tempo the file was recorded at. Reserved for time-stretching; not applied yet. */
+    /** Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds. */
     std::optional<double> sourceTempo;
 
     bool operator== (const AudioClip&) const = default;

@@ -72,6 +72,9 @@ def main():
     write("bass_a2.wav", sine(110.0, 1.0, 0.5))
     # 1 kHz beep, 100 ms at amplitude 0.5: peak -6.02 dBFS
     write("beep.wav", sine(1000.0, 0.1, 0.5))
+    # Two clicks half a second apart: one bar of 2/4 at 120 BPM, for tempo matching
+    click = [0.8 * math.exp(-i / 200) * math.sin(2 * math.pi * 1000 * i / RATE) for i in seconds(0.02)]
+    write("clicks_120bpm.wav", (click + [0.0] * (RATE // 2 - len(click))) * 2)
     # Stereo 1 kHz, left at 0.5 and right at 0.25, 500 ms
     write("stereo_beep.wav", sine(1000.0, 0.5, 0.5), sine(1000.0, 0.5, 0.25))
 

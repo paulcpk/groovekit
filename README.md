@@ -47,4 +47,4 @@ Songs are JSON files described by [schema/project.schema.json](schema/project.sc
 
 ## License
 
-AGPLv3. GrooveKit builds on [JUCE 8](https://juce.com) (AGPLv3) and [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) (GPLv3).
+AGPLv3. GrooveKit builds on [JUCE 8](https://juce.com) (AGPLv3), [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) (GPLv3), [Rubber Band](https://breakfastquay.com/rubberband/) (GPLv2+) and [IXWebSocket](https://github.com/machinezone/IXWebSocket) (BSD).

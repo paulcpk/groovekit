@@ -34,6 +34,16 @@ set(USE_ZLIB OFF CACHE INTERNAL "")
 set(IXWEBSOCKET_INSTALL OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(ixwebsocket)
 
+# Offline time-stretching for audio clips (GPL-2.0-or-later). Built from its single-file source.
+FetchContent_Declare(rubberband
+    GIT_REPOSITORY https://github.com/breakfastquay/rubberband.git
+    GIT_TAG v4.0.0
+    GIT_SHALLOW TRUE)
+FetchContent_GetProperties(rubberband)
+if(NOT rubberband_POPULATED)
+    FetchContent_Populate(rubberband)
+endif()
+
 set(TRACKTION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/engine/external/tracktion_engine")
 add_subdirectory("${TRACKTION_DIR}/modules/juce" juce EXCLUDE_FROM_ALL)
 add_subdirectory("${TRACKTION_DIR}/modules" tracktion EXCLUDE_FROM_ALL)

@@ -56,6 +56,7 @@ The UI and the agent are peers: both talk to the engine through the same command
 - A channel's instrument is either the built-in sampler or a hosted plugin. The sampler is polyphonic and holds one or more layers (sample, root note, key and velocity range, gain, pan, ADSR, one-shot or hold), so one channel can stack several samples.
 - Mixer: each channel routes to an insert. Inserts have effect slots, volume, pan and sends to other inserts; everything ends at the master insert. Sends exist from the start.
 - The schema covers pattern, audio and automation clips from the start, even where the engine supports them later.
+- Audio clips with a `sourceTempo` play a time-stretched copy (Rubber Band R3, offline, pitch kept) rendered once and cached in `~/Library/Caches/GrooveKit`. Tracktion's own auto-tempo is switched off: it guesses tempos from file names and resizes clips by itself.
 
 ## Project files
 
