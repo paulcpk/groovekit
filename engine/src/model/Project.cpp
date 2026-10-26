@@ -189,6 +189,10 @@ namespace
 
         void checkClips()
         {
+            for (size_t i = 0; i < project.playlist.tracks.size(); ++i)
+                if (auto& insert = project.playlist.tracks[i].insert)
+                    checkInsertRef (*insert, at ("/playlist/tracks", i) + "/insert");
+
             for (size_t i = 0; i < project.playlist.clips.size(); ++i)
             {
                 auto& clip = project.playlist.clips[i];

@@ -1,4 +1,4 @@
-export const HEADER_W = 172;
+export const HEADER_W = 200;
 export const RULER_H = 30;
 export const LOOP_STRIP_H = 11;
 export const CLIP_HEADER_H = 14;

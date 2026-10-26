@@ -204,7 +204,10 @@
         "name": { "type": "string", "default": "" },
         "color": { "type": "string" },
         "mute": { "type": "boolean", "default": false },
-        "solo": { "description": "While any track is soloed, only soloed tracks play.", "type": "boolean", "default": false }
+        "solo": { "description": "While any track is soloed, only soloed tracks play.", "type": "boolean", "default": false },
+        "insert": { "description": "Mixer insert the audio clips on this track play into (overriding each clip's own). Pattern clips play through their channels' inserts.", "$ref": "#/$defs/Id" },
+        "volumeDb": { "description": "Level of the audio clips on this track.", "type": "number", "minimum": -100, "maximum": 24, "default": 0 },
+        "pan": { "description": "Pan of the audio clips on this track.", "$ref": "#/$defs/Pan", "default": 0 }
       }
     },
 

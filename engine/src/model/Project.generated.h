@@ -580,19 +580,28 @@ struct PlaylistTrack
     bool mute = false;
     /** While any track is soloed, only soloed tracks play. */
     bool solo = false;
+    /** Mixer insert the audio clips on this track play into (overriding each clip's own). Pattern clips play through their channels' inserts. */
+    std::optional<Id> insert;
+    /** Level of the audio clips on this track. */
+    double volumeDb = 0;
+    /** Pan of the audio clips on this track. */
+    Pan pan = 0;
 
     bool operator== (const PlaylistTrack&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, PlaylistTrack& out)
 {
-    r.expectObject (j, { "id", "name", "color", "mute", "solo" });
+    r.expectObject (j, { "id", "name", "color", "mute", "solo", "insert", "volumeDb", "pan" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.optional (j, "color", [&] (const Json& v) { readValue (r, v, out.color.emplace()); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
     r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
+    r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert.emplace()); r.checkPattern (*out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 24); });
+    r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
 }
 
 inline Json toJson (const PlaylistTrack& v)
@@ -606,6 +615,12 @@ inline Json toJson (const PlaylistTrack& v)
 
     j["mute"] = toJson (v.mute);
     j["solo"] = toJson (v.solo);
+
+    if (v.insert)
+        j["insert"] = toJson (*v.insert);
+
+    j["volumeDb"] = toJson (v.volumeDb);
+    j["pan"] = toJson (v.pan);
     return j;
 }
 

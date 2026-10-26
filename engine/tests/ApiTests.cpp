@@ -389,3 +389,20 @@ TEST_CASE ("Renders take a format and can include stems")
     CHECK (mix.sampleRate == 44100);
     CHECK (h.call ("render", { { "bitDepth", 12 } })["error"]["code"] == -32602);
 }
+
+TEST_CASE ("Removing an insert sends the playlist tracks routed to it to master")
+{
+    Harness h;
+    auto r = h.call ("execute", Json::parse (R"({ "commands": [
+        { "type": "addInsert", "insert": { "id": "bus" } },
+        { "type": "addTrack", "track": { "id": "t", "insert": "bus", "volumeDb": -3, "pan": 0.5 } } ] })"));
+    REQUIRE (r.contains ("result"));
+    CHECK (h.session.getProject().playlist.tracks[0].insert == "bus");
+
+    CHECK_THAT (h.call ("execute", Json::parse (R"({ "commands": [ { "type": "updateTrack", "track": "t", "changes": { "insert": "nope" } } ] })"))["error"]["message"].get<std::string>(),
+                ContainsSubstring ("no mixer insert"));
+
+    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "removeInsert", "insert": "bus" } ] })"));
+    CHECK (h.session.getProject().playlist.tracks[0].insert == "master");
+    CHECK (h.session.getProject().playlist.tracks[0].volumeDb == -3);
+}

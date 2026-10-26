@@ -363,6 +363,24 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             continue;
         }
 
+        // /playlist/tracks/<i>/volumeDb or /pan: the track's audio clips
+        if (keys.size() == 4 && keys[0] == "playlist" && keys[1] == "tracks" && (keys[3] == "volumeDb" || keys[3] == "pan"))
+        {
+            const auto i = index (keys[2]);
+            if (! i || *i >= project.playlist.tracks.size()) return false;
+            const auto& track = project.playlist.tracks[*i];
+            const auto it = compiled.trackFaders.find (track.id);
+
+            // No audio clips on it, so nothing plays through it.
+            if (it == compiled.trackFaders.end())
+                continue;
+
+            for (auto fader : it->second)
+                actions.push_back ([fader, v = track.volumeDb, p = track.pan] { fader->setVolumeDb (static_cast<float> (v)); fader->setPan (static_cast<float> (p)); });
+
+            continue;
+        }
+
         if (keys.size() < 4 || keys[0] != "mixer" || keys[1] != "inserts")
             return false;
 

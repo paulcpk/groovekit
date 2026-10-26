@@ -133,6 +133,12 @@ export interface PlaylistTrack {
   mute?: boolean;
   /** While any track is soloed, only soloed tracks play. */
   solo?: boolean;
+  /** Mixer insert the audio clips on this track play into (overriding each clip's own). Pattern clips play through their channels' inserts. */
+  insert?: Id;
+  /** Level of the audio clips on this track. */
+  volumeDb?: number;
+  /** Pan of the audio clips on this track. */
+  pan?: Pan;
 }
 
 /** Plays a pattern, repeating it every pattern length until the clip ends. */

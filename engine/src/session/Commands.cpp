@@ -328,6 +328,7 @@ namespace
             e.reroute ("/playlist/clips", "insert", c.insert, masterInsertId,
                        [] (const Json& clip) { return clip.value ("type", "") == "audio"; });
             e.reroute ("/mixer/inserts", "output", c.insert, masterInsertId, any);
+            e.reroute ("/playlist/tracks", "insert", c.insert, masterInsertId, any);
 
             auto& inserts = e.array ("/mixer/inserts");
 

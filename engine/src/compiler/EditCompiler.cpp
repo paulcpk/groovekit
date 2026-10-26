@@ -65,7 +65,8 @@ namespace
         };
 
         std::map<Id, std::map<Id, EffectInstance>> effectPlugins;
-        std::map<Id, te::AudioTrack*> audioClipTracks;
+        /** Audio clips' tracks, one per playlist track and insert, with the insert they feed. */
+        std::map<std::pair<Id, Id>, te::AudioTrack*> audioClipTracks;
 
         //==============================================================================
         te::TimePosition toTime (Ticks ticks) const
@@ -387,14 +388,20 @@ namespace
             }
         }
 
-        te::AudioTrack& getAudioClipTrack (const Id& insertId)
+        /** Where a playlist track's audio clips play: its volume and pan, into the insert. */
+        te::AudioTrack& getAudioClipTrack (const Id& trackId, const Id& insertId)
         {
-            if (auto it = audioClipTracks.find (insertId); it != audioClipTracks.end())
+            const auto key = std::make_pair (trackId, insertId);
+
+            if (auto it = audioClipTracks.find (key); it != audioClipTracks.end())
                 return *it->second;
 
-            auto& track = addTrack ("audio:" + insertId);
+            auto& track = addTrack ("audio:" + trackId + ":" + insertId);
+            const auto playlistTrack = findTrack (project, trackId);
+            result.trackFaders[trackId].push_back (&addFader (track, playlistTrack ? playlistTrack->volumeDb : 0.0,
+                                                              playlistTrack ? playlistTrack->pan : 0.0));
             track.getOutput().setOutputToTrack (result.insertTracks.at (insertId));
-            audioClipTracks[insertId] = &track;
+            audioClipTracks[key] = &track;
             return track;
         }
 
@@ -412,7 +419,9 @@ namespace
                 if (! file.existsAsFile())
                     throw std::runtime_error ("Audio clip \"" + ac->id + "\": file not found: " + file.getFullPathName().toStdString());
 
-                auto& track = getAudioClipTrack (ac->insert);
+                // The playlist track's insert, when it has one, routes every audio clip on it.
+                const auto playlistTrack = findTrack (project, ac->track);
+                auto& track = getAudioClipTrack (ac->track, playlistTrack && playlistTrack->insert ? *playlistTrack->insert : ac->insert);
 
                 if (ac->reverse)
                     file = juce::File (getReversedFile (file.getFullPathName().toStdString(), options.cacheDir).string());
@@ -537,8 +546,8 @@ namespace
             for (auto& channel : project.channels)
                 latency = std::max (latency, trackLatency (*result.channelTracks.at (channel.id)) + insertLatency (channel.insert));
 
-            for (auto& [insertId, track] : audioClipTracks)
-                latency = std::max (latency, insertLatency (insertId));
+            for (auto& [key, track] : audioClipTracks)
+                latency = std::max (latency, insertLatency (key.second));
 
             return latency;
         }
@@ -681,6 +690,7 @@ CompiledEdit& CompiledEdit::operator= (CompiledEdit&& other)
         channelTracks = std::move (other.channelTracks);
         insertFaders = std::move (other.insertFaders);
         channelFaders = std::move (other.channelFaders);
+        trackFaders = std::move (other.trackFaders);
         plugins = std::move (other.plugins);
         sends = std::move (other.sends);
         outputLatencySeconds = other.outputLatencySeconds;

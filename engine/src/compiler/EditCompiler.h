@@ -37,6 +37,9 @@ struct CompiledEdit
     /** The volume and pan stage of each insert and channel, which also meters them. */
     std::map<model::Id, mixer::FaderPlugin*> insertFaders, channelFaders;
 
+    /** The volume and pan stages of each playlist track's audio clips (one per insert they play into). */
+    std::map<model::Id, std::vector<mixer::FaderPlugin*>> trackFaders;
+
     /** Instruments as "channel:<id>" and effects as "effect:<insert>/<effect>". */
     std::map<std::string, tracktion::Plugin*> plugins;
 
