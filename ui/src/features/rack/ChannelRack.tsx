@@ -114,6 +114,29 @@ async function commitPaint(doc: Project, pattern: Pattern, paint: Paint) {
 }
 
 //==============================================================================
+/** A step drawn as a pad: lit from above, with a darker lip below and a thin edge, in the
+    channel's colour when on (softer at lower velocities) and in greys when off. */
+function stepStyle(on: boolean, color: string, velocity: number | undefined, beatGroup: boolean, playing: boolean): React.CSSProperties {
+  const off = beatGroup ? "#2e2e35" : "#25252b";
+
+  if (!on) {
+    return {
+      background: `linear-gradient(to bottom, color-mix(in srgb, ${off} 82%, white), ${off} 55%, color-mix(in srgb, ${off} 85%, black))`,
+      border: "1px solid rgb(0 0 0 / 0.45)",
+      boxShadow: `inset 0 1px 0 rgb(255 255 255 / 0.07), inset 0 -2px 0 rgb(0 0 0 / 0.28), 0 1px 1px rgb(0 0 0 / 0.35)${playing ? ", 0 0 0 1px rgb(255 255 255 / 0.55)" : ""}`,
+    };
+  }
+
+  // Quieter steps lean toward the off colour rather than fading out.
+  const strength = Math.round(45 + ((velocity ?? 100) / 127) * 55);
+  const base = `color-mix(in srgb, ${color} ${strength}%, ${off})`;
+  return {
+    background: `linear-gradient(to bottom, color-mix(in srgb, ${base} 72%, white), ${base} 50%, color-mix(in srgb, ${base} 82%, black))`,
+    border: `1px solid color-mix(in srgb, ${base} 55%, black)`,
+    boxShadow: `inset 0 1px 0 rgb(255 255 255 / 0.38), inset 0 -2px 0 rgb(0 0 0 / 0.22), 0 1px 2px rgb(0 0 0 / 0.45), 0 0 8px -2px color-mix(in srgb, ${color} 55%, transparent)${playing ? ", 0 0 0 1px rgb(255 255 255 / 0.7)" : ""}`,
+  };
+}
+
 /** Delays every second 16th, for the whole song. */
 function SwingKnob({ swing }: { swing: number }) {
   const control = useLiveControl((v) => ({ type: "setSwing", swing: Math.round(v) / 100 }), "Swing");
@@ -312,8 +335,12 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
               <button
                 key={step}
                 type="button"
-                className={cn("h-[22px] w-[19px] rounded-[3px]", step % 4 === 0 && step > 0 && "ml-1.5", step === playingStep && "ring-1 ring-fg/70 brightness-150")}
-                style={{ background: on ? color : beatGroup ? "#2c2c32" : "#232328", opacity: on && velocity ? 0.45 + (velocity / 127) * 0.55 : 1 }}
+                className={cn(
+                  "h-[22px] w-[19px] rounded-[4px] transition-[filter,transform] duration-75 hover:brightness-125 active:translate-y-px",
+                  step % 4 === 0 && step > 0 && "ml-1.5",
+                  step === playingStep && "brightness-150",
+                )}
+                style={stepStyle(on, color, velocity, beatGroup, step === playingStep)}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
                   (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
