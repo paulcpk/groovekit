@@ -1,0 +1,77 @@
+// UI-only state: views, selection, zoom. The engine never sees it.
+
+import { create } from "zustand";
+
+export type BottomPanel = "rack" | "piano" | "mixer";
+export type SidebarTab = "browser" | "history" | "activity";
+
+export interface UiState {
+  sidebarTab: SidebarTab;
+  sidebarOpen: boolean;
+  bottomPanel: BottomPanel;
+  bottomOpen: boolean;
+  bottomHeight: number;
+  sidebarWidth: number;
+
+  selectedPattern?: string;
+  selectedChannel?: string;
+  selectedInsert?: string;
+  selectedClips: string[];
+
+  /** Playlist pixels per quarter note. */
+  playlistZoom: number;
+  trackHeight: number;
+  /** Snap in ticks; 0 snaps to bars, 1 is effectively off. */
+  snap: number;
+  pianoZoom: number;
+  pianoKeyHeight: number;
+  followPlayhead: boolean;
+  settingsOpen: boolean;
+  recordOpen: boolean;
+  /** The loop region in ticks, and whether the transport loops it. */
+  loop?: { start: number; end: number };
+  looping: boolean;
+}
+
+const saved = (() => {
+  try {
+    return JSON.parse(localStorage.getItem("groovekit.ui") ?? "{}") as Partial<UiState>;
+  } catch {
+    return {};
+  }
+})();
+
+export const useUi = create<UiState>(() => ({
+  sidebarTab: "browser",
+  sidebarOpen: true,
+  bottomPanel: "rack",
+  bottomOpen: true,
+  bottomHeight: 300,
+  sidebarWidth: 260,
+  selectedClips: [],
+  playlistZoom: 24,
+  trackHeight: 44,
+  snap: 960,
+  pianoZoom: 80,
+  pianoKeyHeight: 12,
+  followPlayhead: true,
+  settingsOpen: false,
+  recordOpen: false,
+  looping: false,
+  ...saved,
+}));
+
+const persisted: (keyof UiState)[] = [
+  "sidebarTab", "sidebarOpen", "bottomPanel", "bottomOpen", "bottomHeight", "sidebarWidth",
+  "playlistZoom", "trackHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead",
+];
+
+useUi.subscribe((state) => {
+  try {
+    localStorage.setItem("groovekit.ui", JSON.stringify(Object.fromEntries(persisted.map((k) => [k, state[k]]))));
+  } catch {
+    // Storage can be unavailable; the UI works without it.
+  }
+});
+
+export const setUi = useUi.setState;

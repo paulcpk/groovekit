@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/* Dark only, in the spirit of Ableton: flat greys, small type, colour reserved for content
+   (clips, channels) and state (playing, recording, agent changes). */
+@theme {
+  --color-bg: #111113;
+  --color-panel: #18181b;
+  --color-raised: #202024;
+  --color-control: #29292e;
+  --color-hover: #323238;
+  --color-line: #2c2c31;
+  --color-grid: #1d1d21;
+  --color-grid-strong: #26262b;
+  --color-fg: #d6d6db;
+  --color-dim: #8d8d96;
+  --color-faint: #5b5b64;
+  --color-accent: #f2a33a;
+  --color-rec: #ef4f4f;
+  --color-agent: #a78bfa;
+  --color-ok: #6fd08c;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+
+  --animate-agent-flash: agent-flash 1.8s ease-out forwards;
+
+  @keyframes agent-flash {
+    0% { opacity: 0.9; }
+    100% { opacity: 0; }
+  }
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+}
+
+/* On body, not html: Tailwind's spacing is in rem and should stay at 16px. */
+body {
+  font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  color-scheme: dark;
+}
+
+input, textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a40 transparent;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #34343a; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.tabular { font-variant-numeric: tabular-nums; }
