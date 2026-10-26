@@ -11,6 +11,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include <csignal>
+#include <signal.h>
 #include <iostream>
 
 namespace
@@ -25,6 +26,7 @@ Usage:
       --end <ticks>          default: end of the last clip
       --tail <seconds>       extra time after the end (default 0)
   groovekit-engine serve <project-folder> [--port <port>] [--library <index.json>] [--no-audio 1]
+                         [--parent-pid <pid>]
       Opens (or creates) the project and serves the JSON-RPC API on ws://127.0.0.1:<port>
       (default 7878) until interrupted. The sample library index defaults to
       ~/Library/Application Support/GrooveKit/library.json; with no folders set, ~/Music/Samples
@@ -131,9 +133,19 @@ Add --verbose to see engine log messages.
 
         std::cout << "Serving " << args.positional[1] << " on ws://127.0.0.1:" << port << std::endl;
 
+        // With --parent-pid (the MCP server passes its own), quit when that process is gone, so a
+        // client that dies without cleaning up doesn't leave an engine behind.
+        const auto parent = args.get ("--parent-pid");
+        const auto parentPid = parent ? std::stoi (*parent) : 0;
+
         // runDispatchLoop() needs an NSApplication on macOS; a console process pumps messages itself.
         while (! stopRequested)
+        {
             juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+
+            if (parentPid > 0 && kill (parentPid, 0) != 0 && errno == ESRCH)
+                break;
+        }
 
         server.stop();
         return 0;

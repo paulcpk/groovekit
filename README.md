@@ -34,7 +34,13 @@ build/dev/engine/groovekit-engine effects
 
 ### With Claude Code
 
-The engine serves a JSON-RPC API over WebSocket (`groovekit-engine serve <project-folder>`, see [docs/protocol.md](docs/protocol.md)), and [mcp/](mcp) exposes it as MCP tools. The repository's [.mcp.json](.mcp.json) starts both; the project folder defaults to `~/Music/GrooveKit/Scratch` and can be changed with `GROOVEKIT_PROJECT`. Build the engine first, then open Claude Code in the repository and ask it to make a beat.
+The engine serves a JSON-RPC API over WebSocket (`groovekit-engine serve <project-folder>`, see [docs/protocol.md](docs/protocol.md)), and [mcp/](mcp) exposes it as MCP tools. The repository's [.mcp.json](.mcp.json) starts both when Claude Code runs in this folder; the project folder defaults to `~/Music/GrooveKit/Scratch` (or `GROOVEKIT_PROJECT`). Build the engine first, then start Claude Code here (`cd groovekit && claude`), approve the `groovekit` server, check `/mcp`, and ask it to make a beat.
+
+To use GrooveKit from Claude Code in any folder, register it for your user instead:
+
+```sh
+claude mcp add --scope user groovekit -- node /path/to/groovekit/mcp/src/index.ts
+```
 
 Songs are JSON files described by [schema/project.schema.json](schema/project.schema.json). The examples in [tests/songs](tests/songs) double as render tests.
 

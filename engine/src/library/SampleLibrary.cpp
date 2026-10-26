@@ -259,7 +259,7 @@ void SampleLibrary::scan (ProgressCallback callback)
         for (auto it = fs::recursive_directory_iterator (folder, fs::directory_options::skip_permission_denied, ec);
              it != fs::recursive_directory_iterator(); it.increment (ec))
         {
-            if (ec)
+            if (ec || cancelScan)
                 break;
 
             if (it->is_regular_file (ec) && isAudioFile (it->path()) && ! it->path().filename().string().starts_with ("._"))
