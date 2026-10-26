@@ -1,5 +1,6 @@
 #include "BuiltinEffects.h"
 
+#include "Effects.h"
 #include "EqPlugin.h"
 #include "mixer/LimiterPlugin.h"
 
@@ -14,8 +15,6 @@ namespace
 {
     float dbToGain (float db)         { return juce::Decibels::decibelsToGain (db); }
     float inverse (float ratio)       { return 1.0f / ratio; }
-    float scaleWet (float level)      { return level / 3.0f; }  // Tracktion's reverb scales wet by 3 and dry by 2
-    float scaleDry (float level)      { return level / 2.0f; }
 
     /** Keeps generated parameter names alive for the catalogue's const char* ids. */
     const char* keep (std::string s)
@@ -70,23 +69,29 @@ namespace
                   { "releaseMs", "ms", 1, 1000, 100, "How fast gain recovers after a peak.", "release" },
               } },
 
-            { BuiltinEffectKind::reverb, tracktion::ReverbPlugin::xmlTypeName,
-              "Algorithmic room reverb.",
+            { BuiltinEffectKind::reverb, ReverbPlugin::xmlTypeName,
+              "Algorithmic reverb with pre-delay, an even, dense tail and damping. Outputs only the reverb: set how much is heard with the effect's mix.",
               {
-                  { "roomSize", "", 0, 1, 0.3, "Room size.", "room size" },
-                  { "damping", "", 0, 1, 0.5, "High-frequency damping.", "damping" },
-                  { "wet", "gain", 0, 3, 1, "Reverb level (linear gain).", "wet level", nullptr, scaleWet },
-                  { "dry", "gain", 0, 2, 1, "Direct signal level (linear gain).", "dry level", nullptr, scaleDry },
-                  { "width", "", 0, 1, 1, "Stereo width.", "width" },
-              } },
+                  { "preDelayMs", "ms", 0, 250, 10, "Time before the reverb starts; separates it from the dry sound.", "preDelayMs" },
+                  { "size", "%", 0, 100, 50, "Room size: the spacing of the reflections.", "size" },
+                  { "decay", "s", 0.2, 20, 2, "Time for the tail to fall 60 dB.", "decay" },
+                  { "damping", "Hz", 1000, 20000, 6000, "High frequencies above this fade faster, as in a real room.", "damping" },
+                  { "lowCut", "Hz", 20, 1000, 150, "Lows below this don't go into the reverb, keeping it clear of the bass.", "lowCut" },
+                  { "width", "%", 0, 100, 100, "Stereo width of the tail.", "width" },
+                  { "diffusion", "%", 0, 100, 70, "How quickly the echoes blur into a smooth tail.", "diffusion" },
+              }, 0.25 },
 
-            { BuiltinEffectKind::delay, tracktion::DelayPlugin::xmlTypeName,
-              "Mono feedback delay.",
+            { BuiltinEffectKind::delay, DelayPlugin::xmlTypeName,
+              "Stereo delay, in ms or synced to the tempo, with optional ping-pong, the repeats filtered as they fade. Outputs only the repeats: set how much is heard with the effect's mix.",
               {
-                  { "timeMs", "ms", 1, 4000, 150, "Delay time. Not automatable.", nullptr, "length" },
-                  { "feedbackDb", "dB", -30, 0, -6, "Feedback level.", "feedback" },
-                  { "mix", "", 0, 1, 0.3, "Wet proportion.", "mix proportion" },
-              } },
+                  { "sync", "", 0, 11, 6, "Note length the delay follows (an index into the choices); off uses timeMs.", "sync", nullptr, nullptr, DelayPlugin::syncNames() },
+                  { "timeMs", "ms", 1, 4000, 250, "Delay time when sync is off.", "timeMs" },
+                  { "feedback", "%", 0, 95, 40, "How much of each repeat comes back: more repeats.", "feedback" },
+                  { "pingPong", "", 0, 1, 0, "1 bounces the repeats between left and right.", "pingPong", nullptr, nullptr, { "off", "on" } },
+                  { "lowCut", "Hz", 20, 2000, 100, "Thins the repeats below this.", "lowCut" },
+                  { "highCut", "Hz", 1000, 20000, 8000, "Darkens the repeats above this.", "highCut" },
+                  { "width", "%", 0, 100, 100, "Stereo width of the repeats.", "width" },
+              }, 0.3 },
 
             { BuiltinEffectKind::phaser, tracktion::PhaserPlugin::xmlTypeName,
               "Phaser. Parameters are not automatable.",
@@ -96,13 +101,23 @@ namespace
                   { "feedback", "", 0, 0.99, 0.7, "Feedback amount.", nullptr, "feedback" },
               } },
 
-            { BuiltinEffectKind::chorus, tracktion::ChorusPlugin::xmlTypeName,
-              "Chorus. Parameters are not automatable.",
+            { BuiltinEffectKind::chorus, ChorusPlugin::xmlTypeName,
+              "Chorus: three slowly detuned voices per side, spread in stereo. Outputs only the voices: set how much is heard with the effect's mix.",
               {
-                  { "depthMs", "ms", 0.1, 20, 3, "Modulation depth.", nullptr, "depthMs" },
-                  { "speedHz", "Hz", 0.1, 10, 1, "Modulation rate.", nullptr, "speedHz" },
-                  { "width", "", 0, 1, 0.5, "Stereo width.", nullptr, "width" },
-                  { "mix", "", 0, 1, 0.5, "Wet proportion.", nullptr, "mixProportion" },
+                  { "rate", "Hz", 0.05, 5, 0.8, "Speed of the modulation.", "rate" },
+                  { "depthMs", "ms", 0.5, 10, 3, "How far the voices drift: more detune.", "depthMs" },
+                  { "delayMs", "ms", 5, 30, 12, "Base delay of the voices.", "delayMs" },
+                  { "feedback", "%", 0, 80, 0, "Feeds the voices back: towards a flanger.", "feedback" },
+                  { "width", "%", 0, 100, 100, "Stereo spread of the voices.", "width" },
+              }, 0.5 },
+
+            { BuiltinEffectKind::distortion, DistortionPlugin::xmlTypeName,
+              "Distortion: drive into soft clipping, hard clipping, tube-style asymmetry, a wavefolder or a bit crusher, oversampled, then a tone filter.",
+              {
+                  { "type", "", 0, 4, 0, "Shaper (an index into the choices).", "type", nullptr, nullptr, DistortionPlugin::typeNames() },
+                  { "driveDb", "dB", 0, 48, 12, "Gain into the shaper: more distortion (for crush, fewer bits).", "driveDb" },
+                  { "tone", "Hz", 500, 20000, 8000, "Low-pass after the shaper; lower is darker.", "tone" },
+                  { "outputDb", "dB", -24, 12, -6, "Level after; distortion adds a lot of loudness.", "outputDb" },
               } },
 
             { BuiltinEffectKind::lowpass, tracktion::LowPassPlugin::xmlTypeName,

@@ -3,10 +3,9 @@ import { Power } from "lucide-react";
 import { Knob } from "@/components/controls";
 import { FloatingWindow } from "@/components/window";
 import { EqEditor } from "@/features/effects/EqEditor";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/menu";
-import { createAutomation } from "@/features/playlist/automation";
-import type { Project } from "@groovekit/schema/project";
-import { formatParam, useCatalogue, type EffectParam } from "@/lib/catalogue";
+import { ChorusEditor, CompressorEditor, DelayEditor, DistortionEditor, ReverbEditor } from "@/features/effects/editors";
+import { ParamKnob } from "@/features/effects/params";
+import { useCatalogue } from "@/lib/catalogue";
 import { useLiveControl } from "@/lib/liveControl";
 import { insertName } from "@/lib/model";
 import { execute, useEngine } from "@/state/engine";
@@ -16,6 +15,11 @@ import { effectName } from "./Strip";
 /** Effects with an editor of their own; the rest get a knob per parameter. */
 const EDITORS: Partial<Record<string, (props: { insert: Insert; effect: BuiltinEffect }) => React.ReactNode>> = {
   eq: (props) => <EqEditor {...props} />,
+  delay: (props) => <DelayEditor {...props} />,
+  reverb: (props) => <ReverbEditor {...props} />,
+  chorus: (props) => <ChorusEditor {...props} />,
+  distortion: (props) => <DistortionEditor {...props} />,
+  compressor: (props) => <CompressorEditor {...props} />,
 };
 
 /** One of our effects in a window of its own: its controls, with the slot's on switch and mix
@@ -54,7 +58,7 @@ export function EffectWindow({ window: w, insert, effect }: { window: OpenWindow
             <div className="mb-3 text-xs text-dim">{info.description}</div>
             <div className="grid grid-cols-4 gap-x-2 gap-y-3">
               {Object.entries(info.params).map(([id, p]) => (
-                <ParamKnob key={id} doc={doc} insertId={insert.id} effectId={effect.id} effectLabel={name} id={id} param={p} value={effect.params?.[id] ?? p.default} />
+                <ParamKnob key={id} insert={insert} effect={effect} id={id} param={p} />
               ))}
             </div>
           </>
@@ -64,41 +68,3 @@ export function EffectWindow({ window: w, insert, effect }: { window: OpenWindow
   );
 }
 
-function ParamKnob({ doc, insertId, effectId, effectLabel, id, param: p, value }: {
-  doc: Project; insertId: string; effectId: string; effectLabel: string; id: string; param: EffectParam; value: number;
-}) {
-  const log = p.unit === "Hz" && p.min > 0;
-  // Frequencies turn on a log scale, so the knob spends its travel evenly across octaves.
-  const toKnob = (v: number) => (log ? Math.log(v / p.min) / Math.log(p.max / p.min) : v);
-  const fromKnob = (k: number) => (log ? p.min * Math.pow(p.max / p.min, k) : k);
-  const live = useLiveControl((k) => ({ type: "updateEffect", insert: insertId, effect: effectId, changes: { params: { [id]: round(fromKnob(k)) } } }), `${effectLabel} ${label(id)}`);
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div className="flex flex-col items-center" title={p.description}>
-          <Knob size={32} value={toKnob(value)} min={toKnob(p.min)} max={toKnob(p.max)} defaultValue={toKnob(p.default)}
-            format={(k) => formatParam(fromKnob(k), p.unit)} onChange={live.onChange} onCommit={live.onCommit} />
-          <div className="mt-0.5 max-w-[84px] truncate text-2xs text-dim">{label(id)}</div>
-          <div className="text-[9px] text-faint tabular">{formatParam(value, p.unit)}</div>
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onSelect={() => void execute({ type: "updateEffect", insert: insertId, effect: effectId, changes: { params: { [id]: p.default } } }, { label: "Reset parameter" })}>Reset</ContextMenuItem>
-        {p.automatable && (
-          <ContextMenuItem onSelect={() => void createAutomation(doc, { scope: "effect", insert: insertId, effect: effectId, param: id }, value)}>Create automation clip</ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
-  );
-}
-
-function round(v: number) {
-  return Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 1000) / 1000;
-}
-
-/** "lowGainDb" → "Low gain". */
-function label(id: string) {
-  const words = id.replace(/Db$/, "").replace(/Ms$/, "").replace(/([A-Z0-9]+)/g, " $1").trim().toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}

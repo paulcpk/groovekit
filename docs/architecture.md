@@ -86,7 +86,7 @@ The UI and the agent are peers: both talk to the engine through the same command
 - Plugin editors are native OS windows opened by the engine; on desktop they float or dock next to the UI. Remote UIs (web, iPad) show generic parameter controls instead.
 - Automation linking works like FL's "last tweaked": the plugin notifies the host on parameter changes, the engine tracks the last touched parameter, and the UI offers "create automation clip".
 - Digitakt II: two input paths, both supported eventually: (1) the Overbridge plugin hosted in the engine for per-track USB audio and parameter control/automation, and (2) the Digitakt as a multichannel USB audio device. The first workflow is record long grooves, then let the agent cut, arrange, mix and master them. Agent-driven re-recording in real time comes later.
-- Effects: Tracktion built-ins at first (EQ, compressor, reverb, delay, phaser, chorus), plus free third-party VSTs. Own JUCE effects later (parametric EQ, compressor, mastering limiter, phaser, flanger, filters, delay, reverb), which also gives the agent full knowledge of every parameter.
+- Effects: GrooveKit's own seven-band EQ, reverb, delay, chorus, distortion and mastering limiter, Tracktion's compressor, phaser and filters, and the user's VST3/AU plugins. Every insert effect sits between a tap and a blend that mix the dry signal back in (the slot's mix), delay-compensated for the effect's latency.
 - Ableton devices cannot be hosted; FL plugins only where Image-Line ships them as VST/AU.
 
 ## Crash handling

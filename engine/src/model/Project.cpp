@@ -187,10 +187,123 @@ namespace
     }
 }
 
+namespace
+{
+    double param (const Json& params, const char* key, double fallback)
+    {
+        return params.contains (key) && params[key].is_number() ? params[key].get<double>() : fallback;
+    }
+
+    double reverbDampingHz (double damping)    { return std::round (20000.0 * std::pow (0.1, std::clamp (damping, 0.0, 1.0))); }
+    double delayFeedback (double db)           { return std::round (std::min (95.0, 100.0 * std::pow (10.0, db / 20.0))); }
+
+    /** Schema 1's reverb, delay and chorus were Tracktion's, each with its own wet/dry; GrooveKit's
+        output only the effect and the slot's mix blends it in. Settings carry over as closely
+        as the new controls allow. */
+    void upgradeTimeEffects (Json& doc)
+    {
+        // insert/effect -> kind, for the automation clips below.
+        std::map<std::string, std::string> kinds;
+
+        if (doc.contains ("mixer") && doc["mixer"].contains ("inserts"))
+        {
+            for (auto& insert : doc["mixer"]["inserts"])
+            {
+                if (! insert.contains ("effects"))
+                    continue;
+
+                for (auto& effect : insert["effects"])
+                {
+                    const auto kind = effect.value ("kind", "");
+
+                    if (effect.value ("type", "") != "builtin" || (kind != "reverb" && kind != "delay" && kind != "chorus"))
+                        continue;
+
+                    kinds[insert.value ("id", "") + "/" + effect.value ("id", "")] = kind;
+                    const auto old = effect.value ("params", Json::object());
+                    auto params = Json::object();
+                    double mix = 1;
+
+                    if (kind == "reverb")
+                    {
+                        const auto room = param (old, "roomSize", 0.3);
+                        params = { { "size", std::round (room * 100) }, { "decay", std::round ((0.6 + room * 4.4) * 10) / 10 },
+                                   { "damping", reverbDampingHz (param (old, "damping", 0.5)) }, { "width", std::round (param (old, "width", 1) * 100) } };
+                        const auto wet = param (old, "wet", 1), dry = param (old, "dry", 1);
+                        mix = wet + dry > 0 ? wet / (wet + dry) : 0;
+                    }
+                    else if (kind == "delay")
+                    {
+                        params = { { "sync", 0 }, { "timeMs", param (old, "timeMs", 150) }, { "feedback", delayFeedback (param (old, "feedbackDb", -6)) } };
+                        mix = param (old, "mix", 0.3);
+                    }
+                    else
+                    {
+                        params = { { "depthMs", std::clamp (param (old, "depthMs", 3), 0.5, 10.0) }, { "rate", std::clamp (param (old, "speedHz", 1), 0.05, 5.0) },
+                                   { "width", std::round (param (old, "width", 0.5) * 100) } };
+                        mix = param (old, "mix", 0.5);
+                    }
+
+                    effect["params"] = params;
+
+                    if (! effect.contains ("mix"))
+                        effect["mix"] = std::round (mix * 100) / 100;
+                }
+            }
+        }
+
+        if (! doc.contains ("playlist") || ! doc["playlist"].contains ("clips"))
+            return;
+
+        auto& clips = doc["playlist"]["clips"];
+
+        for (size_t i = clips.size(); i-- > 0;)
+        {
+            auto& clip = clips[i];
+
+            if (clip.value ("type", "") != "automation" || ! clip.contains ("target") || clip["target"].value ("scope", "") != "effect")
+                continue;
+
+            auto& t = clip["target"];
+            auto it = kinds.find (t.value ("insert", "") + "/" + t.value ("effect", ""));
+
+            if (it == kinds.end())
+                continue;
+
+            const auto from = t.value ("param", "");
+            std::string to;
+            std::function<double (double)> convert = [] (double v) { return v; };
+
+            if (it->second == "reverb" && from == "roomSize")       { to = "size"; convert = [] (double v) { return v * 100; }; }
+            else if (it->second == "reverb" && from == "damping")   { to = "damping"; convert = reverbDampingHz; }
+            else if (it->second == "reverb" && from == "width")     { to = "width"; convert = [] (double v) { return v * 100; }; }
+            else if (it->second == "delay" && from == "feedbackDb") { to = "feedback"; convert = delayFeedback; }
+            else if (from == "mix")                                 { to = "mix"; }
+
+            // A parameter with nothing like it now (the reverb's separate wet and dry levels).
+            if (to.empty())
+            {
+                clips.erase (clips.begin() + static_cast<std::ptrdiff_t> (i));
+                continue;
+            }
+
+            t["param"] = to;
+
+            if (clip.contains ("points"))
+                for (auto& point : clip["points"])
+                    if (point.contains ("value"))
+                        point["value"] = convert (point["value"].get<double>());
+        }
+    }
+}
+
 bool migrateProject (Json& doc)
 {
     if (! doc.is_object())
         return false;
+
+    if (doc.value ("schemaVersion", 0) < 2)
+        upgradeTimeEffects (doc);
 
     bool changed = moveAudioClipsToChannels (doc);
     changed = upgradeEffects (doc) || changed;

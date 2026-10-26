@@ -161,6 +161,7 @@ enum class BuiltinEffectKind
     delay,
     phaser,
     chorus,
+    distortion,
     lowpass,
     highpass
 };
@@ -176,6 +177,7 @@ inline const char* toString (BuiltinEffectKind v)
         case BuiltinEffectKind::delay: return "delay";
         case BuiltinEffectKind::phaser: return "phaser";
         case BuiltinEffectKind::chorus: return "chorus";
+        case BuiltinEffectKind::distortion: return "distortion";
         case BuiltinEffectKind::lowpass: return "lowpass";
         case BuiltinEffectKind::highpass: return "highpass";
     }
@@ -197,6 +199,7 @@ inline void readValue (Reader& r, const Json& j, BuiltinEffectKind& out)
     if (s == "delay") { out = BuiltinEffectKind::delay; return; }
     if (s == "phaser") { out = BuiltinEffectKind::phaser; return; }
     if (s == "chorus") { out = BuiltinEffectKind::chorus; return; }
+    if (s == "distortion") { out = BuiltinEffectKind::distortion; return; }
     if (s == "lowpass") { out = BuiltinEffectKind::lowpass; return; }
     if (s == "highpass") { out = BuiltinEffectKind::highpass; return; }
 

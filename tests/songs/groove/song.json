@@ -97,7 +97,7 @@
       },
       {
         "id": "verb", "name": "Reverb",
-        "effects": [{ "type": "builtin", "id": "room", "kind": "reverb", "params": { "roomSize": 0.6, "wet": 1, "dry": 0 } }]
+        "effects": [{ "type": "builtin", "id": "room", "kind": "reverb", "params": { "size": 60, "decay": 1.5 } }]
       }
     ]
   }

@@ -254,3 +254,39 @@ TEST_CASE ("Notes can't play audio channels")
     j["channels"][0]["instrument"] = { { "type", "audio" }, { "sample", "kick.wav" } };
     CHECK (issuePaths (parseProject (j)) == std::vector<std::string> { "/patterns/0/notes/0/channel" });
 }
+
+TEST_CASE ("Schema 1 effects carry over to the new EQ, reverb and delay")
+{
+    auto j = minimalProject();
+    j["schemaVersion"] = 1;
+    j["mixer"]["inserts"][0]["effects"] = {
+        { { "type", "builtin" }, { "id", "eq" }, { "kind", "eq" }, { "params", { { "lowGainDb", 3 }, { "highFreq", 9000 } } } },
+        { { "type", "builtin" }, { "id", "verb" }, { "kind", "reverb" }, { "params", { { "roomSize", 0.5 }, { "wet", 1 }, { "dry", 3 } } } },
+        { { "type", "builtin" }, { "id", "echo" }, { "kind", "delay" }, { "params", { { "timeMs", 300 }, { "feedbackDb", -6 } } } },
+    };
+    j["playlist"]["clips"].push_back ({ { "type", "automation" }, { "id", "auto" }, { "track", "t1" }, { "start", 0 }, { "length", 960 },
+                                        { "target", { { "scope", "effect" }, { "insert", "master" }, { "effect", "verb" }, { "param", "roomSize" } } },
+                                        { "points", { { { "time", 0 }, { "value", 0.2 } } } } });
+
+    migrateProject (j);
+    auto project = parseProject (j);
+    CHECK (issuePaths (project).empty());
+
+    auto& effects = project.mixer.inserts[0].effects;
+    auto& eq = std::get<BuiltinEffect> (effects[0]);
+    CHECK (eq.params == std::map<std::string, double> { { "band1GainDb", 3 }, { "band7Freq", 9000 } });
+
+    auto& verb = std::get<BuiltinEffect> (effects[1]);
+    CHECK (verb.mix == 0.25);
+    CHECK (verb.params.at ("size") == 50);
+
+    auto& echo = std::get<BuiltinEffect> (effects[2]);
+    CHECK (echo.mix == 0.3);
+    CHECK (echo.params.at ("sync") == 0);
+    CHECK (echo.params.at ("timeMs") == 300);
+    CHECK (echo.params.at ("feedback") == 50);
+
+    auto& automation = std::get<AutomationClip> (project.playlist.clips.back());
+    CHECK (automation.target.param == "size");
+    CHECK (automation.points[0].value == 20);
+}
