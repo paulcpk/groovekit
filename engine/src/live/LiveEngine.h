@@ -95,7 +95,7 @@ public:
 
     struct CalibrationResult
     {
-        double alignmentMs;         // how much later takes from this device are placed from now on
+        double alignmentMs;         // how far takes from this device are moved from now on (negative: earlier)
         double spreadMs;            // median deviation of the hits around the measured offset
         int hits;                   // hits the measurement used
         std::string device;
@@ -108,7 +108,8 @@ public:
         known to the engine, so this is how takes end up on the grid. */
     CalibrationResult calibrateAlignment (const std::string& input, int bars);
 
-    /** Milliseconds takes from the current input device are moved later when they become clips. */
+    /** Milliseconds takes from the current input device are moved when they become clips
+        (negative: earlier, the usual case for a hardware round trip). */
     double getAlignmentMs() const;
     void setAlignmentMs (double);
 

@@ -26,8 +26,21 @@ void EditGraveyard::bury (std::unique_ptr<tracktion::Edit> edit)
         startTimer (250);
 }
 
+void EditGraveyard::hold()
+{
+    ++holds;
+}
+
+void EditGraveyard::release()
+{
+    holds = std::max (0, holds - 1);
+}
+
 void EditGraveyard::timerCallback()
 {
+    if (holds > 0)
+        return;
+
     const auto now = juce::Time::getMillisecondCounter();
 
     graves.erase (std::remove_if (graves.begin(), graves.end(),

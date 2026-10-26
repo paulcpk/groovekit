@@ -1,6 +1,7 @@
 #include "LiveEngine.h"
 
 #include "EngineContext.h"
+#include "compiler/EditGraveyard.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
 
@@ -245,6 +246,11 @@ void LiveEngine::setMidiClock (const std::string& output, bool enabled)
                 d->setEnabled (true);
 
             d->setSendingClock (enabled);
+
+            // Timing is corrected on the recorded side (calibrateAlignment), not by delaying MIDI.
+            if (d->getPreDelayMs() != 0)
+                d->setPreDelayMs (0);
+
             devices.dispatchPendingUpdates();
 
             // The playback context picks up output devices when it's created.
@@ -280,7 +286,8 @@ void LiveEngine::pairStereoInputs()
 
     devices.dispatchPendingUpdates();
 
-    // GrooveKit aligns takes itself; Tracktion's adjustment can only drop samples, never pad.
+    // Tracktion drops its estimated device latency from the start of every take; GrooveKit keeps
+    // that as it is (its recorder can't do without it) and aligns hardware with calibrateAlignment.
     for (auto input : devices.getWaveInputDevices())
         if (input->getRecordAdjustmentMs() != 0)
             input->setRecordAdjustmentMs (0);
@@ -345,6 +352,7 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const
     edit.dispatchPendingUpdatesSynchronously();
     recordOptions = options;
     recordStart = getPosition();
+    EditGraveyard::getInstance().hold();
     transport().record (false);
     notifyTransport (true);
 }
@@ -352,6 +360,9 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const
 std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
 {
     transport().stop (false, true);
+
+    if (! recordings.empty())
+        EditGraveyard::getInstance().release();
 
     auto& project = session.getProject();
     const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
@@ -396,21 +407,30 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             if (recordOptions.dropSilent && analysis::peakDb (*audio) < silentTakeDb)
                 continue;
 
-            // The device's measured round trip moves the take onto the grid.
-            const auto shift = te::TimeDuration::fromSeconds (getAlignmentMs() / 1000.0);
+            // The device's measured round trip moves the take onto the grid. Takes usually arrive
+            // late, so they move earlier; one that would start before the song skips into its file.
+            auto start = position.getStart().inSeconds() + getAlignmentMs() / 1000.0;
+            const auto end = position.getEnd().inSeconds() + getAlignmentMs() / 1000.0;
+            auto offset = position.getOffset().inSeconds();
+
+            if (start < 0)
+            {
+                offset -= start;
+                start = 0;
+            }
 
             AudioClip ac;
             ac.id = id;
             ac.track = r.target.track;
-            ac.start = toTicks (position.getStart() + shift);
-            ac.length = std::max<Ticks> (1, toTicks (position.getEnd() + shift) - ac.start);
+            ac.start = toTicks (te::TimePosition::fromSeconds (start));
+            ac.length = std::max<Ticks> (1, toTicks (te::TimePosition::fromSeconds (end)) - ac.start);
 
             if (recordOptions.length)
                 ac.length = std::max<Ticks> (1, std::min (ac.length, recordStart + *recordOptions.length - ac.start));
 
             ac.sample = relative.empty() || relative.string().starts_with ("..") ? file.string() : relative.string();
             ac.insert = r.target.insert;
-            ac.offset = position.getOffset().inSeconds();
+            ac.offset = offset;
 
             if (recordOptions.normalizeLufs)
                 if (const auto lufs = analysis::integratedLufs (*audio); lufs > analysis::silenceDb)
@@ -498,7 +518,7 @@ LiveEngine::CalibrationResult LiveEngine::calibrateAlignment (const std::string&
     for (auto o : offsets)
         deviations.push_back (std::abs (o - offset));
 
-    // Raw takes arrive `offset` early (negative) or late; place them later by the opposite.
+    // The measurement is of raw takes, so it replaces the device's previous alignment.
     setAlignmentMs (-offset * 1000.0);
 
     return { getAlignmentMs(), median (deviations) * 1000.0, static_cast<int> (offsets.size()), currentInputDevice() };
@@ -535,6 +555,7 @@ void LiveEngine::loadSettings()
 
         for (auto& [device, ms] : devices.items())
             alignmentMs[device] = ms.get<double>();
+
     }
     catch (const std::exception&)
     {
@@ -567,6 +588,7 @@ LiveEngine::TransportState LiveEngine::getTransportState() const
 
 void LiveEngine::timerCallback()
 {
+
     // Timed recordings stop on their own; the takes are trimmed to the exact length.
     if (! recordings.empty() && recordOptions.length && getPosition() >= recordStart + *recordOptions.length)
         stopRecording();
