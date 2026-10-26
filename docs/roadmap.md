@@ -2,7 +2,7 @@
 
 Build order for the coding agent. Each milestone should be usable and tested before moving on. See [architecture.md](architecture.md) for decisions.
 
-Status (2026-10-26): v0 done; v0.5 done except the Digitakt-specific items marked open.
+Status (2026-10-26): v0 done; v0.5 done except the Digitakt-specific items marked open; v1 mostly done (open items marked).
 
 ## v0 — Headless engine (done)
 
@@ -32,13 +32,13 @@ Done when: record Digitakt grooves, ask Claude for an arrangement, and get a mas
 
 ## v1 — First UI
 
-- Tauri shell with React, TypeScript, Tailwind, shadcn/ui.
-- Playlist with toggleable tracks and automation lanes.
-- Channel rack with step buttons, piano roll, mixer, transport.
-- Sidebar with sample browser and history tabs.
-- Plugin windows and "last tweaked" automation clips.
-- Live view of agent changes, grouped per request.
-- Mac build with signing and notarization.
+- [x] Tauri shell with React, TypeScript, Tailwind and Radix primitives (shadcn-style components).
+- [x] Playlist with toggleable tracks and automation clips.
+- [x] Channel rack with step buttons, piano roll, mixer (with meters and live parameter changes), transport.
+- [x] Sidebar with sample browser and history tabs.
+- [x] Plugin windows. Automation clips from any mixer or effect parameter; open: "last tweaked" from inside plugin windows.
+- [x] Live view of agent changes, grouped per request.
+- [ ] Mac build with signing and notarization (unsigned .app and .dmg build; signing needs a Developer ID).
 
 ## v1.5 — History and AI polish
 
