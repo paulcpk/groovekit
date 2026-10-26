@@ -1,7 +1,7 @@
 // GrooveKit desktop shell: one window with the UI, and the engine next to it.
 //
-// The engine is found the way every client finds it (engine.json in the app data folder, which a
-// serving engine writes): if one already serves the project (say, started by the MCP server for
+// The engine is found the way every client finds it (the registrations serving engines write in
+// the app data folder): if one already serves the project (say, started by the MCP server for
 // Claude), the app joins it, and both see each other's changes. Otherwise the app starts its own,
 // bundled as a sidecar, which quits when the app does.
 
@@ -43,11 +43,15 @@ fn same_path(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// The engine serving right now, if its process is alive.
-fn running_engine() -> Option<EngineInfo> {
-    let file = home().join("Library/Application Support/GrooveKit/engine.json");
-    let info: EngineInfo = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
-    (unsafe { libc::kill(info.pid, 0) } == 0).then_some(info)
+/// The live engine serving a project, if there is one.
+fn serving_engine(project: &Path) -> Option<EngineInfo> {
+    let registry = home().join("Library/Application Support/GrooveKit/engines");
+
+    std::fs::read_dir(registry).ok()?.flatten().find_map(|entry| {
+        let info: EngineInfo = serde_json::from_str(&std::fs::read_to_string(entry.path()).ok()?).ok()?;
+        let alive = unsafe { libc::kill(info.pid, 0) } == 0;
+        (alive && same_path(Path::new(&info.project), project)).then_some(info)
+    })
 }
 
 /// The bundled engine next to the app's executable, or the repository's debug build in development.
@@ -72,10 +76,8 @@ fn free_port() -> std::io::Result<u16> {
 fn ensure_engine(state: &Engine) -> Result<String, String> {
     let project = project_folder();
 
-    if let Some(info) = running_engine() {
-        if same_path(Path::new(&info.project), &project) {
-            return Ok(info.url);
-        }
+    if let Some(info) = serving_engine(&project) {
+        return Ok(info.url);
     }
 
     let mut child_slot = state.child.lock().map_err(|e| e.to_string())?;
@@ -102,7 +104,7 @@ fn ensure_engine(state: &Engine) -> Result<String, String> {
     let started = Instant::now();
 
     while started.elapsed() < Duration::from_secs(90) {
-        if let Some(info) = running_engine() {
+        if let Some(info) = serving_engine(&project) {
             if info.pid == pid {
                 return Ok(info.url);
             }

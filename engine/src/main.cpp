@@ -13,6 +13,7 @@
 
 #include <csignal>
 #include <fstream>
+#include <optional>
 #include <signal.h>
 #include <iostream>
 
@@ -103,15 +104,59 @@ Add --verbose to see engine log messages.
 
     std::atomic<bool> stopRequested { false };
 
+    /** Serving engines register here, one file per process, so clients (the app, the MCP server)
+        find the engine serving a project, and a second engine never opens a project one serves. */
+    std::filesystem::path engineRegistry()
+    {
+        return gk::EngineContext::getAppDataFolder() / "engines";
+    }
+
+    /** The registration of a live engine serving the project. Removes stale ones on the way. */
+    std::optional<nlohmann::json> findServingEngine (const std::filesystem::path& project)
+    {
+        std::error_code ec;
+
+        for (auto& entry : std::filesystem::directory_iterator (engineRegistry(), ec))
+        {
+            try
+            {
+                std::ifstream in (entry.path());
+                auto info = nlohmann::json::parse (in);
+                const auto pid = info.value ("pid", 0);
+
+                if (pid <= 0 || (kill (pid, 0) != 0 && errno == ESRCH))
+                {
+                    in.close();
+                    std::filesystem::remove (entry.path(), ec);
+                    continue;
+                }
+
+                if (std::filesystem::weakly_canonical (info.value ("project", std::string())) == std::filesystem::weakly_canonical (project))
+                    return info;
+            }
+            catch (const std::exception&)
+            {
+            }
+        }
+
+        return {};
+    }
+
     int serve (const Arguments& args)
     {
         if (args.positional.size() != 2)
             throw std::runtime_error ("serve needs a project folder");
 
         const int port = std::stoi (args.get ("--port").value_or ("7878"));
+        const auto projectDir = std::filesystem::absolute (args.positional[1]);
+
+        // Two engines writing one project would overwrite each other's changes.
+        if (auto other = findServingEngine (projectDir))
+            throw std::runtime_error (projectDir.string() + " is already open in the engine at " + other->value ("url", std::string())
+                                      + " (process " + std::to_string (other->value ("pid", 0)) + ")");
 
         gk::EngineContext context ({ .outOfProcessPluginScanning = true });
-        auto session = gk::Session::open (std::filesystem::absolute (args.positional[1]));
+        auto session = gk::Session::open (projectDir);
         gk::PluginCatalog plugins (context.getEngine(), gk::PluginCatalog::getDefaultListFile());
         gk::library::SampleLibrary library (args.get ("--library").value_or (gk::library::SampleLibrary::getDefaultIndexFile().string()));
 
@@ -135,15 +180,18 @@ Add --verbose to see engine log messages.
 
         std::cout << "Serving " << args.positional[1] << " on ws://127.0.0.1:" << port << std::endl;
 
-        // Lets other clients (the UI, the MCP server) find this engine rather than start another
-        // one on the same project.
-        const auto discovery = gk::EngineContext::getAppDataFolder() / "engine.json";
         const auto pid = static_cast<int> (getpid());
+        const auto registration = engineRegistry() / (std::to_string (pid) + ".json");
         {
-            std::ofstream out (discovery);
+            std::filesystem::create_directories (engineRegistry());
+            std::ofstream out (registration);
             out << nlohmann::json { { "url", "ws://127.0.0.1:" + std::to_string (port) }, { "port", port }, { "pid", pid },
                                     { "project", session->getProjectDir()->string() } }.dump (2);
         }
+
+        // From before engines registered one file each.
+        std::error_code ec;
+        std::filesystem::remove (gk::EngineContext::getAppDataFolder() / "engine.json", ec);
 
         // With --parent-pid (the MCP server passes its own), quit when that process is gone, so a
         // client that dies without cleaning up doesn't leave an engine behind.
@@ -161,18 +209,7 @@ Add --verbose to see engine log messages.
 
         server.stop();
 
-        // Only if a newer engine hasn't taken over the file.
-        try
-        {
-            std::ifstream in (discovery);
-
-            if (nlohmann::json::parse (in).value ("pid", 0) == pid)
-                std::filesystem::remove (discovery);
-        }
-        catch (const std::exception&)
-        {
-        }
-
+        std::filesystem::remove (registration, ec);
         return 0;
     }
 

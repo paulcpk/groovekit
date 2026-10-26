@@ -6,12 +6,12 @@
 //
 // By default it works on the project folder from --project, GROOVEKIT_PROJECT or
 // ~/Music/GrooveKit/Scratch. If an engine is already serving that project (the GrooveKit app,
-// found through engine.json in the app data folder), it connects to it, so the app shows the
+// found through the engines' registrations in the app data folder), it connects to it, so the app shows the
 // agent's changes live. Otherwise it starts the engine itself (the repository's debug build)
 // and stops it on exit. With --url it connects to that engine instead.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -43,15 +43,27 @@ function freePort(): Promise<number> {
   });
 }
 
-/** The URL of a live engine already serving this project, from the file every serving engine writes. */
+/** The URL of a live engine already serving this project, from the registrations serving engines
+    write (one file per engine in the app data folder). */
 function runningEngine(project: string): string | undefined {
+  const registry = join(homedir(), "Library", "Application Support", "GrooveKit", "engines");
+  let files: string[] = [];
   try {
-    const info = JSON.parse(readFileSync(join(homedir(), "Library", "Application Support", "GrooveKit", "engine.json"), "utf8"));
-    process.kill(info.pid, 0); // throws if it's gone
-    return resolve(info.project) === project ? info.url : undefined;
+    files = readdirSync(registry);
   } catch {
     return undefined;
   }
+
+  for (const file of files) {
+    try {
+      const info = JSON.parse(readFileSync(join(registry, file), "utf8"));
+      process.kill(info.pid, 0); // throws if it's gone
+      if (resolve(realpathSync(info.project)) === resolve(realpathSync(project))) return info.url;
+    } catch {
+      // Gone, unreadable or another project.
+    }
+  }
+  return undefined;
 }
 
 // Resolved here rather than in .mcp.json, so nothing depends on the working directory or shell expansion.

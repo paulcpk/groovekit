@@ -1,14 +1,15 @@
 // Dev server endpoint that finds the GrooveKit engine for the UI: the one serving the project
-// (found through engine.json, which every serving engine writes), or a new one started here and
-// stopped with the dev server. The desktop shell will do the same natively.
+// (found through the registration every serving engine writes), or a new one started here and
+// stopped with the dev server. The desktop shell does the same natively.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Plugin } from "vite";
 
-const discoveryFile = join(homedir(), "Library", "Application Support", "GrooveKit", "engine.json");
+const registry = join(homedir(), "Library", "Application Support", "GrooveKit", "engines");
 
 interface EngineInfo {
   url: string;
@@ -16,14 +17,36 @@ interface EngineInfo {
   project: string;
 }
 
-function readRunning(): EngineInfo | undefined {
+/** The live engine serving a project, if there is one. */
+function servingEngine(project: string): EngineInfo | undefined {
+  let files: string[] = [];
   try {
-    const info = JSON.parse(readFileSync(discoveryFile, "utf8")) as EngineInfo;
-    process.kill(info.pid, 0);
-    return info;
+    files = readdirSync(registry);
   } catch {
     return undefined;
   }
+
+  for (const file of files) {
+    try {
+      const info = JSON.parse(readFileSync(join(registry, file), "utf8")) as EngineInfo;
+      process.kill(info.pid, 0);
+      if (realpathSync(info.project) === realpathSync(project)) return info;
+    } catch {
+      // Gone, unreadable or another project.
+    }
+  }
+  return undefined;
+}
+
+function freePort(): Promise<number> {
+  return new Promise((ok, fail) => {
+    const server = createServer();
+    server.on("error", fail);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as { port: number };
+      server.close(() => ok(port));
+    });
+  });
 }
 
 export function enginePlugin(): Plugin {
@@ -34,19 +57,21 @@ export function enginePlugin(): Plugin {
   let starting: Promise<EngineInfo> | undefined;
 
   async function ensureEngine(): Promise<EngineInfo> {
-    const running = readRunning();
-    if (running && resolve(running.project) === project) return running;
+    const running = servingEngine(project);
+    if (running) return running;
     if (starting) return starting;
 
     if (!existsSync(enginePath)) throw new Error(`No engine at ${enginePath}; build it with cmake --build build/dev`);
+    mkdirSync(project, { recursive: true });
+    const port = await freePort();
 
     starting = new Promise<EngineInfo>((ok, fail) => {
-      child = spawn(enginePath, ["serve", project, "--port", "7878", "--parent-pid", String(process.pid)], { stdio: "inherit" });
+      child = spawn(enginePath, ["serve", project, "--port", String(port), "--parent-pid", String(process.pid)], { stdio: "inherit" });
       child.on("exit", () => (child = undefined));
 
       const started = Date.now();
       const poll = setInterval(() => {
-        const info = readRunning();
+        const info = servingEngine(project);
         if (info && info.pid === child?.pid) {
           clearInterval(poll);
           ok(info);

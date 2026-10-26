@@ -1,9 +1,10 @@
 # GrooveKit
 
-An agent-first DAW: FL Studio's workflow, a clean minimal look, and AI agents as first-class producers.
-The human is the director; the agent does arrangement, mixing, automation and mastering.
+An agent-first music production app, with AI agents as first-class producers. The human is the director; the agent arranges, mixes, automates and masters.
 
-Status: early development. The headless engine, command API, MCP server, sample library, analysis, mastering, live playback/recording and plugin hosting work; the UI comes next (v1). See [docs/architecture.md](docs/architecture.md) and [docs/roadmap.md](docs/roadmap.md).
+Songs are built from channels (a built-in multi-layer sampler or hosted VST3/AU instruments), patterns of notes that any number of channels share, a playlist of free tracks holding pattern, audio and automation clips, and a mixer of inserts with effects, sends and routing. Everything the UI can do, an agent can do through the same API, and every change is undoable.
+
+Status: early development. The engine, command API, MCP server, sample library, analysis, mastering, live playback and recording (including clock-synced hardware), plugin hosting and a first desktop UI work. See [docs/architecture.md](docs/architecture.md) and [docs/roadmap.md](docs/roadmap.md).
 
 ## Building (macOS)
 
@@ -42,6 +43,17 @@ To use GrooveKit from Claude Code in any folder, register it for your user inste
 claude mcp add --scope user groovekit -- node /path/to/groovekit/mcp/src/index.ts
 ```
 
+### The app
+
+```sh
+cd ui
+pnpm dev        # in the browser at http://localhost:5178
+pnpm app        # as a desktop app (needs Rust: brew install rust)
+pnpm app:build  # a .app and .dmg, with the engine bundled (build the release preset first)
+```
+
+Both find the engine serving the project (for example the one Claude Code's MCP server started, so you watch the agent's changes live) or start one. The project folder is `GROOVEKIT_PROJECT` or `~/Music/GrooveKit/Scratch`; one engine serves a project at a time.
+
 Songs are JSON files described by [schema/project.schema.json](schema/project.schema.json). The examples in [tests/songs](tests/songs) double as render tests.
 
 ## Repository layout
@@ -49,6 +61,7 @@ Songs are JSON files described by [schema/project.schema.json](schema/project.sc
 - `engine/` — C++ engine: model, commands and history, API server, compiler to Tracktion, sampler, mixer, effects, renderer, analysis, CLI
 - `schema/` — JSON Schemas for the project and the command protocol, and the C++/TypeScript generator (`pnpm codegen`)
 - `mcp/` — the MCP server for agents
+- `ui/` — the app: React UI and the Tauri desktop shell
 - `tests/` — render test songs and the fixture samples they use
 
 ## License
