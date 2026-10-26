@@ -3,6 +3,7 @@
 #include "TestHelpers.h"
 
 #include "analysis/Analysis.h"
+#include "api/ApiHandler.h"
 #include "live/LiveEngine.h"
 #include "mixer/FaderPlugin.h"
 #include "render/Render.h"
@@ -451,4 +452,29 @@ TEST_CASE ("Notes from the app's keyboard play the live channel and record into 
     CHECK (notes[2].key == 64);
     CHECK (notes[2].velocity == 90);
     CHECK (notes[2].channel == "beep");
+}
+
+TEST_CASE ("The API reaches the live engine for transport, live and record methods")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-api");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "live-api.json");
+    ApiHandler handler (*session, test::getEngineContext(), nullptr, &live);
+
+    ApiHandler::Client client;
+    Json response;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+    auto call = [&] (const std::string& method, Json params = Json::object())
+    {
+        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        return response;
+    };
+
+    CHECK (call ("live.setChannel", { { "channel", "beep" } })["result"]["channel"] == "beep");
+    CHECK (call ("live.noteOn", { { "key", 64 } }).contains ("result"));
+    CHECK (call ("live.noteOff", { { "key", 64 } }).contains ("result"));
+    CHECK (call ("transport.setMetronome", { { "countInBars", 1 } })["result"]["countInBars"] == 1);
+    CHECK (call ("record.notes", { { "pattern", "p" }, { "channel", "beep" } })["result"]["recording"] == true);
+    CHECK (call ("record.stop").contains ("result"));
+    CHECK (call ("transport.setMetronome", { { "countInBars", 0 } })["result"]["countInBars"] == 0);
 }

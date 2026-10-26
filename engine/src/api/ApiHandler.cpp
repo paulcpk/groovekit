@@ -373,7 +373,7 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
     if (method.starts_with ("library."))
         return callLibrary (method.substr (8), params);
 
-    if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio.") || method.starts_with ("midi.")
+    if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio.") || method.starts_with ("midi.") || method.starts_with ("live.")
         || method.starts_with ("preview."))
         return callLive (method, params, client);
 

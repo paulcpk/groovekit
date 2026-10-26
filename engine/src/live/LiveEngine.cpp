@@ -58,6 +58,7 @@ LiveEngine::LiveEngine (EngineContext& c, Session& s, std::filesystem::path file
       settingsFile (file.empty() ? EngineContext::getAppDataFolder() / "recording.json" : std::move (file))
 {
     loadSettings();
+    context.getEngine().getDeviceManager().addChangeListener (this);
 
     // GrooveKit sends the clock itself (MidiClock); Tracktion's would double it, and it may
     // still be switched on in settings from earlier versions.
@@ -90,6 +91,7 @@ LiveEngine::~LiveEngine()
     stopTimer();
     session.removeListener (listenerId);
     context.getEngine().getDeviceManager().deviceManager.removeChangeListener (this);
+    context.getEngine().getDeviceManager().removeChangeListener (this);
 
     for (auto& input : capturedInputs)
         if (auto instance = input.get())
@@ -139,8 +141,16 @@ void LiveEngine::releaseBluetoothMicrophone()
     pairStereoInputs();
 }
 
-void LiveEngine::changeListenerCallback (juce::ChangeBroadcaster*)
+void LiveEngine::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
+    // Tracktion's device list changed (a MIDI device came or went): it recreates every input,
+    // dropping where they played to. Routed again once the playback context has the new ones.
+    if (source == &context.getEngine().getDeviceManager())
+    {
+        needsLiveRouting = true;
+        return;
+    }
+
     // E.g. AirPods connected, or a device came back and the system defaults were opened.
     releaseBluetoothMicrophone();
 }
@@ -1030,7 +1040,13 @@ void LiveEngine::timerCallback()
 
     takeCapturedNotes();
 
-    // The app's keyboard appears a moment after it's first created.
+    // The app's keyboard appears a moment after it's first created, and inputs are recreated
+    // when devices change.
+    if (! needsLiveRouting)
+        for (auto& input : capturedInputs)
+            if (input.get() == nullptr)
+                needsLiveRouting = true;
+
     if (needsLiveRouting)
         routeLiveInput();
 
