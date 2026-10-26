@@ -11,8 +11,12 @@ import { setUi } from "./ui";
 export interface Transport {
   playing: boolean;
   recording: boolean;
+  /** Ticks; within the pattern in pattern mode. */
   position: number;
   seconds: number;
+  /** Pattern mode plays one pattern on a loop instead of the song. */
+  mode?: "song" | "pattern";
+  pattern?: string;
 }
 
 export interface Levels {
@@ -51,6 +55,8 @@ interface EngineState {
   /** When each id was last touched by someone other than this UI (the agent), for highlighting. */
   touchedAt: Record<string, number>;
   libraryProgress?: LibraryProgress;
+  /** The sample being auditioned from the browser. */
+  previewing?: string;
 }
 
 export const useEngine = create<EngineState>(() => ({
@@ -100,7 +106,7 @@ function onNotification(method: string, params: any) {
       set({ doc: params.document, head: params.head ?? null, ...(params.project ? { project: params.project } : {}) });
 
       if (switched) {
-        set({ changes: [], touchedAt: {}, levels: { inserts: {}, channels: {} }, transport: { playing: false, recording: false, position: 0, seconds: 0 } });
+        set({ changes: [], touchedAt: {}, levels: { inserts: {}, channels: {} }, transport: { playing: false, recording: false, position: 0, seconds: 0, mode: "song" }, previewing: undefined });
         setUi({ selectedPattern: params.document.patterns?.[0]?.id, selectedChannel: undefined, selectedInsert: undefined, selectedClips: [], loop: undefined, looping: false });
       }
       break;

@@ -28,6 +28,13 @@ export function PianoRoll() {
   return <Editor key={`${pattern.id}/${channel.id}`} doc={doc} pattern={pattern} channelId={channel.id} />;
 }
 
+/** Where pattern mode is playing this pattern. */
+function PatternPlayhead({ pattern, px }: { pattern: string; px: number }) {
+  const position = useEngine((s) => (s.transport.playing && s.transport.mode === "pattern" && s.transport.pattern === pattern ? s.transport.position : undefined));
+  if (position === undefined) return null;
+  return <div className="pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-fg/80" style={{ left: position * px }} />;
+}
+
 function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; channelId: string }) {
   const { pianoZoom, pianoKeyHeight: keyH, snap } = useUi();
   const channel = doc.channels.find((c) => c.id === channelId)!;
@@ -191,6 +198,7 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
           >
             <div className="relative" style={gridBackground} onPointerDown={onGridDown}>
               <div className="pointer-events-none absolute top-0 bottom-0 bg-black/35" style={{ left: loop * px, right: 0 }} />
+              <PatternPlayhead pattern={pattern.id} px={px} />
               {others.map((n, i) => (
                 <div key={`o${i}`} className="pointer-events-none absolute rounded-[2px] bg-fg/10"
                   style={{ left: n.start * px, top: (127 - (n.key ?? 60)) * keyH, width: n.length * px, height: keyH - 1 }} />

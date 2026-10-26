@@ -196,16 +196,22 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
   server.registerTool(
     "transport",
     {
-      description: "Plays the song through the user's speakers, stops it, or moves the playhead, so the user can listen. loop repeats bars until stopped. Rendering doesn't need this.",
+      description: "Plays the song (or one pattern on a loop) through the user's speakers, stops it, or moves the playhead, so the user can listen. loop repeats bars until stopped. Stop keeps the position. Rendering doesn't need this.",
       inputSchema: {
         action: z.enum(["play", "stop", "state"]),
         fromBar: z.number().min(1).optional().describe("For play: start here (1-based)"),
         loopBars: z.tuple([z.number().min(1), z.number().min(1)]).optional().describe("For play: [first bar, bar to stop before] to loop"),
+        pattern: z.string().optional().describe("For play: loop this pattern instead of the song (pattern mode, as in the user's PAT switch)"),
       },
     },
-    ({ action, fromBar, loopBars }) =>
+    ({ action, fromBar, loopBars, pattern }) =>
       attempt(async () => {
         await engine.connect();
+        if (action === "play" && pattern) {
+          await engine.call("transport.setMode", { mode: "pattern", pattern });
+          return engine.call("transport.play");
+        }
+        if (action === "play" && (fromBar !== undefined || loopBars)) await engine.call("transport.setMode", { mode: "song" });
         if (action === "play") {
           await engine.call("transport.setLoop", loopBars ? { start: barToTicks(loopBars[0]), end: barToTicks(loopBars[1]) } : {});
           if (fromBar !== undefined || loopBars) await engine.call("transport.setPosition", { position: barToTicks(fromBar ?? loopBars![0]) });

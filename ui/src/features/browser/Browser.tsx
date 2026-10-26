@@ -5,6 +5,7 @@ import { endSampleDrag, startSampleDrag, type DraggedSample } from "@/features/p
 import { addSamplerChannel } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
 import { fileName } from "@/lib/model";
+import { previewSample, stopPreview } from "@/features/shell/actions";
 import { call, engine, useEngine } from "@/state/engine";
 
 interface Sample {
@@ -56,28 +57,24 @@ function SampleRow({ sample: s, depth = 0, selected, playing, onClick }: {
   );
 }
 
-/** Auditions one sample at a time. */
+/** Auditions one sample at a time; Space and the stop button stop it too. */
 function usePreview() {
-  const [playing, setPlaying] = useState<string>();
-  const current = useRef<string>(undefined);
-
-  const preview = useCallback((s: Sample) => {
-    const show = (path?: string) => {
-      current.current = path;
-      setPlaying(path);
-    };
-
-    if (current.current === s.path) {
-      show(undefined);
-      void call("preview.stop");
-      return;
-    }
-    show(s.path);
-    void call("preview.play", { path: s.path });
-    setTimeout(() => current.current === s.path && show(undefined), Math.min(30, s.durationSeconds) * 1000);
-  }, []);
-
+  const playing = useEngine((s) => s.previewing);
+  const preview = useCallback((s: Sample) => void previewSample(s.path, s.durationSeconds), []);
   return { playing, preview };
+}
+
+/** What's being auditioned, with a way to stop it. */
+function NowPreviewing() {
+  const playing = useEngine((s) => s.previewing);
+  if (!playing) return null;
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-1.5 border-t border-line bg-raised px-2 text-xs">
+      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
+      <span className="min-w-0 flex-1 truncate text-fg" title={playing}>{fileName(playing)}</span>
+      <IconButton size="sm" title="Stop (Space)" onClick={() => void stopPreview()}><Square size={10} fill="currentColor" /></IconButton>
+    </div>
+  );
 }
 
 export function Browser() {
@@ -157,6 +154,7 @@ export function Browser() {
         </div>
       )}
 
+      <NowPreviewing />
       <LibraryFolders />
     </div>
   );

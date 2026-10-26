@@ -46,6 +46,9 @@ export function ChannelRack() {
   }, [doc, pattern]);
 
   const steps = pattern ? Math.round(patternLength(pattern, doc) / STEP) : 16;
+  // The step playing now, when this pattern plays in pattern mode.
+  const playingStep = useEngine((s) => (s.transport.playing && s.transport.mode === "pattern" && s.transport.pattern === pattern?.id
+    ? Math.floor(s.transport.position / STEP) : -1));
 
   return (
     <div className="flex h-full">
@@ -67,7 +70,7 @@ export function ChannelRack() {
             doc.channels.map((channel) => (
               <ChannelRow
                 key={channel.id}
-                doc={doc} channel={channel} pattern={pattern} steps={steps}
+                doc={doc} channel={channel} pattern={pattern} steps={steps} playingStep={playingStep}
                 selected={channel.id === selectedChannel}
                 paint={paint?.channel === channel.id ? paint : null}
                 onPaintStart={(step, on) => setPaint({ channel: channel.id, on, steps: new Set([step]) })}
@@ -185,8 +188,8 @@ function RackToolbar({ doc, pattern }: { doc: Project; pattern: Pattern | undefi
 }
 
 //==============================================================================
-function ChannelRow({ doc, channel, pattern, steps, selected, paint, onPaintStart, onPaintEnter }: {
-  doc: Project; channel: Channel; pattern: Pattern | undefined; steps: number; selected: boolean;
+function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint, onPaintStart, onPaintEnter }: {
+  doc: Project; channel: Channel; pattern: Pattern | undefined; steps: number; playingStep: number; selected: boolean;
   paint: Paint | null; onPaintStart: (step: number, on: boolean) => void; onPaintEnter: (step: number) => void;
 }) {
   const level = useEngine((s) => s.levels.channels[channel.id] ?? 0);
@@ -285,7 +288,7 @@ function ChannelRow({ doc, channel, pattern, steps, selected, paint, onPaintStar
               <button
                 key={step}
                 type="button"
-                className={cn("h-[22px] w-[19px] rounded-[3px]", step % 4 === 0 && step > 0 && "ml-1.5")}
+                className={cn("h-[22px] w-[19px] rounded-[3px]", step % 4 === 0 && step > 0 && "ml-1.5", step === playingStep && "ring-1 ring-fg/70 brightness-150")}
                 style={{ background: on ? color : beatGroup ? "#2c2c32" : "#232328", opacity: on && velocity ? 0.45 + (velocity / 127) * 0.55 : 1 }}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;

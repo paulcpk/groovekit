@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ChevronDown, Circle, Layers, ListMusic, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown, Circle, Layers, ListMusic, Pause, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
 import { Button, DragNumber, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { cn } from "@/lib/cn";
@@ -7,7 +7,7 @@ import { formatPosition, formatTime } from "@/lib/model";
 import { inDesktopApp } from "@/engine/client";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi, type BottomPanel } from "@/state/ui";
-import { masterSong, redo, renderSong, setTempo, toggleLoop, togglePlay, undo } from "./actions";
+import { masterSong, redo, renderSong, setPlayMode, setTempo, stop, toggleLoop, togglePlay, undo } from "./actions";
 import { browseForProject, openProject, recentProjects, type RecentProject } from "./ProjectDialog";
 import { ProjectName } from "./ProjectName";
 
@@ -31,14 +31,39 @@ function Position() {
   );
 }
 
+function PlayMode() {
+  const mode = useEngine((s) => s.transport.mode ?? "song");
+  const selectedPattern = useUi((s) => s.selectedPattern);
+  const enginePattern = useEngine((s) => s.transport.pattern);
+
+  // Pattern mode plays the pattern shown in the channel rack.
+  useEffect(() => {
+    if (mode === "pattern" && selectedPattern && selectedPattern !== enginePattern) void setPlayMode("pattern");
+  }, [mode, selectedPattern, enginePattern]);
+
+  return (
+    <div className="flex h-6 items-center rounded-[4px] bg-bg p-0.5 text-2xs font-semibold tracking-wide" title="Play the selected pattern on a loop, or the song">
+      {(["pattern", "song"] as const).map((m) => (
+        <button key={m} type="button" onClick={() => void setPlayMode(m)}
+          className={cn("h-5 rounded-[3px] px-1.5", mode === m ? (m === "pattern" ? "bg-accent text-black" : "bg-hover text-fg") : "text-faint hover:text-fg")}>
+          {m === "pattern" ? "PAT" : "SONG"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function TransportButtons() {
   const { playing, recording } = useEngine((s) => s.transport);
   const looping = useUi((s) => s.looping);
 
   return (
     <div className="flex items-center gap-0.5">
-      <IconButton title="Play / stop (Space)" active={playing} tone="accent" onClick={() => void togglePlay()}>
-        {playing ? <Square size={13} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+      <IconButton title="Play / pause (Space)" active={playing} tone="accent" onClick={() => void togglePlay()}>
+        {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+      </IconButton>
+      <IconButton title="Stop and go back to the start (Space twice)" onClick={() => void stop()}>
+        <Square size={12} fill="currentColor" />
       </IconButton>
       <IconButton title="Record…" active={recording} tone="rec" onClick={() => setUi({ recordOpen: true })}>
         <Circle size={12} fill={recording ? "currentColor" : "none"} className={cn(!recording && "text-rec")} />
@@ -164,6 +189,7 @@ export function TopBar() {
         <ProjectMenu />
       </div>
       <div className="h-5 w-px bg-line" />
+      <PlayMode />
       <TransportButtons />
       <Position />
       <Tempo />

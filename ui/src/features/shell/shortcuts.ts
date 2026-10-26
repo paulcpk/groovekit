@@ -3,10 +3,11 @@ import { useEffect } from "react";
 import { uniqueId } from "@/lib/model";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
-import { redo, setPosition, togglePlay, toggleLoop, undo } from "./actions";
+import { redo, setPosition, stop, togglePlay, toggleLoop, undo } from "./actions";
 import { browseForProject } from "./ProjectDialog";
 
 let clipboard: Clip[] = [];
+let lastSpace = 0;
 
 /** Copies of clips moved by an amount, with fresh ids. */
 function copiesOf(doc: Project, clips: Clip[], shift: number) {
@@ -38,7 +39,16 @@ export function useShortcuts() {
 
       if (e.key === " ") {
         e.preventDefault();
-        void togglePlay();
+        if (e.repeat) return;
+        // Twice in quick succession: stop and go back to the start.
+        const now = performance.now();
+        if (now - lastSpace < 350) {
+          lastSpace = 0;
+          void stop();
+        } else {
+          lastSpace = now;
+          void togglePlay();
+        }
       } else if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
         void (e.shiftKey ? redo() : undo());

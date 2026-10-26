@@ -8,14 +8,18 @@ export function Playhead({ pxPerTick, scroller }: { pxPerTick: number; scroller:
   const position = useEngine((s) => s.transport.position);
   const playing = useEngine((s) => s.transport.playing);
   const follow = useUi((s) => s.followPlayhead);
+  // In pattern mode the position is within the pattern, not the song.
+  const songMode = useEngine((s) => s.transport.mode !== "pattern");
   const x = position * pxPerTick;
 
   useEffect(() => {
     const el = scroller.current;
-    if (!el || !playing || !follow) return;
+    if (!el || !playing || !follow || !songMode) return;
     const visible = el.clientWidth - HEADER_W;
     if (x < el.scrollLeft || x > el.scrollLeft + visible - 24) el.scrollLeft = Math.max(0, x - 40);
-  }, [x, playing, follow, scroller]);
+  }, [x, playing, follow, songMode, scroller]);
+
+  if (!songMode) return null;
 
   return (
     <div className="pointer-events-none absolute top-0 bottom-0 z-[15] w-px bg-fg/80" style={{ left: HEADER_W + x }}>

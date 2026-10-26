@@ -2,13 +2,44 @@ import { call, execute, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { formatDb } from "@/lib/model";
 
+/** Auditions a sample from the browser, or stops it if it's the one playing. */
+export function previewSample(path: string, durationSeconds: number) {
+  if (useEngine.getState().previewing === path) return stopPreview();
+  useEngine.setState({ previewing: path });
+  setTimeout(() => useEngine.getState().previewing === path && useEngine.setState({ previewing: undefined }), Math.min(30, durationSeconds) * 1000);
+  return call("preview.play", { path });
+}
+
+export function stopPreview() {
+  if (!useEngine.getState().previewing) return Promise.resolve();
+  useEngine.setState({ previewing: undefined });
+  return call("preview.stop");
+}
+
+/** Play, or pause where it is. A sample being auditioned stops first. */
 export function togglePlay() {
+  if (useEngine.getState().previewing) return stopPreview();
   const { playing } = useEngine.getState().transport;
   return call(playing ? "transport.stop" : "transport.play");
 }
 
-export function stop() {
-  return call("transport.stop");
+/** Stops and goes back to the start. */
+export async function stop() {
+  await stopPreview();
+  await call("transport.stop");
+  await setPosition(0);
+}
+
+/** Song plays the playlist; pattern loops the pattern selected in the channel rack. */
+export function setPlayMode(mode: "song" | "pattern") {
+  if (mode === "song") return call("transport.setMode", { mode });
+  const doc = useEngine.getState().doc;
+  const pattern = useUi.getState().selectedPattern ?? doc?.patterns[0]?.id;
+  if (!pattern) {
+    toast("Make a pattern in the channel rack first");
+    return Promise.resolve();
+  }
+  return call("transport.setMode", { mode, pattern });
 }
 
 export function setPosition(position: number) {
