@@ -93,6 +93,30 @@ inline Json toJson (const SetTimeSignature& v)
     return j;
 }
 
+struct SetSwing
+{
+    /** 0 (straight) to 1; see the project's swing. */
+    double swing {};
+
+    bool operator== (const SetSwing&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, SetSwing& out)
+{
+    r.expectObject (j, { "type", "swing" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "setSwing"); });
+    r.required (j, "swing", [&] (const Json& v) { readValue (r, v, out.swing); r.checkMin (out.swing, 0); r.checkMax (out.swing, 1); });
+}
+
+inline Json toJson (const SetSwing& v)
+{
+    auto j = Json::object();
+    j["type"] = "setSwing";
+    j["swing"] = toJson (v.swing);
+    return j;
+}
+
 struct RenameProject
 {
     std::string name;
@@ -944,7 +968,7 @@ inline Json toJson (const Patch& v)
     return j;
 }
 
-using Command = std::variant<SetTempo, SetTimeSignature, RenameProject, AddChannel, UpdateChannel, RemoveChannel, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, AddTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
+using Command = std::variant<SetTempo, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, AddTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
 
 inline void readValue (Reader& r, const Json& j, Command& out)
 {
@@ -956,6 +980,7 @@ inline void readValue (Reader& r, const Json& j, Command& out)
 
     if (tag == "setTempo") { readValue (r, j, out.emplace<SetTempo>()); return; }
     if (tag == "setTimeSignature") { readValue (r, j, out.emplace<SetTimeSignature>()); return; }
+    if (tag == "setSwing") { readValue (r, j, out.emplace<SetSwing>()); return; }
     if (tag == "renameProject") { readValue (r, j, out.emplace<RenameProject>()); return; }
     if (tag == "addChannel") { readValue (r, j, out.emplace<AddChannel>()); return; }
     if (tag == "updateChannel") { readValue (r, j, out.emplace<UpdateChannel>()); return; }

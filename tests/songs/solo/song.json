@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "name": "Solo",
+  "tempo": 120,
+  "channels": [
+    { "id": "soloed", "solo": true, "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
+    { "id": "other", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } }
+  ],
+  "patterns": [
+    { "id": "soloed", "notes": [{ "channel": "soloed", "start": 0, "length": 240, "velocity": 127 }] },
+    { "id": "other", "notes": [{ "channel": "other", "start": 0, "length": 240, "velocity": 127 }] }
+  ],
+  "playlist": {
+    "tracks": [{ "id": "main", "solo": true }, { "id": "side" }],
+    "clips": [
+      { "type": "pattern", "id": "heard", "track": "main", "start": 0, "length": 960, "pattern": "soloed" },
+      { "type": "pattern", "id": "channelNotSoloed", "track": "main", "start": 960, "length": 960, "pattern": "other" },
+      { "type": "pattern", "id": "trackNotSoloed", "track": "side", "start": 1920, "length": 960, "pattern": "soloed" }
+    ]
+  },
+  "mixer": { "inserts": [{ "id": "master" }] }
+}

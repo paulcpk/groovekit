@@ -456,6 +456,8 @@ struct Channel
     double volumeDb = 0;
     Pan pan = 0;
     bool mute = false;
+    /** While any channel is soloed, only soloed channels play. */
+    bool solo = false;
     /** Mixer insert this channel feeds. */
     Id insert = "master";
     Instrument instrument;
@@ -465,7 +467,7 @@ struct Channel
 
 inline void readValue (Reader& r, const Json& j, Channel& out)
 {
-    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "insert", "instrument" });
+    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "solo", "insert", "instrument" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
@@ -473,6 +475,7 @@ inline void readValue (Reader& r, const Json& j, Channel& out)
     r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 24); });
     r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
+    r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
     r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert); r.checkPattern (out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "instrument", [&] (const Json& v) { readValue (r, v, out.instrument); });
 }
@@ -489,6 +492,7 @@ inline Json toJson (const Channel& v)
     j["volumeDb"] = toJson (v.volumeDb);
     j["pan"] = toJson (v.pan);
     j["mute"] = toJson (v.mute);
+    j["solo"] = toJson (v.solo);
     j["insert"] = toJson (v.insert);
     j["instrument"] = toJson (v.instrument);
     return j;
@@ -574,18 +578,21 @@ struct PlaylistTrack
     std::string name = "";
     std::optional<std::string> color;
     bool mute = false;
+    /** While any track is soloed, only soloed tracks play. */
+    bool solo = false;
 
     bool operator== (const PlaylistTrack&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, PlaylistTrack& out)
 {
-    r.expectObject (j, { "id", "name", "color", "mute" });
+    r.expectObject (j, { "id", "name", "color", "mute", "solo" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.optional (j, "color", [&] (const Json& v) { readValue (r, v, out.color.emplace()); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
+    r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
 }
 
 inline Json toJson (const PlaylistTrack& v)
@@ -598,6 +605,7 @@ inline Json toJson (const PlaylistTrack& v)
         j["color"] = toJson (*v.color);
 
     j["mute"] = toJson (v.mute);
+    j["solo"] = toJson (v.solo);
     return j;
 }
 
@@ -663,6 +671,8 @@ struct AudioClip
     double fadeIn = 0;
     /** Seconds. */
     double fadeOut = 0;
+    /** Plays the file backwards; offset then counts from the file's end. */
+    bool reverse = false;
     /** Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds. */
     std::optional<double> sourceTempo;
 
@@ -671,7 +681,7 @@ struct AudioClip
 
 inline void readValue (Reader& r, const Json& j, AudioClip& out)
 {
-    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "sample", "insert", "offset", "gainDb", "pan", "fadeIn", "fadeOut", "sourceTempo" });
+    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "sample", "insert", "offset", "gainDb", "pan", "fadeIn", "fadeOut", "reverse", "sourceTempo" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "audio"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
@@ -686,6 +696,7 @@ inline void readValue (Reader& r, const Json& j, AudioClip& out)
     r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "fadeIn", [&] (const Json& v) { readValue (r, v, out.fadeIn); r.checkMin (out.fadeIn, 0); });
     r.optional (j, "fadeOut", [&] (const Json& v) { readValue (r, v, out.fadeOut); r.checkMin (out.fadeOut, 0); });
+    r.optional (j, "reverse", [&] (const Json& v) { readValue (r, v, out.reverse); });
     r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
 }
 
@@ -705,6 +716,7 @@ inline Json toJson (const AudioClip& v)
     j["pan"] = toJson (v.pan);
     j["fadeIn"] = toJson (v.fadeIn);
     j["fadeOut"] = toJson (v.fadeOut);
+    j["reverse"] = toJson (v.reverse);
 
     if (v.sourceTempo)
         j["sourceTempo"] = toJson (*v.sourceTempo);
@@ -996,6 +1008,8 @@ struct Insert
     double volumeDb = 0;
     Pan pan = 0;
     bool mute = false;
+    /** While any insert is soloed, only soloed inserts are heard, with the inserts feeding them and the ones they feed. */
+    bool solo = false;
     /** Insert this one feeds. Ignored on master. */
     Id output = "master";
     std::vector<Effect> effects;
@@ -1006,7 +1020,7 @@ struct Insert
 
 inline void readValue (Reader& r, const Json& j, Insert& out)
 {
-    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "output", "effects", "sends" });
+    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "solo", "output", "effects", "sends" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
@@ -1014,6 +1028,7 @@ inline void readValue (Reader& r, const Json& j, Insert& out)
     r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 24); });
     r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
+    r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
     r.optional (j, "output", [&] (const Json& v) { readValue (r, v, out.output); r.checkPattern (out.output, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "effects", [&] (const Json& v) { readValue (r, v, out.effects); });
     r.optional (j, "sends", [&] (const Json& v) { readValue (r, v, out.sends); });
@@ -1031,6 +1046,7 @@ inline Json toJson (const Insert& v)
     j["volumeDb"] = toJson (v.volumeDb);
     j["pan"] = toJson (v.pan);
     j["mute"] = toJson (v.mute);
+    j["solo"] = toJson (v.solo);
     j["output"] = toJson (v.output);
     j["effects"] = toJson (v.effects);
     j["sends"] = toJson (v.sends);
@@ -1066,6 +1082,8 @@ struct Project
     /** Beats per minute. */
     double tempo {};
     TimeSignature timeSignature;
+    /** Delays every second 16th note by up to half a 16th (1: a dotted-16th feel). Applies to pattern notes that start on an off-beat 16th. */
+    double swing = 0;
     std::vector<Channel> channels;
     std::vector<Pattern> patterns;
     Playlist playlist;
@@ -1076,12 +1094,13 @@ struct Project
 
 inline void readValue (Reader& r, const Json& j, Project& out)
 {
-    r.expectObject (j, { "schemaVersion", "name", "tempo", "timeSignature", "channels", "patterns", "playlist", "mixer" });
+    r.expectObject (j, { "schemaVersion", "name", "tempo", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
 
     r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 1); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.required (j, "tempo", [&] (const Json& v) { readValue (r, v, out.tempo); r.checkMin (out.tempo, 20); r.checkMax (out.tempo, 999); });
     r.optional (j, "timeSignature", [&] (const Json& v) { readValue (r, v, out.timeSignature); });
+    r.optional (j, "swing", [&] (const Json& v) { readValue (r, v, out.swing); r.checkMin (out.swing, 0); r.checkMax (out.swing, 1); });
     r.required (j, "channels", [&] (const Json& v) { readValue (r, v, out.channels); });
     r.required (j, "patterns", [&] (const Json& v) { readValue (r, v, out.patterns); });
     r.required (j, "playlist", [&] (const Json& v) { readValue (r, v, out.playlist); });
@@ -1095,6 +1114,7 @@ inline Json toJson (const Project& v)
     j["name"] = toJson (v.name);
     j["tempo"] = toJson (v.tempo);
     j["timeSignature"] = toJson (v.timeSignature);
+    j["swing"] = toJson (v.swing);
     j["channels"] = toJson (v.channels);
     j["patterns"] = toJson (v.patterns);
     j["playlist"] = toJson (v.playlist);

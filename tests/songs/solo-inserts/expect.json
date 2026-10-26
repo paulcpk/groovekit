@@ -1,0 +1,8 @@
+{
+  "durationSeconds": 1.5,
+  "onsets": [0, 1.0],
+  "segments": [
+    { "start": 0.2, "end": 1.0, "silent": true },
+    { "start": 1.0, "end": 1.1, "peakDb": -6.02 }
+  ]
+}

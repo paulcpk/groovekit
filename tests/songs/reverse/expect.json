@@ -1,0 +1,7 @@
+{
+  "durationSeconds": 0.3,
+  "segments": [
+    { "start": 0, "end": 0.05, "peakDb": [-1000, -20] },
+    { "start": 0.25, "end": 0.3, "peakDb": [-3, 0] }
+  ]
+}

@@ -14,6 +14,12 @@ export interface SetTimeSignature {
   timeSignature: TimeSignature;
 }
 
+export interface SetSwing {
+  type: "setSwing";
+  /** 0 (straight) to 1; see the project's swing. */
+  swing: number;
+}
+
 export interface RenameProject {
   type: "renameProject";
   name: string;
@@ -224,7 +230,7 @@ export interface Patch {
   ops: PatchOp[];
 }
 
-export type Command = SetTempo | SetTimeSignature | RenameProject | AddChannel | UpdateChannel | RemoveChannel | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | AddTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
+export type Command = SetTempo | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | AddTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
 
 /** One applied change. Entries form a tree: undo moves to the parent, new changes after an undo start a branch. */
 export interface HistoryEntry {

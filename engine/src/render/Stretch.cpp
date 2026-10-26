@@ -118,6 +118,44 @@ fs::path getDefaultCacheDir()
     return fs::path (home) / "Library" / "Caches" / "GrooveKit";
 }
 
+namespace
+{
+    void writeWav (const juce::AudioBuffer<float>& audio, double sampleRate, const fs::path& target)
+    {
+        fs::create_directories (target.parent_path());
+        auto temp = target;
+        temp += ".tmp";
+
+        {
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (juce::File (temp.string())),
+                                                                                  sampleRate, static_cast<unsigned int> (audio.getNumChannels()),
+                                                                                  24, {}, 0));
+            if (writer == nullptr)
+                throw std::runtime_error ("Can't write " + temp.string());
+
+            writer->writeFromAudioSampleBuffer (audio, 0, audio.getNumSamples());
+        }
+
+        fs::rename (temp, target);
+    }
+}
+
+fs::path getReversedFile (const fs::path& source, const fs::path& cacheDir)
+{
+    // Speed -1 keeps reversed copies apart from stretched ones in the key.
+    const auto target = cacheDir / "reverse" / (cacheKey (source, -1.0) + ".wav");
+
+    if (fs::exists (target))
+        return target;
+
+    double sampleRate = 0;
+    auto audio = readFile (source, sampleRate);
+    audio.reverse (0, audio.getNumSamples());
+    writeWav (audio, sampleRate, target);
+    return target;
+}
+
 fs::path getStretchedFile (const fs::path& source, double speed, const fs::path& cacheDir)
 {
     const auto target = cacheDir / "stretch" / (cacheKey (source, speed) + ".wav");
@@ -129,22 +167,7 @@ fs::path getStretchedFile (const fs::path& source, double speed, const fs::path&
     auto input = readFile (source, sampleRate);
     auto output = stretch (input, sampleRate, speed);
 
-    fs::create_directories (target.parent_path());
-    auto temp = target;
-    temp += ".tmp";
-
-    {
-        juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (juce::File (temp.string())),
-                                                                              sampleRate, static_cast<unsigned int> (output.getNumChannels()),
-                                                                              24, {}, 0));
-        if (writer == nullptr)
-            throw std::runtime_error ("Can't write " + temp.string());
-
-        writer->writeFromAudioSampleBuffer (output, 0, output.getNumSamples());
-    }
-
-    fs::rename (temp, target);
+    writeWav (output, sampleRate, target);
     return target;
 }
 

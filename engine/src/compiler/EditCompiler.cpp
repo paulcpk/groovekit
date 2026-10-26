@@ -31,7 +31,9 @@ namespace
     {
     public:
         Compiler (te::Engine& e, const Project& p, const CompileOptions& o)
-            : engine (e), project (p), options (o) {}
+            : engine (e), project (p), options (o),
+              anyChannelSolo (std::any_of (p.channels.begin(), p.channels.end(), [] (auto& c) { return c.solo; })),
+              anyTrackSolo (std::any_of (p.playlist.tracks.begin(), p.playlist.tracks.end(), [] (auto& t) { return t.solo; })) {}
 
         CompiledEdit run()
         {
@@ -52,6 +54,7 @@ namespace
         const CompileOptions& options;
         CompiledEdit result;
         te::Edit* edit = nullptr;
+        const bool anyChannelSolo, anyTrackSolo;
 
         std::map<Id, mixer::FaderPlugin*> channelFaders, insertFaders;
         std::map<Id, std::map<Id, te::AuxSendPlugin*>> sendPlugins;
@@ -84,7 +87,92 @@ namespace
         bool isTrackMuted (const Id& trackId) const
         {
             auto track = findTrack (project, trackId);
-            return track != nullptr && track->mute;
+            return track != nullptr && (track->mute || (anyTrackSolo && ! track->solo));
+        }
+
+        /** Swing: notes on an off-beat 16th move later by up to half a 16th. */
+        Ticks swung (Ticks start) const
+        {
+            constexpr Ticks sixteenth = ticksPerQuarter / 4;
+
+            if (project.swing <= 0 || start % (2 * sixteenth) != sixteenth)
+                return start;
+
+            return start + static_cast<Ticks> (std::llround (project.swing * sixteenth / 2));
+        }
+
+        /** With inserts soloed: those, the inserts that feed them, and the ones they feed (by
+            output or send), so a soloed drum bus is heard through its reverb and master. */
+        std::set<Id> audibleInserts() const
+        {
+            std::set<Id> audible;
+            auto& inserts = project.mixer.inserts;
+
+            for (auto& i : inserts)
+                if (i.solo)
+                    audible.insert (i.id);
+
+            if (audible.empty())
+            {
+                for (auto& i : inserts)
+                    audible.insert (i.id);
+
+                return audible;
+            }
+
+            auto findInsert = [&] (const Id& id) { return std::find_if (inserts.begin(), inserts.end(), [&] (auto& i) { return i.id == id; }); };
+
+            // Downstream: outputs and send targets.
+            for (std::vector<Id> queue (audible.begin(), audible.end()); ! queue.empty();)
+            {
+                auto it = findInsert (queue.back());
+                queue.pop_back();
+
+                if (it == inserts.end())
+                    continue;
+
+                std::vector<Id> next;
+
+                if (it->id != masterInsertId)
+                    next.push_back (it->output);
+
+                for (auto& send : it->sends)
+                    next.push_back (send.target);
+
+                for (auto& id : next)
+                    if (audible.insert (id).second)
+                        queue.push_back (id);
+            }
+
+            // Upstream: inserts whose output chain reaches a soloed insert.
+            std::set<Id> soloed;
+
+            for (auto& i : inserts)
+                if (i.solo)
+                    soloed.insert (i.id);
+
+            for (auto& i : inserts)
+            {
+                std::set<Id> seen;
+
+                for (auto id = i.id; id != masterInsertId && seen.insert (id).second;)
+                {
+                    if (soloed.contains (id))
+                    {
+                        audible.insert (i.id);
+                        break;
+                    }
+
+                    auto it = findInsert (id);
+
+                    if (it == inserts.end())
+                        break;
+
+                    id = it->output;
+                }
+            }
+
+            return audible;
         }
 
         te::AudioTrack& addTrack (const juce::String& name)
@@ -147,8 +235,11 @@ namespace
                     if (! returnBus.contains (send.target))
                         returnBus.emplace (send.target, static_cast<int> (returnBus.size()));
 
+            const auto audible = audibleInserts();
+
             for (auto& insert : project.mixer.inserts)
             {
+                const bool insertMuted = insert.mute || ! audible.contains (insert.id);
                 auto& track = addTrack ("insert:" + insert.id);
                 result.insertTracks[insert.id] = &track;
 
@@ -187,7 +278,7 @@ namespace
                         aux.setGainDb (static_cast<float> (send.levelDb));
 
                         // Only mute: setMute (false) would reset the level to 0 dB.
-                        if (insert.mute)
+                        if (insertMuted)
                             aux.setMute (true);
 
                         sendPlugins[insert.id][send.id] = &aux;
@@ -199,7 +290,7 @@ namespace
                 result.insertFaders[insert.id] = insertFaders[insert.id] = &addFader (track, insert.volumeDb, insert.pan);
                 addSends (false);
 
-                track.setMute (insert.mute);
+                track.setMute (insertMuted);
             }
 
             for (auto& insert : project.mixer.inserts)
@@ -236,7 +327,7 @@ namespace
                 }
 
                 result.channelFaders[channel.id] = channelFaders[channel.id] = &addFader (track, channel.volumeDb, channel.pan);
-                track.setMute (channel.mute);
+                track.setMute (channel.mute || (anyChannelSolo && ! channel.solo));
                 track.getOutput().setOutputToTrack (result.insertTracks.at (channel.insert));
             }
         }
@@ -279,7 +370,7 @@ namespace
 
                         for (auto note : notes)
                         {
-                            const auto start = base + note->start;
+                            const auto start = base + swung (note->start);
 
                             if (start < 0 || start >= pc->length)
                                 continue;
@@ -322,6 +413,9 @@ namespace
                     throw std::runtime_error ("Audio clip \"" + ac->id + "\": file not found: " + file.getFullPathName().toStdString());
 
                 auto& track = getAudioClipTrack (ac->insert);
+
+                if (ac->reverse)
+                    file = juce::File (getReversedFile (file.getFullPathName().toStdString(), options.cacheDir).string());
 
                 // A clip recorded at another tempo plays a stretched copy, pitch kept.
                 const auto speed = ac->sourceTempo ? project.tempo / *ac->sourceTempo : 1.0;

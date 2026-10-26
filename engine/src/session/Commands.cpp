@@ -179,6 +179,7 @@ namespace
 
         void operator() (const SetTempo& c)             { e.tx.add ("/tempo", c.tempo); }
         void operator() (const SetTimeSignature& c)     { e.tx.add ("/timeSignature", toJson (c.timeSignature)); }
+        void operator() (const SetSwing& c)             { e.tx.add ("/swing", c.swing); }
         void operator() (const RenameProject& c)        { e.tx.add ("/name", c.name); }
 
         void operator() (const AddChannel& c)
@@ -439,6 +440,7 @@ std::string describeCommand (const Command& command)
 
         if constexpr (std::is_same_v<T, SetTempo>)              return "Set tempo to " + (std::ostringstream() << c.tempo).str();
         else if constexpr (std::is_same_v<T, SetTimeSignature>) return "Set time signature";
+        else if constexpr (std::is_same_v<T, SetSwing>)         return "Set swing to " + std::to_string (static_cast<int> (std::round (c.swing * 100))) + "%";
         else if constexpr (std::is_same_v<T, RenameProject>)    return "Rename project";
         else if constexpr (std::is_same_v<T, AddChannel>)       return "Add channel " + c.channel.id;
         else if constexpr (std::is_same_v<T, UpdateChannel>)    return "Update channel " + c.channel;

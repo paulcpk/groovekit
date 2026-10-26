@@ -7,6 +7,7 @@
       "oneOf": [
         { "$ref": "#/$defs/SetTempo" },
         { "$ref": "#/$defs/SetTimeSignature" },
+        { "$ref": "#/$defs/SetSwing" },
         { "$ref": "#/$defs/RenameProject" },
         { "$ref": "#/$defs/AddChannel" },
         { "$ref": "#/$defs/UpdateChannel" },
@@ -70,6 +71,16 @@
       "properties": {
         "type": { "const": "setTimeSignature" },
         "timeSignature": { "$ref": "project.schema.json#/$defs/TimeSignature" }
+      }
+    },
+
+    "SetSwing": {
+      "type": "object",
+      "required": ["type", "swing"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "setSwing" },
+        "swing": { "description": "0 (straight) to 1; see the project's swing.", "type": "number", "minimum": 0, "maximum": 1 }
       }
     },
 

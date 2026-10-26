@@ -11,6 +11,7 @@
     "name": { "type": "string", "default": "" },
     "tempo": { "description": "Beats per minute.", "type": "number", "minimum": 20, "maximum": 999 },
     "timeSignature": { "$ref": "#/$defs/TimeSignature" },
+    "swing": { "description": "Delays every second 16th note by up to half a 16th (1: a dotted-16th feel). Applies to pattern notes that start on an off-beat 16th.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
     "channels": { "type": "array", "items": { "$ref": "#/$defs/Channel" } },
     "patterns": { "type": "array", "items": { "$ref": "#/$defs/Pattern" } },
     "playlist": { "$ref": "#/$defs/Playlist" },
@@ -48,6 +49,7 @@
         "volumeDb": { "type": "number", "minimum": -100, "maximum": 24, "default": 0 },
         "pan": { "$ref": "#/$defs/Pan", "default": 0 },
         "mute": { "type": "boolean", "default": false },
+        "solo": { "description": "While any channel is soloed, only soloed channels play.", "type": "boolean", "default": false },
         "insert": { "description": "Mixer insert this channel feeds.", "$ref": "#/$defs/Id", "default": "master" },
         "instrument": { "$ref": "#/$defs/Instrument" }
       }
@@ -201,7 +203,8 @@
         "id": { "$ref": "#/$defs/Id" },
         "name": { "type": "string", "default": "" },
         "color": { "type": "string" },
-        "mute": { "type": "boolean", "default": false }
+        "mute": { "type": "boolean", "default": false },
+        "solo": { "description": "While any track is soloed, only soloed tracks play.", "type": "boolean", "default": false }
       }
     },
 
@@ -245,6 +248,7 @@
         "pan": { "$ref": "#/$defs/Pan", "default": 0 },
         "fadeIn": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 },
         "fadeOut": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 },
+        "reverse": { "description": "Plays the file backwards; offset then counts from the file's end.", "type": "boolean", "default": false },
         "sourceTempo": { "description": "Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds.", "type": "number", "minimum": 20, "maximum": 999 }
       }
     },
@@ -313,6 +317,7 @@
         "volumeDb": { "type": "number", "minimum": -100, "maximum": 24, "default": 0 },
         "pan": { "$ref": "#/$defs/Pan", "default": 0 },
         "mute": { "type": "boolean", "default": false },
+        "solo": { "description": "While any insert is soloed, only soloed inserts are heard, with the inserts feeding them and the ones they feed.", "type": "boolean", "default": false },
         "output": { "description": "Insert this one feeds. Ignored on master.", "$ref": "#/$defs/Id", "default": "master" },
         "effects": { "type": "array", "items": { "$ref": "#/$defs/Effect" }, "default": [] },
         "sends": { "type": "array", "items": { "$ref": "#/$defs/Send" }, "default": [] }

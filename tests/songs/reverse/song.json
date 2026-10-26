@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "name": "Reverse",
+  "tempo": 120,
+  "channels": [],
+  "patterns": [],
+  "playlist": {
+    "tracks": [{ "id": "t" }],
+    "clips": [{ "type": "audio", "id": "a", "track": "t", "start": 0, "length": 576, "sample": "../../fixtures/samples/kick.wav", "reverse": true }]
+  },
+  "mixer": { "inserts": [{ "id": "master" }] }
+}

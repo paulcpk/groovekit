@@ -100,6 +100,8 @@ export interface Channel {
   volumeDb?: number;
   pan?: Pan;
   mute?: boolean;
+  /** While any channel is soloed, only soloed channels play. */
+  solo?: boolean;
   /** Mixer insert this channel feeds. */
   insert?: Id;
   instrument: Instrument;
@@ -129,6 +131,8 @@ export interface PlaylistTrack {
   name?: string;
   color?: string;
   mute?: boolean;
+  /** While any track is soloed, only soloed tracks play. */
+  solo?: boolean;
 }
 
 /** Plays a pattern, repeating it every pattern length until the clip ends. */
@@ -163,6 +167,8 @@ export interface AudioClip {
   fadeIn?: number;
   /** Seconds. */
   fadeOut?: number;
+  /** Plays the file backwards; offset then counts from the file's end. */
+  reverse?: boolean;
   /** Tempo the file was recorded at. When set, the clip is time-stretched (pitch kept) to the project tempo; offset stays in the file's own seconds. */
   sourceTempo?: number;
 }
@@ -237,6 +243,8 @@ export interface Insert {
   volumeDb?: number;
   pan?: Pan;
   mute?: boolean;
+  /** While any insert is soloed, only soloed inserts are heard, with the inserts feeding them and the ones they feed. */
+  solo?: boolean;
   /** Insert this one feeds. Ignored on master. */
   output?: Id;
   effects?: Effect[];
@@ -255,6 +263,8 @@ export interface Project {
   /** Beats per minute. */
   tempo: number;
   timeSignature?: TimeSignature;
+  /** Delays every second 16th note by up to half a 16th (1: a dotted-16th feel). Applies to pattern notes that start on an off-beat 16th. */
+  swing?: number;
   channels: Channel[];
   patterns: Pattern[];
   playlist: Playlist;

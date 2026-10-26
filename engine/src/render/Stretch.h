@@ -14,6 +14,10 @@ namespace gk
 */
 std::filesystem::path getStretchedFile (const std::filesystem::path& source, double speed, const std::filesystem::path& cacheDir);
 
+/** A copy of an audio file played backwards, cached like stretched files.
+    Throws std::runtime_error if the source can't be read. */
+std::filesystem::path getReversedFile (const std::filesystem::path& source, const std::filesystem::path& cacheDir);
+
 /** Where stretched files are cached unless the caller chooses otherwise:
     GROOVEKIT_CACHE_DIR, or ~/Library/Caches/GrooveKit. */
 std::filesystem::path getDefaultCacheDir();

@@ -1,0 +1,5 @@
+{
+  "durationSeconds": 1.5,
+  "onsets": [0],
+  "segments": [{ "start": 0.2, "end": 1.5, "silent": true }]
+}
