@@ -45,7 +45,7 @@
         "id": { "$ref": "#/$defs/Id" },
         "name": { "type": "string", "default": "" },
         "color": { "type": "string" },
-        "volumeDb": { "type": "number", "maximum": 12, "default": 0 },
+        "volumeDb": { "type": "number", "minimum": -100, "maximum": 12, "default": 0 },
         "pan": { "$ref": "#/$defs/Pan", "default": 0 },
         "mute": { "type": "boolean", "default": false },
         "insert": { "description": "Mixer insert this channel feeds.", "$ref": "#/$defs/Id", "default": "master" },
@@ -244,7 +244,7 @@
     },
 
     "AutomationClip": {
-      "description": "Drives one parameter. Outside every clip for a target, the parameter holds its static value; after a clip ends it holds the clip's last value.",
+      "description": "Drives one parameter. A target follows the points of all its unmuted clips; before the first point it holds the first value, after a clip it holds that clip's last value until the next point. Points past the clip's length are ignored.",
       "type": "object",
       "required": ["type", "id", "track", "start", "length", "target", "points"],
       "additionalProperties": false,
@@ -304,7 +304,7 @@
         "id": { "$ref": "#/$defs/Id" },
         "name": { "type": "string", "default": "" },
         "color": { "type": "string" },
-        "volumeDb": { "type": "number", "maximum": 12, "default": 0 },
+        "volumeDb": { "type": "number", "minimum": -100, "maximum": 12, "default": 0 },
         "pan": { "$ref": "#/$defs/Pan", "default": 0 },
         "mute": { "type": "boolean", "default": false },
         "output": { "description": "Insert this one feeds. Ignored on master.", "$ref": "#/$defs/Id", "default": "master" },
@@ -320,7 +320,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/Id" },
         "target": { "$ref": "#/$defs/Id" },
-        "levelDb": { "type": "number", "maximum": 12, "default": 0 },
+        "levelDb": { "type": "number", "minimum": -100, "maximum": 6, "default": 0 },
         "preFader": { "type": "boolean", "default": false }
       }
     },
@@ -337,10 +337,10 @@
       "properties": {
         "type": { "const": "builtin" },
         "id": { "$ref": "#/$defs/Id" },
-        "kind": { "type": "string", "enum": ["eq", "compressor", "reverb", "delay", "phaser", "chorus", "filter"] },
+        "kind": { "type": "string", "enum": ["eq", "compressor", "reverb", "delay", "phaser", "chorus", "lowpass", "highpass"] },
         "bypass": { "type": "boolean", "default": false },
         "params": {
-          "description": "Parameter id to value, in the parameter's own units. Unlisted parameters keep their defaults.",
+          "description": "Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults.",
           "type": "object",
           "additionalProperties": { "type": "number" },
           "default": {}

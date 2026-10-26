@@ -322,7 +322,7 @@ export interface AudioClip {
   sourceTempo?: number;
 }
 /**
- * Drives one parameter. Outside every clip for a target, the parameter holds its static value; after a clip ends it holds the clip's last value.
+ * Drives one parameter. A target follows the points of all its unmuted clips; before the first point it holds the first value, after a clip it holds that clip's last value until the next point. Points past the clip's length are ignored.
  *
  * This interface was referenced by `Project`'s JSON-Schema
  * via the `definition` "AutomationClip".
@@ -412,10 +412,10 @@ export interface Insert {
 export interface BuiltinEffect {
   type: "builtin";
   id: Id;
-  kind: "eq" | "compressor" | "reverb" | "delay" | "phaser" | "chorus" | "filter";
+  kind: "eq" | "compressor" | "reverb" | "delay" | "phaser" | "chorus" | "lowpass" | "highpass";
   bypass?: boolean;
   /**
-   * Parameter id to value, in the parameter's own units. Unlisted parameters keep their defaults.
+   * Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults.
    */
   params?: {
     [k: string]: number;

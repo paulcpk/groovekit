@@ -124,7 +124,8 @@ enum class BuiltinEffectKind
     delay,
     phaser,
     chorus,
-    filter
+    lowpass,
+    highpass
 };
 
 inline const char* toString (BuiltinEffectKind v)
@@ -137,7 +138,8 @@ inline const char* toString (BuiltinEffectKind v)
         case BuiltinEffectKind::delay: return "delay";
         case BuiltinEffectKind::phaser: return "phaser";
         case BuiltinEffectKind::chorus: return "chorus";
-        case BuiltinEffectKind::filter: return "filter";
+        case BuiltinEffectKind::lowpass: return "lowpass";
+        case BuiltinEffectKind::highpass: return "highpass";
     }
 
     return "";
@@ -156,7 +158,8 @@ inline void readValue (Reader& r, const Json& j, BuiltinEffectKind& out)
     if (s == "delay") { out = BuiltinEffectKind::delay; return; }
     if (s == "phaser") { out = BuiltinEffectKind::phaser; return; }
     if (s == "chorus") { out = BuiltinEffectKind::chorus; return; }
-    if (s == "filter") { out = BuiltinEffectKind::filter; return; }
+    if (s == "lowpass") { out = BuiltinEffectKind::lowpass; return; }
+    if (s == "highpass") { out = BuiltinEffectKind::highpass; return; }
 
     r.fail ("unknown value \"" + s + "\"");
 }
@@ -459,7 +462,7 @@ inline void readValue (Reader& r, const Json& j, Channel& out)
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.optional (j, "color", [&] (const Json& v) { readValue (r, v, out.color.emplace()); });
-    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMax (out.volumeDb, 12); });
+    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 12); });
     r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
     r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert); r.checkPattern (out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
@@ -776,7 +779,7 @@ inline Json toJson (const AutomationPoint& v)
     return j;
 }
 
-/** Drives one parameter. Outside every clip for a target, the parameter holds its static value; after a clip ends it holds the clip's last value. */
+/** Drives one parameter. A target follows the points of all its unmuted clips; before the first point it holds the first value, after a clip it holds that clip's last value until the next point. Points past the clip's length are ignored. */
 struct AutomationClip
 {
     Id id;
@@ -869,7 +872,7 @@ struct BuiltinEffect
     Id id;
     BuiltinEffectKind kind;
     bool bypass = false;
-    /** Parameter id to value, in the parameter's own units. Unlisted parameters keep their defaults. */
+    /** Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults. */
     std::map<std::string, double> params;
 
     bool operator== (const BuiltinEffect&) const = default;
@@ -963,7 +966,7 @@ inline void readValue (Reader& r, const Json& j, Send& out)
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "target", [&] (const Json& v) { readValue (r, v, out.target); r.checkPattern (out.target, "^[A-Za-z0-9_.-]{1,64}$"); });
-    r.optional (j, "levelDb", [&] (const Json& v) { readValue (r, v, out.levelDb); r.checkMax (out.levelDb, 12); });
+    r.optional (j, "levelDb", [&] (const Json& v) { readValue (r, v, out.levelDb); r.checkMin (out.levelDb, -100); r.checkMax (out.levelDb, 6); });
     r.optional (j, "preFader", [&] (const Json& v) { readValue (r, v, out.preFader); });
 }
 
@@ -1000,7 +1003,7 @@ inline void readValue (Reader& r, const Json& j, Insert& out)
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.optional (j, "color", [&] (const Json& v) { readValue (r, v, out.color.emplace()); });
-    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMax (out.volumeDb, 12); });
+    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 12); });
     r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
     r.optional (j, "output", [&] (const Json& v) { readValue (r, v, out.output); r.checkPattern (out.output, "^[A-Za-z0-9_.-]{1,64}$"); });

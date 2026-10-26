@@ -1,5 +1,8 @@
 #include "EngineContext.h"
 
+#include "mixer/FaderPlugin.h"
+#include "sampler/SamplerPlugin.h"
+
 #include <tracktion_engine/tracktion_engine.h>
 
 namespace gk
@@ -20,7 +23,12 @@ struct EngineContext::Impl
     tracktion::Engine engine { "GrooveKit", nullptr, std::make_unique<HeadlessBehaviour>() };
 };
 
-EngineContext::EngineContext() : impl (std::make_unique<Impl>()) {}
+EngineContext::EngineContext() : impl (std::make_unique<Impl>())
+{
+    auto& plugins = impl->engine.getPluginManager();
+    plugins.createBuiltInType<sampler::SamplerPlugin>();
+    plugins.createBuiltInType<mixer::FaderPlugin>();
+}
 EngineContext::~EngineContext() = default;
 
 tracktion::Engine& EngineContext::getEngine()

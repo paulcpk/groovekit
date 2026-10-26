@@ -3,7 +3,15 @@ add_library(gk_engine STATIC)
 
 target_sources(gk_engine PRIVATE
     src/EngineContext.cpp
-    src/model/Project.cpp)
+    src/analysis/Analysis.cpp
+    src/compiler/EditCompiler.cpp
+    src/effects/BuiltinEffects.cpp
+    src/mixer/FaderPlugin.cpp
+    src/model/Project.cpp
+    src/render/Render.cpp
+    src/sampler/SampleCache.cpp
+    src/sampler/SamplerEngine.cpp
+    src/sampler/SamplerPlugin.cpp)
 
 target_include_directories(gk_engine PUBLIC src)
 
