@@ -9,6 +9,7 @@ import { PluginList } from "@/features/rack/PluginPicker";
 import { effectNames } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
 import { colorFor, formatDb, formatPan, insertName, palette, uniqueId } from "@/lib/model";
+import { useLiveControl } from "@/lib/liveControl";
 import { useHeight } from "@/lib/useHeight";
 import { call, execute, useEngine } from "@/state/engine";
 
@@ -28,6 +29,8 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
   const db = liveDb ?? insert.volumeDb ?? 0;
   const feeders = doc.channels.filter((c) => (c.insert ?? "master") === insert.id).length;
   const [faderArea, faderAreaHeight] = useHeight<HTMLDivElement>();
+  const volume = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { volumeDb: v } }), `${insertName(insert, index)} volume`);
+  const pan = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan insert");
   const faderH = Math.max(60, faderAreaHeight - 4);
 
   return (
@@ -81,7 +84,7 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
           <ContextMenuTrigger asChild>
             <div>
               <Knob size={26} value={insert.pan ?? 0} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan}
-                onCommit={(v) => update({ pan: Math.round(v * 100) / 100 }, "Pan insert")} />
+                onChange={pan.onChange} onCommit={pan.onCommit} />
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
@@ -93,10 +96,14 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div ref={faderArea} className="flex min-h-0 flex-1 items-end justify-center gap-1.5 px-2">
-            <Fader db={insert.volumeDb ?? 0} height={faderH} onChange={setLiveDb}
+            <Fader db={insert.volumeDb ?? 0} height={faderH}
+              onChange={(v) => {
+                setLiveDb(v);
+                volume.onChange(v);
+              }}
               onCommit={(v) => {
                 setLiveDb(null);
-                update({ volumeDb: v }, `${insertName(insert, index)} volume`);
+                volume.onCommit(v);
               }} />
             <Meter left={levels[0]} right={levels[1]} height={faderH - 6} />
           </div>
@@ -211,9 +218,7 @@ function Sends({ doc, insert }: { doc: Project; insert: Insert }) {
           <ContextMenu key={send.id}>
             <ContextMenuTrigger asChild>
               <div className="flex items-center gap-1">
-                <Knob size={18} value={send.levelDb ?? 0} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`} title={`Send to ${insertName(doc.mixer.inserts[index], index)}`}
-                  color="#58b7d6"
-                  onCommit={(v) => void execute({ type: "updateSend", insert: insert.id, send: send.id, changes: { levelDb: Math.round(v * 10) / 10 } }, { label: "Send level" })} />
+                <SendKnob insertId={insert.id} sendId={send.id} levelDb={send.levelDb ?? 0} title={`Send to ${insertName(doc.mixer.inserts[index], index)}`} />
                 <span className="flex-1 truncate text-2xs text-dim">→ {insertName(doc.mixer.inserts[index], index)}</span>
                 <IconButton size="sm" className="h-4 w-4" title="Remove send"
                   onClick={() => void execute({ type: "removeSend", insert: insert.id, send: send.id }, { label: "Remove send" })}><X size={9} /></IconButton>
@@ -246,6 +251,14 @@ function Sends({ doc, insert }: { doc: Project; insert: Insert }) {
         </Dropdown>
       )}
     </div>
+  );
+}
+
+function SendKnob({ insertId, sendId, levelDb, title }: { insertId: string; sendId: string; levelDb: number; title: string }) {
+  const level = useLiveControl((v) => ({ type: "updateSend", insert: insertId, send: sendId, changes: { levelDb: Math.round(v * 10) / 10 } }), "Send level");
+  return (
+    <Knob size={18} value={levelDb} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`} title={title}
+      color="#58b7d6" onChange={level.onChange} onCommit={level.onCommit} />
   );
 }
 

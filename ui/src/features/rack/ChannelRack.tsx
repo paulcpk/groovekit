@@ -7,6 +7,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { SAMPLE_MIME } from "@/features/playlist/geometry";
 import { newPattern } from "@/features/playlist/Playlist";
 import { cn } from "@/lib/cn";
+import { useLiveControl } from "@/lib/liveControl";
 import { colorFor, formatDb, formatPan, insertName, palette, patternLength, STEP, ticksPerBar, uniqueId } from "@/lib/model";
 import { call, execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -191,6 +192,8 @@ function ChannelRow({ doc, channel, pattern, steps, selected, paint, onPaintStar
   const melodic = new Set(notes.map((n) => n.key ?? 60)).size > 1 || notes.some((n) => n.length > STEP * 1.5);
   const insertIndex = doc.mixer.inserts.findIndex((i) => i.id === (channel.insert ?? "master"));
   const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateChannel", channel: channel.id, changes }, { label });
+  const volume = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { volumeDb: Math.round(v * 10) / 10 } }), "Channel volume");
+  const pan = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan channel");
 
   const preview = () => {
     if (channel.instrument.type === "sampler" && channel.instrument.layers[0]) void call("preview.play", { path: channel.instrument.layers[0].sample });
@@ -199,10 +202,8 @@ function ChannelRow({ doc, channel, pattern, steps, selected, paint, onPaintStar
   return (
     <div className={cn("relative flex h-[30px] items-center gap-2 px-2", selected && "bg-raised")}>
       <ActivityLed level={level} />
-      <Knob size={20} value={channel.pan ?? 0} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan}
-        onCommit={(v) => update({ pan: Math.round(v * 100) / 100 }, "Pan channel")} />
-      <Knob size={20} value={channel.volumeDb ?? 0} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`}
-        onCommit={(v) => update({ volumeDb: Math.round(v * 10) / 10 }, "Channel volume")} />
+      <Knob size={20} value={channel.pan ?? 0} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan} onChange={pan.onChange} onCommit={pan.onCommit} />
+      <Knob size={20} value={channel.volumeDb ?? 0} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`} onChange={volume.onChange} onCommit={volume.onCommit} />
 
       <Dropdown>
         <DropdownTrigger asChild>

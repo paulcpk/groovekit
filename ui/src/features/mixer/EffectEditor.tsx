@@ -2,7 +2,9 @@ import { Power, X } from "lucide-react";
 import { Button, IconButton, Knob } from "@/components/controls";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/menu";
 import { createAutomation } from "@/features/playlist/automation";
-import { formatParam, useCatalogue } from "@/lib/catalogue";
+import type { Project } from "@groovekit/schema/project";
+import { formatParam, useCatalogue, type EffectParam } from "@/lib/catalogue";
+import { useLiveControl } from "@/lib/liveControl";
 import { call, execute, toast, useEngine } from "@/state/engine";
 import { effectName } from "./Strip";
 
@@ -32,32 +34,9 @@ export function EffectEditor({ insertId, effectId, onClose }: { insertId: string
             <>
               <div className="mb-3 text-xs text-dim">{info.description}</div>
               <div className="grid grid-cols-3 gap-x-2 gap-y-3">
-                {Object.entries(info.params).map(([id, p]) => {
-                  const value = effect.params?.[id] ?? p.default;
-                  const log = p.unit === "Hz" && p.min > 0;
-                  // Frequencies turn on a log scale, so the knob spends its travel evenly across octaves.
-                  const toKnob = (v: number) => (log ? Math.log(v / p.min) / Math.log(p.max / p.min) : v);
-                  const fromKnob = (k: number) => (log ? p.min * Math.pow(p.max / p.min, k) : k);
-                  return (
-                    <ContextMenu key={id}>
-                      <ContextMenuTrigger asChild>
-                        <div className="flex flex-col items-center" title={p.description}>
-                          <Knob size={32} value={toKnob(value)} min={toKnob(p.min)} max={toKnob(p.max)} defaultValue={toKnob(p.default)}
-                            format={(k) => formatParam(fromKnob(k), p.unit)}
-                            onCommit={(k) => void execute({ type: "updateEffect", insert: insertId, effect: effectId, changes: { params: { [id]: round(fromKnob(k)) } } }, { label: `${effectName(effect)} ${id}` })} />
-                          <div className="mt-0.5 max-w-[84px] truncate text-2xs text-dim">{label(id)}</div>
-                          <div className="text-[9px] text-faint tabular">{formatParam(value, p.unit)}</div>
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent>
-                        <ContextMenuItem onSelect={() => void execute({ type: "updateEffect", insert: insertId, effect: effectId, changes: { params: { [id]: p.default } } }, { label: "Reset parameter" })}>Reset</ContextMenuItem>
-                        {p.automatable && (
-                          <ContextMenuItem onSelect={() => void createAutomation(doc, { scope: "effect", insert: insertId, effect: effectId, param: id }, value)}>Create automation clip</ContextMenuItem>
-                        )}
-                      </ContextMenuContent>
-                    </ContextMenu>
-                  );
-                })}
+                {Object.entries(info.params).map(([id, p]) => (
+                  <ParamKnob key={id} doc={doc} insertId={insertId} effectId={effectId} effectLabel={effectName(effect)} id={id} param={p} value={effect.params?.[id] ?? p.default} />
+                ))}
               </div>
             </>
           )
@@ -76,6 +55,35 @@ export function EffectEditor({ insertId, effectId, onClose }: { insertId: string
         )}
       </div>
     </div>
+  );
+}
+
+function ParamKnob({ doc, insertId, effectId, effectLabel, id, param: p, value }: {
+  doc: Project; insertId: string; effectId: string; effectLabel: string; id: string; param: EffectParam; value: number;
+}) {
+  const log = p.unit === "Hz" && p.min > 0;
+  // Frequencies turn on a log scale, so the knob spends its travel evenly across octaves.
+  const toKnob = (v: number) => (log ? Math.log(v / p.min) / Math.log(p.max / p.min) : v);
+  const fromKnob = (k: number) => (log ? p.min * Math.pow(p.max / p.min, k) : k);
+  const live = useLiveControl((k) => ({ type: "updateEffect", insert: insertId, effect: effectId, changes: { params: { [id]: round(fromKnob(k)) } } }), `${effectLabel} ${label(id)}`);
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="flex flex-col items-center" title={p.description}>
+          <Knob size={32} value={toKnob(value)} min={toKnob(p.min)} max={toKnob(p.max)} defaultValue={toKnob(p.default)}
+            format={(k) => formatParam(fromKnob(k), p.unit)} onChange={live.onChange} onCommit={live.onCommit} />
+          <div className="mt-0.5 max-w-[84px] truncate text-2xs text-dim">{label(id)}</div>
+          <div className="text-[9px] text-faint tabular">{formatParam(value, p.unit)}</div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => void execute({ type: "updateEffect", insert: insertId, effect: effectId, changes: { params: { [id]: p.default } } }, { label: "Reset parameter" })}>Reset</ContextMenuItem>
+        {p.automatable && (
+          <ContextMenuItem onSelect={() => void createAutomation(doc, { scope: "effect", insert: insertId, effect: effectId, param: id }, value)}>Create automation clip</ContextMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

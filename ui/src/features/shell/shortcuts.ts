@@ -1,7 +1,27 @@
+import type { Clip, Project } from "@groovekit/schema/project";
 import { useEffect } from "react";
+import { uniqueId } from "@/lib/model";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { redo, setPosition, togglePlay, toggleLoop, undo } from "./actions";
+
+let clipboard: Clip[] = [];
+
+/** Copies of clips moved by an amount, with fresh ids. */
+function copiesOf(doc: Project, clips: Clip[], shift: number) {
+  const taken = new Set(doc.playlist.clips.map((c) => c.id));
+  return clips.map((c) => {
+    const id = uniqueId(c.id.replace(/-\d+$/, ""), taken);
+    taken.add(id);
+    return { ...c, id, start: c.start + shift };
+  });
+}
+
+function addClips(clips: Clip[], label: string) {
+  if (clips.length === 0) return;
+  void execute(clips.map((clip) => ({ type: "addClip" as const, clip })), { label });
+  setUi({ selectedClips: clips.map((c) => c.id) });
+}
 
 function typing(e: KeyboardEvent) {
   const t = e.target as HTMLElement | null;
@@ -24,6 +44,28 @@ export function useShortcuts() {
       } else if (mod && e.key.toLowerCase() === "y") {
         e.preventDefault();
         void redo();
+      } else if (mod && ["c", "v", "d", "a"].includes(e.key.toLowerCase())) {
+        const doc = useEngine.getState().doc;
+        if (!doc) return;
+        const selected = doc.playlist.clips.filter((c) => useUi.getState().selectedClips.includes(c.id));
+        const key = e.key.toLowerCase();
+        e.preventDefault();
+
+        if (key === "a") {
+          setUi({ selectedClips: doc.playlist.clips.map((c) => c.id) });
+        } else if (key === "c") {
+          clipboard = selected;
+        } else if (key === "d" && selected.length) {
+          const span = Math.max(...selected.map((c) => c.start + c.length)) - Math.min(...selected.map((c) => c.start));
+          addClips(copiesOf(doc, selected, span), selected.length === 1 ? "Duplicate clip" : `Duplicate ${selected.length} clips`);
+        } else if (key === "v" && clipboard.length) {
+          // Pasted at the playhead, keeping their spacing and tracks (tracks deleted since go to the first).
+          const tracks = new Set(doc.playlist.tracks.map((t) => t.id));
+          const first = Math.min(...clipboard.map((c) => c.start));
+          const at = useEngine.getState().transport.position;
+          const clips = copiesOf(doc, clipboard, at - first).map((c) => (tracks.has(c.track) ? c : { ...c, track: doc.playlist.tracks[0]?.id ?? c.track }));
+          addClips(clips, clips.length === 1 ? "Paste clip" : `Paste ${clips.length} clips`);
+        }
       } else if (e.key === "F5") {
         e.preventDefault();
         setUi({ bottomOpen: false });
