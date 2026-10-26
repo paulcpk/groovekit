@@ -195,7 +195,7 @@ namespace
                 };
 
                 addSends (true);
-                insertFaders[insert.id] = &addFader (track, insert.volumeDb, insert.pan);
+                result.insertFaders[insert.id] = insertFaders[insert.id] = &addFader (track, insert.volumeDb, insert.pan);
                 addSends (false);
 
                 track.setMute (insert.mute);
@@ -234,7 +234,7 @@ namespace
                     result.plugins["channel:" + channel.id] = plugin.get();
                 }
 
-                channelFaders[channel.id] = &addFader (track, channel.volumeDb, channel.pan);
+                result.channelFaders[channel.id] = channelFaders[channel.id] = &addFader (track, channel.volumeDb, channel.pan);
                 track.setMute (channel.mute);
                 track.getOutput().setOutputToTrack (result.insertTracks.at (channel.insert));
             }

@@ -15,7 +15,8 @@ namespace library { class SampleLibrary; }
     Requests: execute, undo, redo, get, getSummary, getHistory, render, analyze, analyzeMix, master,
     listEffects, hello, library.*, plugins.*, and with a live engine transport.*, record.* and audio.*.
     Notifications to clients: "snapshot" on connect, "patch" after every change from any client,
-    "libraryProgress" and "pluginScanProgress" while scanning, "transport" while playing.
+    "libraryProgress" and "pluginScanProgress" while scanning, "transport" while playing, "levels"
+    while there's signal.
     See docs/protocol.md.
 */
 class ApiHandler
@@ -56,7 +57,10 @@ private:
     std::string lastOrigin;
     int renderCount = 0;
 
+    std::map<std::string, std::pair<std::filesystem::file_time_type, model::Json>> peaksCache;
+
     model::Json render (const model::Json& params);
+    model::Json peaks (const model::Json& params);
     model::Json callLibrary (const std::string& method, const model::Json& params);
     model::Json callLive (const std::string& method, const model::Json& params, Client&);
     model::Json callPlugins (const std::string& method, const model::Json& params);

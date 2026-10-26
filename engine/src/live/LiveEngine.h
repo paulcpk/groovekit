@@ -2,6 +2,7 @@
 
 #include "compiler/EditCompiler.h"
 #include "live/MidiClock.h"
+#include "live/SamplePreview.h"
 #include "session/Session.h"
 
 #include <juce_events/juce_events.h>
@@ -128,6 +129,19 @@ public:
     /** Called on the message thread about 30 times a second while playing, and on every start and stop. */
     std::function<void (const TransportState&)> onTransportChange;
 
+    /** Peak output levels (linear, since the last report) of every insert (left, right) and channel. */
+    struct Levels
+    {
+        std::map<model::Id, std::pair<float, float>> inserts;
+        std::map<model::Id, float> channels;
+    };
+
+    /** Called on the message thread about 30 times a second while there's signal, and once when it stops. */
+    std::function<void (const Levels&)> onLevels;
+
+    /** Auditions a sample file on the audio device, independent of the song. */
+    SamplePreview& getPreview()         { return preview; }
+
     /** Recompiles now if the project changed since the last build (normally done asynchronously). */
     void updateNow();
 
@@ -142,6 +156,8 @@ private:
     CompiledEdit compiled;
     std::shared_ptr<MidiClock> midiClock = std::make_shared<MidiClock>();
     const void* clockPlugin = nullptr;  // the live Edit's, the clock's source
+    SamplePreview preview;
+    bool hadSignal = false;
     int listenerId = 0;
     bool needsRebuild = false;
 
@@ -183,6 +199,7 @@ private:
     void handleAsyncUpdate() override;
     void timerCallback() override;
     void notifyTransport (bool force);
+    void reportLevels();
 };
 
 } // namespace gk

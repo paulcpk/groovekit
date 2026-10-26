@@ -4,11 +4,14 @@
 //   groovekit-mcp [--project <folder>] [--engine <path>] [--port 7878]
 //   groovekit-mcp --url ws://127.0.0.1:7878
 //
-// By default it starts the engine itself (the repository's debug build) on the project
-// folder from --project, GROOVEKIT_PROJECT or ~/Music/GrooveKit/Scratch, and stops it on exit.
-// With --url it connects to an engine that is already serving instead.
+// By default it works on the project folder from --project, GROOVEKIT_PROJECT or
+// ~/Music/GrooveKit/Scratch. If an engine is already serving that project (the GrooveKit app,
+// found through engine.json in the app data folder), it connects to it, so the app shows the
+// agent's changes live. Otherwise it starts the engine itself (the repository's debug build)
+// and stops it on exit. With --url it connects to that engine instead.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -40,13 +43,26 @@ function freePort(): Promise<number> {
   });
 }
 
-let engineProcess: ChildProcess | undefined;
-const port = values.port ?? String(values.url ? 7878 : await freePort());
+/** The URL of a live engine already serving this project, from the file every serving engine writes. */
+function runningEngine(project: string): string | undefined {
+  try {
+    const info = JSON.parse(readFileSync(join(homedir(), "Library", "Application Support", "GrooveKit", "engine.json"), "utf8"));
+    process.kill(info.pid, 0); // throws if it's gone
+    return resolve(info.project) === project ? info.url : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
-if (!values.url) {
-  // Resolved here rather than in .mcp.json, so nothing depends on the working directory or shell expansion.
+// Resolved here rather than in .mcp.json, so nothing depends on the working directory or shell expansion.
+const project = resolve(values.project ?? process.env.GROOVEKIT_PROJECT ?? join(homedir(), "Music", "GrooveKit", "Scratch"));
+const sharedUrl = values.url ?? (values.port ? undefined : runningEngine(project));
+
+let engineProcess: ChildProcess | undefined;
+const port = values.port ?? String(sharedUrl ? 7878 : await freePort());
+
+if (!sharedUrl) {
   const enginePath = values.engine ?? resolve(import.meta.dirname, "..", "..", "build", "dev", "engine", "groovekit-engine");
-  const project = resolve(values.project ?? process.env.GROOVEKIT_PROJECT ?? join(homedir(), "Music", "GrooveKit", "Scratch"));
 
   // stdout belongs to MCP, so the engine's output goes to stderr.
   engineProcess = spawn(enginePath, ["serve", project, "--port", port, "--parent-pid", String(process.pid)],
@@ -55,7 +71,7 @@ if (!values.url) {
   engineProcess.on("exit", (code) => console.error(`groovekit-engine exited (${code})`));
 }
 
-const url = values.url ?? `ws://127.0.0.1:${port}`;
+const url = sharedUrl ?? `ws://127.0.0.1:${port}`;
 const engine = new EngineClient(url, "agent");
 
 if (engineProcess) {

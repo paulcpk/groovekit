@@ -8,9 +8,11 @@
 #include "plugins/PluginCatalog.h"
 #include "render/Render.h"
 
+#include <nlohmann/json.hpp>
 #include <tracktion_engine/tracktion_engine.h>
 
 #include <csignal>
+#include <fstream>
 #include <signal.h>
 #include <iostream>
 
@@ -133,6 +135,16 @@ Add --verbose to see engine log messages.
 
         std::cout << "Serving " << args.positional[1] << " on ws://127.0.0.1:" << port << std::endl;
 
+        // Lets other clients (the UI, the MCP server) find this engine rather than start another
+        // one on the same project.
+        const auto discovery = gk::EngineContext::getAppDataFolder() / "engine.json";
+        const auto pid = static_cast<int> (getpid());
+        {
+            std::ofstream out (discovery);
+            out << nlohmann::json { { "url", "ws://127.0.0.1:" + std::to_string (port) }, { "port", port }, { "pid", pid },
+                                    { "project", session->getProjectDir()->string() } }.dump (2);
+        }
+
         // With --parent-pid (the MCP server passes its own), quit when that process is gone, so a
         // client that dies without cleaning up doesn't leave an engine behind.
         const auto parent = args.get ("--parent-pid");
@@ -148,6 +160,19 @@ Add --verbose to see engine log messages.
         }
 
         server.stop();
+
+        // Only if a newer engine hasn't taken over the file.
+        try
+        {
+            std::ifstream in (discovery);
+
+            if (nlohmann::json::parse (in).value ("pid", 0) == pid)
+                std::filesystem::remove (discovery);
+        }
+        catch (const std::exception&)
+        {
+        }
+
         return 0;
     }
 

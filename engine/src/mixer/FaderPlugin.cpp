@@ -79,14 +79,33 @@ void FaderPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
     {
         juce::FloatVectorOperations::multiply (left, leftGain.getCurrentValue(), fc.bufferNumSamples);
         juce::FloatVectorOperations::multiply (right, rightGain.getCurrentValue(), fc.bufferNumSamples);
-        return;
+    }
+    else
+    {
+        for (int i = 0; i < fc.bufferNumSamples; ++i)
+        {
+            left[i] *= leftGain.getNextValue();
+            right[i] *= rightGain.getNextValue();
+        }
     }
 
-    for (int i = 0; i < fc.bufferNumSamples; ++i)
+    auto keepPeak = [] (std::atomic<float>& peak, const float* data, int n)
     {
-        left[i] *= leftGain.getNextValue();
-        right[i] *= rightGain.getNextValue();
-    }
+        const auto range = juce::FloatVectorOperations::findMinAndMax (data, n);
+        const auto level = std::max (std::abs (range.getStart()), std::abs (range.getEnd()));
+
+        for (auto current = peak.load(); level > current && ! peak.compare_exchange_weak (current, level);)
+        {
+        }
+    };
+
+    keepPeak (peakLeft, left, fc.bufferNumSamples);
+    keepPeak (peakRight, right, fc.bufferNumSamples);
+}
+
+std::pair<float, float> FaderPlugin::takePeaks()
+{
+    return { peakLeft.exchange (0.0f), peakRight.exchange (0.0f) };
 }
 
 } // namespace gk::mixer

@@ -102,6 +102,24 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
                                                         { "position", t.position }, { "seconds", t.seconds } }).dump());
         };
 
+    if (live != nullptr)
+        live->onLevels = [this] (const LiveEngine::Levels& levels)
+        {
+            if (! broadcast)
+                return;
+
+            auto round = [] (float v) { return std::round (v * 1000.0f) / 1000.0f; };
+            Json inserts = Json::object(), channels = Json::object();
+
+            for (auto& [id, peak] : levels.inserts)
+                inserts[id] = Json::array ({ round (peak.first), round (peak.second) });
+
+            for (auto& [id, peak] : levels.channels)
+                channels[id] = round (peak);
+
+            broadcast (notification ("levels", { { "inserts", inserts }, { "channels", channels } }).dump());
+        };
+
     listenerId = session.addListener ([this] (const Change& change)
     {
         if (! broadcast)
@@ -127,7 +145,10 @@ ApiHandler::~ApiHandler()
     *alive = false;
 
     if (live != nullptr)
+    {
         live->onTransportChange = {};
+        live->onLevels = {};
+    }
 
     session.removeListener (listenerId);
 }
@@ -200,7 +221,12 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
         if (params.contains ("origin"))
             client.origin = readParam<std::string> (params, "origin");
 
-        return { { "server", "groovekit-engine" }, { "protocol", 1 } };
+        Json result { { "server", "groovekit-engine" }, { "protocol", 1 } };
+
+        if (auto dir = session.getProjectDir())
+            result["project"] = dir->string();
+
+        return result;
     }
 
     if (method == "execute")
@@ -298,16 +324,69 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
     if (method == "listEffects")
         return effects::catalogueToJson();
 
+    if (method == "audio.peaks")
+        return peaks (params);
+
     if (method.starts_with ("library."))
         return callLibrary (method.substr (8), params);
 
-    if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio.") || method.starts_with ("midi."))
+    if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio.") || method.starts_with ("midi.")
+        || method.starts_with ("preview."))
         return callLive (method, params, client);
 
     if (method.starts_with ("plugins."))
         return callPlugins (method.substr (8), params);
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+Json ApiHandler::peaks (const Json& params)
+{
+    auto path = std::filesystem::path (readParam<std::string> (params, "path"));
+
+    if (path.is_relative())
+        if (auto dir = session.getProjectDir())
+            path = *dir / path;
+
+    const auto resolution = std::clamp (optionalNumber (params, "resolution").value_or (100.0), 1.0, 1000.0);
+    const auto key = path.string() + "@" + std::to_string (resolution);
+    std::error_code ec;
+    const auto modified = std::filesystem::last_write_time (path, ec);
+
+    if (ec)
+        throw RpcError (operationFailed, "no file \"" + path.string() + "\"");
+
+    if (auto it = peaksCache.find (key); it != peaksCache.end() && it->second.first == modified)
+        return it->second.second;
+
+    const auto audio = analysis::loadAudio (path);
+    const auto& buffer = audio.buffer;
+    const auto perPeak = std::max (1, static_cast<int> (std::round (audio.sampleRate / resolution)));
+    auto values = Json::array();
+
+    for (int start = 0; start < buffer.getNumSamples(); start += perPeak)
+    {
+        const auto n = std::min (perPeak, buffer.getNumSamples() - start);
+        float peak = 0;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            peak = std::max (peak, buffer.getMagnitude (ch, start, n));
+
+        values.push_back (std::round (std::min (peak, 1.0f) * 1000.0f) / 1000.0f);
+    }
+
+    Json result { { "durationSeconds", buffer.getNumSamples() / audio.sampleRate },
+                  { "sampleRate", audio.sampleRate },
+                  { "channels", buffer.getNumChannels() },
+                  { "resolution", audio.sampleRate / perPeak },
+                  { "peaks", std::move (values) } };
+
+    // Waveforms are asked for again on every redraw of a song; keep a few dozen.
+    if (peaksCache.size() > 64)
+        peaksCache.clear();
+
+    peaksCache[key] = { modified, result };
+    return result;
 }
 
 Json ApiHandler::render (const Json& params)
@@ -427,6 +506,32 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         auto t = live->getTransportState();
         return Json { { "playing", t.playing }, { "recording", t.recording }, { "position", t.position }, { "seconds", t.seconds } };
     };
+
+    if (method == "preview.play")
+    {
+        auto path = std::filesystem::path (readParam<std::string> (params, "path"));
+
+        if (path.is_relative())
+            if (auto dir = session.getProjectDir())
+                path = *dir / path;
+
+        try
+        {
+            live->getPreview().play (path, static_cast<float> (optionalNumber (params, "gainDb").value_or (-6.0)));
+        }
+        catch (const std::exception& e)
+        {
+            throw RpcError (operationFailed, e.what());
+        }
+
+        return { { "playing", true } };
+    }
+
+    if (method == "preview.stop")
+    {
+        live->getPreview().stop();
+        return { { "playing", false } };
+    }
 
     if (method == "transport.state")    return state();
     if (method == "transport.play")     { live->play(); return state(); }

@@ -17,13 +17,15 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 
 `kind` is `execute`, `undo` or `redo`. For undo, `ops` are the entry's inverse.
 
-While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second.
+While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second. While there's signal, `levels` notifications (`{ inserts: { id: [left, right] }, channels: { id: peak } }`, linear peaks since the last one) arrive at the same rate, and once more when it stops.
+
+A serving engine writes `~/Library/Application Support/GrooveKit/engine.json` (`{ url, port, pid, project }`), so other clients can connect to it rather than start another engine on the same project.
 
 ## Methods
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `hello` | `origin?`: name recorded in history for this connection's changes (`ui`, `agent`, ...) | `{ server, protocol }` |
+| `hello` | `origin?`: name recorded in history for this connection's changes (`ui`, `agent`, ...) | `{ server, protocol, project }` |
 | `execute` | `commands`: Command[], `group?`, `label?` | `{ entry, label }` |
 | `undo` / `redo` | `wholeGroup?` (default true) | `{ changed, head }` |
 | `get` | `path?`: JSON Pointer into song.json (default: everything) | the value |
@@ -44,6 +46,8 @@ While playing, `transport` notifications (`{ playing, recording, position, secon
 | `midi.devices` | | `{ outputs: [{ name, enabled, clock }], inputs }` |
 | `midi.setClock` | `output`, `enabled?` (true) | same as `midi.devices`; sends clock, start and stop so hardware follows GrooveKit |
 | `record.stop` | `group?` | `{ clips: [id], transport }`; the takes become audio clips (files in `<project>/recordings`) |
+| `audio.peaks` | `path` (absolute or relative to the project), `resolution?` (peaks a second, default 100) | `{ durationSeconds, sampleRate, channels, resolution, peaks: [0..1] }`, the highest level of each slice over all channels, for drawing waveforms |
+| `preview.play` / `preview.stop` | `path`, `gainDb?` (-6) | `{ playing }`; auditions a file on the audio device, independent of the song |
 | `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, sampleRate, bufferSize } }` |
 | `audio.setDevice` | `type?`, `output?`, `input?`, `sampleRate?`, `bufferSize?` | same as `audio.devices` |
 | `plugins.scan` / `plugins.status` | | `{ running, scanned, total, current, plugins }`; `pluginScanProgress` notifications while scanning |

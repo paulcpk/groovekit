@@ -26,6 +26,9 @@ public:
     void setVolumeDb (float);
     void setPan (float);
 
+    /** The highest output sample levels (linear) since the last call, for meters. */
+    std::pair<float, float> takePeaks();
+
     juce::String getName() const override               { return getPluginName(); }
     juce::String getPluginType() override               { return xmlTypeName; }
     juce::String getShortName (int) override            { return "Fader"; }
@@ -43,6 +46,7 @@ public:
 
 private:
     juce::SmoothedValue<float> leftGain, rightGain;
+    std::atomic<float> peakLeft { 0.0f }, peakRight { 0.0f };
 
     std::pair<float, float> getTargetGains() const;
 

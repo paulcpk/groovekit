@@ -16,6 +16,7 @@ target_sources(gk_engine PRIVATE
     src/live/LiveEngine.cpp
     src/live/MidiClock.cpp
     src/live/MidiClockPlugin.cpp
+    src/live/SamplePreview.cpp
     src/mixer/FaderPlugin.cpp
     src/mixer/LimiterPlugin.cpp
     src/model/Project.cpp

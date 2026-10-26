@@ -3,6 +3,7 @@
 #include "EngineContext.h"
 #include "compiler/EditGraveyard.h"
 #include "live/MidiClockPlugin.h"
+#include "mixer/FaderPlugin.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
 
@@ -69,6 +70,7 @@ LiveEngine::~LiveEngine()
     midiClock->setSource (nullptr);
     midiClock->stopNow();
     context.getEngine().getDeviceManager().deviceManager.removeAudioCallback (midiClock.get());
+    context.getEngine().getDeviceManager().deviceManager.removeAudioCallback (&preview);
 
     if (compiled.edit != nullptr)
         transport().stop (false, true);
@@ -82,6 +84,8 @@ void LiveEngine::openDefaultAudioDevice()
     // After Tracktion's own callback, so each cycle's clock is complete when it's sent.
     devices.deviceManager.removeAudioCallback (midiClock.get());
     devices.deviceManager.addAudioCallback (midiClock.get());
+    devices.deviceManager.removeAudioCallback (&preview);
+    devices.deviceManager.addAudioCallback (&preview);
 
     pairStereoInputs();
 
@@ -668,6 +672,36 @@ void LiveEngine::timerCallback()
         stopRecording();
 
     notifyTransport (false);
+    reportLevels();
+}
+
+void LiveEngine::reportLevels()
+{
+    if (! onLevels || compiled.edit == nullptr)
+        return;
+
+    Levels levels;
+    bool signal = false;
+
+    for (auto& [id, fader] : compiled.insertFaders)
+    {
+        const auto peaks = fader->takePeaks();
+        levels.inserts[id] = peaks;
+        signal = signal || peaks.first > 1.0e-5f || peaks.second > 1.0e-5f;
+    }
+
+    for (auto& [id, fader] : compiled.channelFaders)
+    {
+        const auto [l, r] = fader->takePeaks();
+        levels.channels[id] = std::max (l, r);
+        signal = signal || levels.channels[id] > 1.0e-5f;
+    }
+
+    // Once more after the signal stops, so meters fall to zero.
+    if (signal || hadSignal)
+        onLevels (levels);
+
+    hadSignal = signal;
 }
 
 void LiveEngine::notifyTransport (bool force)

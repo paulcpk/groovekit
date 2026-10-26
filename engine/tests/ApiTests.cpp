@@ -237,3 +237,19 @@ TEST_CASE ("Mastering converges on quiet material and keeps true peak under the 
     CHECK (r["result"]["reachedTarget"] == true);
     CHECK (r["result"]["truePeakDb"].get<double>() <= -0.9);
 }
+
+TEST_CASE ("The API gives waveform peaks of audio files")
+{
+    Harness h;
+    auto r = h.call ("audio.peaks", { { "path", test::fixture ("beep.wav").string() }, { "resolution", 100 } });
+    INFO (r.dump());
+    REQUIRE (r.contains ("result"));
+
+    auto& peaks = r["result"]["peaks"];
+    const auto duration = r["result"]["durationSeconds"].get<double>();
+    CHECK (duration > 0);
+    CHECK (std::abs (static_cast<double> (peaks.size()) - duration * 100) <= 1.0);
+    CHECK (std::any_of (peaks.begin(), peaks.end(), [] (auto& p) { return p.template get<double>() > 0.1; }));
+
+    CHECK (h.call ("audio.peaks", { { "path", "/nowhere.wav" } })["error"]["code"] == 2);
+}

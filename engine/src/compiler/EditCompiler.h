@@ -4,6 +4,8 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
+namespace gk::mixer { class FaderPlugin; }
+
 namespace gk
 {
 
@@ -31,6 +33,9 @@ struct CompiledEdit
 
     std::map<model::Id, tracktion::AudioTrack*> insertTracks;
     std::map<model::Id, tracktion::AudioTrack*> channelTracks;
+
+    /** The volume and pan stage of each insert and channel, which also meters them. */
+    std::map<model::Id, mixer::FaderPlugin*> insertFaders, channelFaders;
 
     /** Instruments as "channel:<id>" and effects as "effect:<insert>/<effect>". */
     std::map<std::string, tracktion::Plugin*> plugins;
