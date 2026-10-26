@@ -149,20 +149,28 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
   server.registerTool(
     "render",
     {
-      description: "Renders the song (or bars of it) offline to a 48 kHz WAV and returns its path with peak, true peak, RMS, integrated/short-term/momentary LUFS, loudness range, spectral balance (10 bands, dB share), stereo correlation and onset times. Use this to check levels, tone and timing after changes.",
+      description: "Renders the song (or bars of it) offline to a WAV (48 kHz 24-bit unless chosen) and returns its path with peak, true peak, RMS, integrated/short-term/momentary LUFS, loudness range, spectral balance (10 bands, dB share), stereo correlation and onset times. Use this to check levels, tone and timing after changes. With stems, each mixer insert is also rendered on its own (soloed) next to the mix, for the user to take elsewhere.",
       inputSchema: {
         startBar: z.number().min(1).optional().describe("First bar, 1-based; default the start"),
         endBar: z.number().min(1).optional().describe("Bar to stop before; default the end of the last clip"),
         tailSeconds: z.number().min(0).max(30).optional().describe("Extra time for reverb and release tails"),
+        path: z.string().optional().describe("Where to write the WAV; default <project>/renders/"),
+        sampleRate: z.number().min(8000).max(192000).optional(),
+        bitDepth: z.union([z.literal(16), z.literal(24), z.literal(32)]).optional(),
+        stems: z.boolean().optional(),
       },
     },
-    ({ startBar, endBar, tailSeconds }) =>
+    ({ startBar, endBar, tailSeconds, path, sampleRate, bitDepth, stems }) =>
       attempt(async () => {
         await engine.connect();
         return engine.call("render", {
           ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
           ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
           ...(tailSeconds !== undefined ? { tailSeconds } : {}),
+          ...(path !== undefined ? { path } : {}),
+          ...(sampleRate !== undefined ? { sampleRate } : {}),
+          ...(bitDepth !== undefined ? { bitDepth } : {}),
+          ...(stems !== undefined ? { stems } : {}),
         });
       })
   );
