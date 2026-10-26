@@ -1,44 +1,71 @@
 ---
 /**
- * The app, drawn in HTML and CSS (no screenshot): transport bar, the sidebar's Agent tab, the
- * playlist and the channel rack, with the agent's latest changes outlined in its colour.
+ * The app, drawn in HTML and CSS (no screenshot): top bar, the sidebar's Agent tab with a chat,
+ * the playlist and the channel rack, with what the agent just changed outlined in its colour.
  * Decorative: screen readers get one sentence instead.
  */
 const BARS = 8;
+const BAR_SECONDS = 1.875; // one bar at 128 BPM
 
-// Playlist: track name, then clips as [start bar (0-based), length in bars, label, colour, agent?]
-type Clip = [number, number, string, string, boolean?];
-const tracks: { name: string; clips: Clip[]; kind?: "audio" | "auto" }[] = [
-  { name: "Drums", clips: [[0, 8, "Groove", "#f2a33a"]] },
-  { name: "Bass", clips: [[2, 6, "Bass", "#5cc8c0", true]] },
-  { name: "Hats", clips: [[1, 3, "Hats", "#e2789b", true], [4, 4, "Hats", "#e2789b", true]] },
-  { name: "Digitakt", kind: "audio", clips: [[0, 4, "rec-track3", "#6aa5f0"], [4, 4, "rec-track3", "#6aa5f0"]] },
-  { name: "Filter", kind: "auto", clips: [[4, 4, "Bass · lowpass", "#a78bfa", true]] },
+// Playlist: clips as [start bar (0-based), length in bars, label, agent?]. Colours are the app's
+// channel palette; insert is where the track's audio clips play; vol in dB, pan -1..1.
+type Clip = [number, number, string, boolean?];
+const tracks: { name: string; color: string; insert: string; vol: number; pan: number; clips: Clip[]; kind?: "audio" | "auto"; agent?: boolean }[] = [
+  { name: "Drums", color: "#e8915a", insert: "Master", vol: 0, pan: 0, clips: [[0, 8, "Groove"]] },
+  { name: "Bass", color: "#5ec4a9", insert: "Master", vol: -3, pan: 0, clips: [[2, 6, "Bass"]] },
+  { name: "Hats", color: "#d673b3", insert: "Drums", vol: -6, pan: -0.25, clips: [[1, 3, "Hats"], [4, 4, "Hats"]] },
+  { name: "Digitakt", color: "#6f9de8", insert: "Drums", vol: -4.5, pan: 0.2, kind: "audio", clips: [[0, 4, "rec-track3"], [4, 4, "rec-track3"]] },
+  { name: "Duck", color: "#8f86e3", insert: "Master", vol: 0, pan: 0, kind: "auto", agent: true, clips: [[2, 6, "Bass · volume", true]] },
 ];
 
-// Channel rack: 16 steps per row, 1 = on.
-const rows: { name: string; steps: string; agent?: boolean }[] = [
-  { name: "Kick", steps: "1000100010001000" },
-  { name: "Clap", steps: "0000100000001000" },
-  { name: "Hat", steps: "0010001000100010", agent: true },
-  { name: "Bass", steps: "0010011000100110", agent: true },
+// Channel rack: 16 steps per row. "." off; x, o, s on at velocity 127, 100 and 60 (the pad's
+// strength is 45% + velocity/127 × 55%, as in the app).
+const VEL: Record<string, string> = { x: "100%", o: "88%", s: "71%" };
+const rows: { name: string; color: string; steps: string; agent?: boolean }[] = [
+  { name: "Kick", color: "#e8915a", steps: "o...o...o...o...", agent: true },
+  { name: "Clap", color: "#e3b448", steps: "....o.......o..s" },
+  { name: "Hat", color: "#d673b3", steps: "s.x.s.x.s.x.s.xs" },
+  { name: "Bass", color: "#5ec4a9", steps: "..o..oo...o..oo." },
 ];
 
-const activity = [
-  { label: "Master to −14 LUFS", n: 1, t: "now" },
-  { label: "Carve room for the kick", n: 2, t: "12s" },
-  { label: "Dark techno groove", n: 16, t: "40s" },
+// The Agent tab's chat: one request and what the agent did with it.
+type Item =
+  | { kind: "user" | "assistant" | "note"; text: string }
+  | { kind: "tool"; label: string; summary?: string };
+const chat: Item[] = [
+  { kind: "user", text: "Darker kick, and duck the bass under it" },
+  { kind: "tool", label: "Search samples", summary: "dark kick" },
+  { kind: "note", text: "Industrial Kick 03 has more sub. I’ll duck the bass with a volume clip on each kick." },
+  { kind: "tool", label: "Edit the song", summary: "Swap kick, duck bass" },
+  { kind: "tool", label: "Render and measure" },
+  { kind: "assistant", text: "Swapped in a darker kick and dipped the bass 4 dB on every hit. ⌘Z undoes both." },
 ];
+
+/** A small knob as the app draws it (Knob in ui/src/components/controls.tsx), at size 18. */
+function knob(value: number, min: number, max: number, bipolar = false) {
+  const c = 9, r = 6, start = -135, sweep = 270;
+  const angle = start + ((value - min) / (max - min)) * sweep;
+  const origin = bipolar ? start + sweep / 2 : start;
+  const p = (a: number) => [c + r * Math.sin((a * Math.PI) / 180), c - r * Math.cos((a * Math.PI) / 180)].map((n) => n.toFixed(2));
+  const arc = (a0: number, a1: number) => {
+    const [from, to] = a0 < a1 ? [a0, a1] : [a1, a0];
+    const [x0, y0] = p(from), [x1, y1] = p(to);
+    return `M ${x0} ${y0} A ${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${x1} ${y1}`;
+  };
+  const tip = [c + (r - 4) * Math.sin((angle * Math.PI) / 180), c - (r - 4) * Math.cos((angle * Math.PI) / 180)].map((n) => n.toFixed(2));
+  return { track: arc(start, start + sweep), value: Math.abs(angle - origin) > 0.5 ? arc(origin, angle) : undefined, tip };
+}
 
 // Pseudo-random but fixed waveform heights for the audio clips.
 const wave = Array.from({ length: 48 }, (_, i) => 25 + Math.round(70 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.6))));
-const BAR_SECONDS = 1.875; // one bar at 128 BPM
+// The ducking curve: down on every beat, back up before the next (32 beats over 8 bars, clip from bar 3).
+const duck = Array.from({ length: 24 }, (_, b) => `M${(b / 24) * 100} 5 L${(b / 24) * 100 + 0.4} 15 L${((b + 0.85) / 24) * 100} 5`).join(" ");
 ---
 
 <div
   class="relative overflow-hidden rounded-2xl bg-panel text-left shadow-[0_40px_120px_-30px_rgb(0_0_0/0.9)] ring-1 ring-line"
   role="img"
-  aria-label="Illustration of the GrooveKit window: the playlist and channel rack, with clips and steps the agent just added outlined in violet, and the Agent tab listing its latest changes."
+  aria-label="Illustration of the GrooveKit window: the agent chat in the sidebar, where a request for a darker kick and a ducked bass has been carried out, next to the playlist and channel rack with the agent's changes outlined in violet."
 >
   <!-- Title bar -->
   <div class="flex h-9 items-center gap-2 border-b border-line bg-raised/60 px-3.5">
@@ -48,24 +75,41 @@ const BAR_SECONDS = 1.875; // one bar at 128 BPM
     <span class="ml-3 truncate text-xs text-faint">Night Drive — GrooveKit</span>
   </div>
 
-  <!-- Transport -->
+  <!-- Top bar: PAT | SONG, transport, position, tempo -->
   <div class="flex items-center gap-2 border-b border-line px-3 py-2 text-[11px] sm:gap-3">
-    <span class="grid size-7 place-items-center rounded-md bg-accent/15 text-accent">
-      <svg viewBox="0 0 12 12" class="size-3" fill="currentColor"><path d="M3 2v8l7-4z"></path></svg>
+    <span class="flex shrink-0 items-center rounded-[4px] bg-bg p-0.5 text-[9px] font-semibold tracking-wide">
+      <span class="rounded-[3px] px-1.5 py-0.5 text-faint">PAT</span>
+      <span class="rounded-[3px] bg-hover px-1.5 py-0.5 text-fg">SONG</span>
     </span>
-    <span class="grid size-7 place-items-center rounded-md bg-control text-dim">
-      <svg viewBox="0 0 12 12" class="size-2.5" fill="currentColor"><rect x="2" y="2" width="8" height="8" rx="1"></rect></svg>
+    <span class="flex shrink-0 items-center gap-0.5 text-dim">
+      <!-- Playing: pause, lit -->
+      <span class="grid size-6 place-items-center rounded-[4px] bg-accent text-accent-ink">
+        <svg viewBox="0 0 24 24" class="size-3" fill="currentColor"><rect x="14" y="3" width="5" height="18" rx="1"></rect><rect x="5" y="3" width="5" height="18" rx="1"></rect></svg>
+      </span>
+      <span class="grid size-6 place-items-center">
+        <svg viewBox="0 0 24 24" class="size-2.5" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
+      </span>
+      <span class="grid size-6 place-items-center text-rec">
+        <svg viewBox="0 0 24 24" class="size-2.5" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"></circle></svg>
+      </span>
+      <span class="hidden size-6 place-items-center sm:grid">
+        <svg viewBox="0 0 24 24" class="size-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"></path><path d="M3 11v-1a4 4 0 0 1 4-4h14"></path><path d="m7 22-4-4 4-4"></path><path d="M21 13v1a4 4 0 0 1-4 4H3"></path></svg>
+      </span>
+      <span class="hidden size-6 place-items-center sm:grid">
+        <svg viewBox="0 0 24 24" class="size-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 11.4V9.1"></path><path d="m12 17 6.59-6.59"></path><path d="m15.05 5.7-.218-.691a3 3 0 0 0-5.663 0L4.418 19.695A1 1 0 0 0 5.37 21h13.253a1 1 0 0 0 .951-1.31L18.45 16.2"></path><circle cx="20" cy="9" r="2"></circle></svg>
+      </span>
+      <span class="hidden size-6 place-items-center sm:grid">
+        <svg viewBox="0 0 24 24" class="size-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="M6 8h4"></path><path d="M14 8h.01"></path><path d="M18 8h.01"></path><path d="M2 12h20"></path><path d="M6 12v4"></path><path d="M10 12v4"></path><path d="M14 12v4"></path><path d="M18 12v4"></path></svg>
+      </span>
     </span>
-    <span class="flex overflow-hidden rounded-md ring-1 ring-line">
-      <span class="px-2 py-1 font-semibold text-faint">PAT</span>
-      <span class="bg-accent px-2 py-1 font-semibold text-accent-ink">SONG</span>
+    <span class="hidden shrink-0 items-center gap-2 rounded-[4px] bg-bg px-2 py-1 font-mono tabular-nums sm:flex">
+      <span class="text-fg">5:1:01</span><span class="text-faint">0:07.50</span>
     </span>
-    <span class="rounded-md bg-bg px-2 py-1 font-mono tabular-nums">128.000</span>
-    <span class="hidden rounded-md bg-bg px-2 py-1 font-mono text-dim tabular-nums sm:inline">5:1:01</span>
-    <span class="ml-auto hidden items-center gap-1.5 text-faint sm:flex">
+    <span class="flex shrink-0 items-baseline gap-1 tabular-nums">128 <span class="text-[9px] text-faint">BPM</span></span>
+    <span class="ml-auto hidden items-center gap-1.5 text-faint md:flex">
       <span class="size-1.5 rounded-full bg-agent gk-pulse"></span> agent connected
     </span>
-    <span class="ml-auto flex h-5 items-end gap-0.5 sm:ml-2" aria-hidden="true">
+    <span class="ml-auto flex h-5 items-end gap-0.5 md:ml-2" aria-hidden="true">
       {[0, 1].map((i) => (
         <span class="h-full w-1.5 overflow-hidden rounded-sm bg-control">
           <span
@@ -78,34 +122,51 @@ const BAR_SECONDS = 1.875; // one bar at 128 BPM
   </div>
 
   <div class="grid grid-cols-1 md:grid-cols-[13.5rem_minmax(0,1fr)]">
-    <!-- Sidebar: Agent tab -->
-    <aside class="hidden border-r border-line bg-panel md:block">
-      <div class="flex gap-1 border-b border-line p-2 text-[11px] font-medium">
-        <span class="rounded px-2 py-1 text-faint">Browser</span>
-        <span class="rounded px-2 py-1 text-faint">History</span>
-        <span class="flex items-center gap-1 rounded bg-control px-2 py-1 text-fg">
-          Agent <span class="size-1.5 rounded-full bg-agent"></span>
-        </span>
-      </div>
-      <div class="space-y-3 p-3">
-        {activity.map((a, i) => (
-          <div>
-            <div class="flex items-center gap-1.5 text-[9px] tracking-wide text-faint uppercase">
-              <svg viewBox="0 0 12 12" class="size-2.5 text-agent" fill="currentColor"><rect x="2" y="4" width="8" height="6" rx="1.5"></rect><rect x="5.4" y="1" width="1.2" height="3"></rect></svg>
-              agent · {a.n} change{a.n === 1 ? "" : "s"} · {a.t}
-            </div>
-            <div
-              class:list={[
-                "mt-1 rounded-md px-2 py-1.5 text-[11px] leading-snug",
-                i === 0 ? "bg-agent/10 text-fg ring-1 ring-agent/30" : "bg-raised text-dim",
-              ]}
-            >
-              {a.label}
-            </div>
+    <!-- Sidebar: Agent tab, Chat. Absolutely placed, so the conversation never makes the window taller. -->
+    <aside class="relative hidden border-r border-line bg-panel md:block">
+      <div class="absolute inset-0 flex flex-col">
+        <div class="flex shrink-0 gap-0.5 border-b border-line p-1.5 text-[11px]">
+          <span class="rounded-[4px] px-2 py-1 text-dim">Browser</span>
+          <span class="rounded-[4px] px-2 py-1 text-dim">History</span>
+          <span class="flex items-center gap-1 rounded-[4px] bg-control px-2 py-1 text-fg">
+            Agent <span class="size-1.5 rounded-full bg-agent"></span>
+          </span>
+        </div>
+        <div class="flex shrink-0 items-center gap-0.5 border-b border-line p-1.5 text-[10.5px]">
+          <span class="rounded-[4px] bg-control px-2 py-0.5 text-fg">Chat</span>
+          <span class="rounded-[4px] px-2 py-0.5 text-dim">Changes</span>
+          <svg viewBox="0 0 24 24" class="mr-1 ml-auto size-3 text-faint" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </div>
+        <!-- Bottom-anchored like a chat scrolled to its end: anything that doesn't fit leaves at the top. -->
+        <div class="flex min-h-0 flex-1 flex-col justify-end gap-2 overflow-hidden px-2.5 py-2.5">
+          {chat.map((item) => (
+            <>
+              {item.kind === "user" && (
+                <div class="ml-6 self-end rounded-[10px] rounded-br-[3px] bg-control px-2.5 py-1.5 text-[10.5px] leading-snug text-fg">{item.text}</div>
+              )}
+              {item.kind === "assistant" && <p class="text-[10.5px] leading-relaxed text-fg">{item.text}</p>}
+              {item.kind === "note" && (
+                <p class="border-l-2 border-agent/40 pl-2 text-[10px] leading-relaxed text-faint italic">{item.text}</p>
+              )}
+              {item.kind === "tool" && (
+                <div class="flex items-center gap-1.5 rounded-[6px] bg-raised px-2 py-1.5 text-[10px] ring-1 ring-line">
+                  <svg viewBox="0 0 24 24" class="size-2.5 shrink-0 text-ok" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                  <span class="shrink-0 text-fg">{item.label}</span>
+                  {item.summary && <span class="min-w-0 flex-1 truncate text-faint">{item.summary}</span>}
+                  <svg viewBox="0 0 24 24" class="ml-auto size-2.5 shrink-0 text-faint" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                </div>
+              )}
+            </>
+          ))}
+        </div>
+        <!-- Composer -->
+        <div class="shrink-0 border-t border-line p-2">
+          <div class="flex items-center gap-1.5 rounded-[8px] bg-bg py-1.5 pr-1.5 pl-2 ring-1 ring-line">
+            <span class="min-w-0 flex-1 truncate text-[10.5px] text-faint">Ask the agent…</span>
+            <span class="grid size-[18px] shrink-0 place-items-center rounded-[4px] bg-agent text-black">
+              <svg viewBox="0 0 24 24" class="size-2.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg>
+            </span>
           </div>
-        ))}
-        <div class="rounded-md border border-dashed border-line px-2 py-2 text-[10px] leading-snug text-faint">
-          Click a change to see it in the playlist, rack or mixer. ⌘Z undoes a whole request.
         </div>
       </div>
     </aside>
@@ -113,54 +174,82 @@ const BAR_SECONDS = 1.875; // one bar at 128 BPM
     <div class="min-w-0">
       <!-- Playlist -->
       <div class="relative">
-        <div class="grid grid-cols-[4.5rem_minmax(0,1fr)] border-b border-line text-[10px] text-faint sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+        <div class="grid grid-cols-[5.25rem_minmax(0,1fr)] border-b border-line text-[10px] text-faint sm:grid-cols-[8.75rem_minmax(0,1fr)]">
           <span class="px-2 py-1">Playlist</span>
           <div class="grid font-mono" style={`grid-template-columns:repeat(${BARS},minmax(0,1fr))`}>
             {Array.from({ length: BARS }, (_, i) => <span class="border-l border-line/60 px-1 py-1">{i + 1}</span>)}
           </div>
         </div>
-        {tracks.map((t) => (
-          <div class="grid h-8 grid-cols-[4.5rem_minmax(0,1fr)] border-b border-grid sm:h-9 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
-            <span class="flex items-center truncate border-r border-line bg-raised/40 px-2 text-[11px] text-dim">{t.name}</span>
-            <div
-              class="relative bg-[linear-gradient(to_right,var(--color-grid)_1px,transparent_1px)]"
-              style={`background-size:calc(100%/${BARS}) 100%`}
-            >
-              {t.clips.map(([start, len, label, color, agent]) => (
-                <div
-                  class:list={["absolute inset-y-1 overflow-hidden rounded-[4px]", agent && "gk-flash"]}
-                  style={`left:calc(${(start / BARS) * 100}% + 1px);width:calc(${(len / BARS) * 100}% - 2px);background:color-mix(in oklab, ${color} 22%, var(--color-panel));box-shadow:inset 0 0 0 1px color-mix(in oklab, ${color} 55%, transparent)`}
-                >
-                  <span class="block truncate px-1.5 pt-0.5 text-[9px] font-medium" style={`color:${color}`}>{label}</span>
-                  {t.kind === "audio" && (
-                    <span class="absolute inset-x-1 top-3.5 bottom-0.5 flex items-center gap-px" aria-hidden="true">
-                      {wave.slice(0, len * 6).map((h) => (
-                        <span class="flex-1 rounded-full" style={`height:${h}%;background:${color};opacity:.55`}></span>
-                      ))}
+        {tracks.map((t, n) => {
+          const vol = knob(t.vol, -60, 12);
+          const pan = knob(t.pan, -1, 1, true);
+          return (
+            <div class="grid h-9 grid-cols-[5.25rem_minmax(0,1fr)] border-b border-grid sm:h-11 sm:grid-cols-[8.75rem_minmax(0,1fr)]">
+              <!-- Track header: name, mute (the track number) and solo; then insert, volume and pan. -->
+              <div class:list={["flex min-w-0 items-stretch gap-1.5 border-r border-line pr-1", t.agent ? "bg-agent/10" : "bg-raised"]}>
+                <span class="w-1 shrink-0" style={`background:${t.color}`}></span>
+                <div class="flex min-w-0 flex-1 flex-col justify-center gap-1">
+                  <div class="flex items-center gap-1">
+                    <span class:list={["min-w-0 flex-1 truncate text-[10.5px]", t.agent ? "text-agent" : "text-fg"]}>{t.name}</span>
+                    <span class="grid h-3.5 min-w-3.5 place-items-center rounded-[3px] bg-accent px-0.5 text-[8.5px] leading-none font-semibold text-accent-ink">{n + 1}</span>
+                    <span class="hidden h-3.5 min-w-3.5 place-items-center rounded-[3px] bg-control px-0.5 sm:grid text-[8.5px] leading-none font-semibold text-dim">S</span>
+                  </div>
+                  <div class="hidden items-center gap-1 sm:flex">
+                    <span class="flex h-3.5 min-w-0 flex-1 items-center gap-0.5 rounded-[3px] bg-bg px-1 text-[8.5px] text-dim">
+                      <span class="text-faint">→</span>
+                      <span class="min-w-0 flex-1 truncate">{t.insert}</span>
+                      <svg viewBox="0 0 24 24" class="size-2 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
                     </span>
-                  )}
-                  {t.kind === "auto" && (
-                    <svg viewBox="0 0 100 20" preserveAspectRatio="none" class="absolute inset-x-0 top-3 bottom-0.5 h-auto w-full" aria-hidden="true">
-                      <path d="M0 16 L30 14 L60 6 L85 3 L100 12" fill="none" stroke={color} stroke-width="1.5" vector-effect="non-scaling-stroke"></path>
-                    </svg>
-                  )}
-                  {t.kind === undefined && (
-                    <span class="absolute inset-x-1.5 top-4 bottom-1 bg-[repeating-linear-gradient(to_right,currentColor_0_2px,transparent_2px_12.5%)] opacity-40" style={`color:${color}`}></span>
-                  )}
+                    {[vol, pan].map((k) => (
+                      <svg viewBox="0 0 18 18" class="size-3.5 shrink-0" fill="none" stroke-linecap="round">
+                        <path d={k.track} stroke="#3a3a41" stroke-width="3"></path>
+                        {k.value && <path d={k.value} stroke="var(--color-accent)" stroke-width="3"></path>}
+                        <line x1="9" y1="9" x2={k.tip[0]} y2={k.tip[1]} stroke="#d6d6db" stroke-width="1.5"></line>
+                      </svg>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              </div>
+              <div
+                class="relative bg-[linear-gradient(to_right,var(--color-grid)_1px,transparent_1px)]"
+                style={`background-size:calc(100%/${BARS}) 100%`}
+              >
+                {t.clips.map(([start, len, label, agent]) => (
+                  <div
+                    class:list={["absolute inset-y-1 overflow-hidden rounded-[4px]", agent && "gk-flash"]}
+                    style={`left:calc(${(start / BARS) * 100}% + 1px);width:calc(${(len / BARS) * 100}% - 2px);background:color-mix(in oklab, ${t.color} 22%, var(--color-panel));box-shadow:inset 0 0 0 1px color-mix(in oklab, ${t.color} 55%, transparent)`}
+                  >
+                    <span class="block truncate px-1.5 pt-0.5 text-[9px] font-medium" style={`color:${t.color}`}>{label}</span>
+                    {t.kind === "audio" && (
+                      <span class="absolute inset-x-1 top-3.5 bottom-0.5 flex items-center gap-px" aria-hidden="true">
+                        {wave.slice(0, len * 6).map((h) => (
+                          <span class="flex-1 rounded-full" style={`height:${h}%;background:${t.color};opacity:.55`}></span>
+                        ))}
+                      </span>
+                    )}
+                    {t.kind === "auto" && (
+                      <svg viewBox="0 0 100 20" preserveAspectRatio="none" class="absolute inset-x-0 top-3 bottom-0.5 h-auto w-full" aria-hidden="true">
+                        <path d={duck} fill="none" stroke={t.color} stroke-width="1.25" vector-effect="non-scaling-stroke"></path>
+                      </svg>
+                    )}
+                    {t.kind === undefined && (
+                      <span class="absolute inset-x-1.5 top-4 bottom-1 bg-[repeating-linear-gradient(to_right,currentColor_0_2px,transparent_2px_12.5%)] opacity-40" style={`color:${t.color}`}></span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <!-- Playhead over the lanes -->
-        <div class="pointer-events-none absolute inset-y-0 right-0 left-[4.5rem] overflow-hidden sm:left-[5.5rem]" aria-hidden="true">
+        <div class="pointer-events-none absolute inset-y-0 right-0 left-[5.25rem] overflow-hidden sm:left-[8.75rem]" aria-hidden="true">
           <div class="gk-playhead h-full w-full" style={`animation-duration:${BAR_SECONDS * BARS}s`}>
             <span class="block h-full w-px bg-fg/80 shadow-[0_0_8px_rgb(255_255_255/0.5)]"></span>
           </div>
         </div>
       </div>
 
-      <!-- Channel rack -->
+      <!-- Channel rack: steps as pads, in each channel's colour; the playing step sweeps across. -->
       <div class="border-t border-line bg-bg/40 p-3">
         <div class="mb-2 flex items-center gap-2 text-[11px] text-faint">
           <span class="font-medium text-dim">Channel rack</span>
@@ -172,25 +261,31 @@ const BAR_SECONDS = 1.875; // one bar at 128 BPM
         </div>
         <div class="space-y-1.5">
           {rows.map((r) => (
-            <div class="grid grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
+            <div
+              class:list={[
+                "grid grid-cols-[3.75rem_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[5.5rem_minmax(0,1fr)]",
+                r.agent && "-mx-1 rounded-[5px] bg-agent/[0.08] px-1 ring-1 ring-agent/30",
+              ]}
+            >
               <span
                 class:list={[
-                  "truncate rounded px-1.5 py-1 text-[10px] sm:text-[11px]",
-                  r.agent ? "bg-agent/10 text-agent ring-1 ring-agent/30" : "bg-control text-dim",
+                  "flex min-w-0 items-center gap-1.5 rounded-[3px] px-1.5 py-1 text-[10px] sm:text-[11px]",
+                  r.agent ? "bg-agent/10 text-agent ring-1 ring-agent/40" : "bg-hover text-fg",
                 ]}
               >
-                {r.name}
+                <span class="h-2.5 w-1 shrink-0 rounded-sm" style={`background:${r.color}`}></span>
+                <span class="truncate">{r.name}</span>
               </span>
-              <div class="grid grid-cols-16 gap-[3px] sm:gap-1">
-                {[...r.steps].map((s, i) => (
-                  <span
-                    class:list={["h-4 rounded-[3px] sm:h-5", s === "1" && "gk-step-on"]}
-                    style={
-                      s === "1"
-                        ? `--step-color:${r.agent ? "var(--color-agent)" : "var(--color-accent)"};background-color:var(--step-color);animation:gk-step ${BAR_SECONDS}s linear infinite;animation-delay:${(i * BAR_SECONDS) / 16}s`
-                        : `background-color:${Math.floor(i / 4) % 2 ? "#2a2a30" : "#323238"}`
-                    }
-                  ></span>
+              <div class="grid grid-cols-4 gap-1.5 sm:gap-2" style={`--pad:${r.color};--bar:${BAR_SECONDS}s`}>
+                {[0, 1, 2, 3].map((g) => (
+                  <div class="grid grid-cols-4 gap-[2px] sm:gap-[3px]">
+                    {[...r.steps.slice(g * 4, g * 4 + 4)].map((s, j) => (
+                      <span
+                        class:list={["gk-pad gk-pad-play h-4 sm:h-5", g % 2 === 0 && "gk-pad-beat", s !== "." && "gk-pad-on"]}
+                        style={`--i:${g * 4 + j}${s !== "." ? `;--vel:${VEL[s]}` : ""}`}
+                      ></span>
+                    ))}
+                  </div>
                 ))}
               </div>
             </div>

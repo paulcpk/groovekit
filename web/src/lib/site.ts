@@ -187,15 +187,15 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "How do I connect Claude?",
-    a: "GrooveKit’s MCP server lives in the repository. Clone it, run `pnpm install` (Node 24 or later), and register the server with Claude Code: `claude mcp add --scope user groovekit -- node /path/to/groovekit/mcp/src/index.ts`. Check `/mcp` in Claude Code, then ask for a beat. When the app has the same project open (by default `~/Music/GrooveKit/Scratch`; set `GROOVEKIT_PROJECT` for another), the agent works in your window and you watch every change happen.",
+    a: "Two ways, with the same tools. In the app: open the Agent tab in the sidebar, paste an Anthropic API key (create one in the Anthropic Console; use is billed to your Anthropic account, and the key stays on your Mac) and chat. Or with Claude Code: GrooveKit’s MCP server lives in the repository. Clone it, run `pnpm install` (Node 24 or later), and register the server: `claude mcp add --scope user groovekit -- node /path/to/groovekit/mcp/src/index.ts`. Check `/mcp` in Claude Code, then ask for a beat. When the app has the same project open (by default `~/Music/GrooveKit/Scratch`; set `GROOVEKIT_PROJECT` for another), the agent works in your window and you watch every change happen.",
   },
   {
     q: "Do I need the app to use the agent?",
-    a: "No, if you build the engine from source: when no app is serving the project, the MCP server starts its own engine, so Claude can build, render and master songs headless. Open the app on that project any time to see and play what it made.",
+    a: "Not with Claude Code, if you build the engine from source: when no app is serving the project, the MCP server starts its own engine, so Claude can build, render and master songs headless. Open the app on that project any time to see and play what it made. The chat in the app, of course, needs the app.",
   },
   {
     q: "Is the agent going to wreck my song?",
-    a: "Every agent edit is an atomic command in the project history. A request’s edits form one group, so a single undo takes the whole request back, and the Agent tab shows exactly what changed.",
+    a: "Every agent edit is an atomic command in the project history. A request’s edits form one group, so a single undo takes the whole request back, and the Agent tab’s Changes list shows exactly what changed.",
   },
   {
     q: "Where do the sounds come from?",
@@ -203,7 +203,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Does it cost anything?",
-    a: "No. GrooveKit is free and open source under the AGPLv3. You bring your own Claude access for the agent.",
+    a: "No. GrooveKit is free and open source under the AGPLv3. You bring your own Claude access for the agent: an Anthropic API key for the chat in the app, or Claude Code.",
   },
   {
     q: "Windows? Intel Macs?",
@@ -211,6 +211,6 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "How finished is it?",
-    a: "Early. The engine, command API, MCP server, sample library, analysis, mastering, live playback, recording, plugin hosting and a first desktop UI work. Expect rough edges, and please report them.",
+    a: "Early. The engine, command API, MCP server and in-app agent chat, sample library, analysis, mastering, live playback, recording, plugin hosting and a first desktop UI work. Expect rough edges, and please report them.",
   },
 ];

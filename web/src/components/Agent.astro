@@ -1,7 +1,8 @@
 ---
 /**
- * How the agent works: MCP in plain words, three steps, a realistic Claude Code session (real tool
- * names and argument shapes from mcp/src/tools.ts and the schema) and the one-engine diagram.
+ * How the agent works: the two ways to reach it (the chat in the app, Claude Code over MCP), three
+ * steps, a realistic Claude Code session (real tool names and argument shapes from mcp/src/tools.ts
+ * and the schema) and the one-engine diagram.
  */
 import { LINKS, MCP_ADD, TOOL_COUNT } from "../lib/site";
 
@@ -9,7 +10,7 @@ const steps = [
   {
     n: "01",
     title: "Connect Claude once",
-    text: "GrooveKit comes with an MCP server: the standard way Claude picks up new tools. Register it with Claude Code and the studio is one of Claude’s toolboxes.",
+    text: "In the app, paste your own Anthropic API key into the sidebar’s Agent tab and start chatting; the key stays on your Mac. Or use Claude Code: GrooveKit’s MCP server, the standard way Claude picks up new tools, gives it the same toolbox.",
     code: MCP_ADD,
   },
   {
@@ -20,7 +21,7 @@ const steps = [
   {
     n: "03",
     title: "Watch, listen, undo",
-    text: "Each edit lands in the open app as it happens, outlined in violet and listed in the Agent tab. A whole request is one undo step, so trying an idea costs nothing.",
+    text: "Each edit lands in the open app as it happens, outlined in violet and listed under Changes in the Agent tab. A whole request is one undo step, so trying an idea costs nothing.",
   },
 ];
 
@@ -97,10 +98,11 @@ const session: Line[] = [
       <p class="eyebrow">How the agent works</p>
       <h2 class="title mt-4">Ask in words. Watch it happen in the app.</h2>
       <p class="mt-6 text-lg leading-relaxed text-dim">
-        GrooveKit gives Claude {TOOL_COUNT} tools over the{" "}
-        <a href={LINKS.mcp} class="text-fg underline decoration-line underline-offset-4 hover:decoration-fg">Model Context Protocol</a>:
-        the same engine API the interface is built on. Anything you can click, the agent can do —
-        and anything it does, you can see, change and undo.
+        GrooveKit gives Claude {TOOL_COUNT} tools: in a chat right in the app’s sidebar, or in
+        Claude Code over the{" "}
+        <a href={LINKS.mcp} class="text-fg underline decoration-line underline-offset-4 hover:decoration-fg">Model Context Protocol</a>.
+        They’re the same engine API the interface is built on. Anything you can click, the agent
+        can do — and anything it does, you can see, change and undo.
       </p>
     </div>
 
@@ -115,7 +117,10 @@ const session: Line[] = [
             </div>
             <p class="mt-2.5 leading-relaxed text-dim">{s.text}</p>
             {s.code && (
-              <pre class="mt-4 overflow-x-auto rounded-lg bg-bg px-3.5 py-3 text-[12.5px] leading-relaxed text-fg ring-1 ring-line"><code><span class="text-faint select-none">$ </span>{s.code}</code></pre>
+              <>
+                <p class="mt-4 text-sm text-faint">With Claude Code:</p>
+                <pre class="mt-2 overflow-x-auto rounded-lg bg-bg px-3.5 py-3 text-[12.5px] leading-relaxed text-fg ring-1 ring-line"><code><span class="text-faint select-none">$ </span>{s.code}</code></pre>
+              </>
             )}
           </li>
         ))}
@@ -170,8 +175,9 @@ const session: Line[] = [
           </ol>
         </div>
         <figcaption class="mt-3 text-sm text-faint">
-          An illustrative session. Tool names and arguments are GrooveKit’s real ones; sample names
-          and numbers will be yours.
+          An illustrative Claude Code session. Tool names and arguments are GrooveKit’s real ones;
+          sample names and numbers will be yours. The chat in the app makes the same calls and shows
+          each as a one-line row.
         </figcaption>
       </figure>
     </div>
@@ -193,7 +199,7 @@ const session: Line[] = [
           </a>
         </div>
 
-        <div class="grid grid-cols-[minmax(0,1fr)] items-center gap-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.1fr)_auto_minmax(0,1fr)]" aria-label="Diagram: the GrooveKit app and Claude, through the MCP server, both talk to one engine over JSON-RPC.">
+        <div class="grid grid-cols-[minmax(0,1fr)] items-center gap-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.1fr)_auto_minmax(0,1fr)]" aria-label="Diagram: the GrooveKit app and Claude, from the app's chat or Claude Code through the MCP server, both talk to one engine over JSON-RPC.">
           <div class="rounded-xl bg-raised p-4 ring-1 ring-line">
             <div class="font-semibold">GrooveKit app</div>
             <div class="mt-1 text-xs leading-snug text-faint">You: clicks, keys, knobs</div>
@@ -211,7 +217,7 @@ const session: Line[] = [
           </div>
           <div class="rounded-xl bg-agent/10 p-4 ring-1 ring-agent/40">
             <div class="font-semibold text-agent">Claude</div>
-            <div class="mt-1 text-xs leading-snug text-dim">via the GrooveKit MCP server</div>
+            <div class="mt-1 text-xs leading-snug text-dim">In the app’s chat, or Claude Code via the GrooveKit MCP server</div>
           </div>
         </div>
       </div>

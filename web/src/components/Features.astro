@@ -8,6 +8,18 @@ const strips = [
   { name: "Master", db: "0.0", level: 0.88, fx: ["eq", "compressor", "limiter"], master: true },
 ];
 
+// Channel rack rows in the app's channel colours. "." off; x, o, s on at velocity 127, 100 and 60,
+// which the pads show as how strongly they take the colour (45% + velocity/127 × 55%).
+const VEL: Record<string, string> = { x: "100%", o: "88%", s: "71%" };
+const PLAYING = 6; // the step under the playhead
+const rack = [
+  { name: "Kick", color: "#e8915a", steps: "o...o...o...o..." },
+  { name: "Snare", color: "#e3b448", steps: "....o.......o..s" },
+  { name: "Open hat", color: "#d673b3", steps: "..o...o...o...o." },
+  { name: "Closed hat", color: "#58b7d6", steps: "xsxsxsxsxsxsxsxs" },
+  { name: "Perc", color: "#7cc47c", steps: "...o.....s...o.." },
+];
+
 // Piano roll notes: [step (16ths), key row from top, length in steps]
 const notes: [number, number, number][] = [
   [0, 4, 3], [4, 2, 2], [6, 4, 2], [8, 1, 4], [12, 3, 2], [14, 5, 2],
@@ -44,21 +56,22 @@ const more = [
           the piano roll. One pattern holds notes for any number of channels.
         </p>
         <div class="mt-6 space-y-1.5 rounded-xl bg-bg p-3 ring-1 ring-line sm:p-4" aria-hidden="true">
-          {[
-            ["Kick", "1000100010001000"],
-            ["Snare", "0000100000001000"],
-            ["Open hat", "0010001000100010"],
-            ["Closed hat", "1011101110111011"],
-            ["Perc", "0001000001000100"],
-          ].map(([name, steps]) => (
+          {rack.map((r) => (
             <div class="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
-              <span class="truncate rounded bg-control px-1.5 py-1 text-[11px] text-dim">{name}</span>
-              <div class="grid grid-cols-16 gap-[3px] sm:gap-1">
-                {[...steps].map((s, i) => (
-                  <span
-                    class="h-5 rounded-[3px] sm:h-6"
-                    style={`background-color:${s === "1" ? "var(--color-accent)" : Math.floor(i / 4) % 2 ? "#26262b" : "#2f2f35"}`}
-                  ></span>
+              <span class="flex min-w-0 items-center gap-1.5 rounded-[3px] bg-hover px-1.5 py-1 text-[11px] text-fg">
+                <span class="h-2.5 w-1 shrink-0 rounded-sm" style={`background:${r.color}`}></span>
+                <span class="truncate">{r.name}</span>
+              </span>
+              <div class="grid grid-cols-4 gap-1.5 sm:gap-2.5" style={`--pad:${r.color}`}>
+                {[0, 1, 2, 3].map((g) => (
+                  <div class="grid grid-cols-4 gap-[2px] sm:gap-[3px]">
+                    {[...r.steps.slice(g * 4, g * 4 + 4)].map((s, j) => (
+                      <span
+                        class:list={["gk-pad h-5 sm:h-6", g % 2 === 0 && "gk-pad-beat", s !== "." && "gk-pad-on", g * 4 + j === PLAYING && "gk-pad-playing"]}
+                        style={s !== "." ? `--vel:${VEL[s]}` : undefined}
+                      ></span>
+                    ))}
+                  </div>
                 ))}
               </div>
             </div>

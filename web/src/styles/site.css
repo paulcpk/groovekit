@@ -2,7 +2,7 @@
 
 /*
  * Dark only, like the app (ui/src/index.css): flat greys, with colour kept for meaning. Accent is
- * the app's amber (transport, steps, calls to action); agent is the violet the app uses for
+ * the app's amber (transport, knobs, calls to action); agent is the violet the app uses for
  * everything the agent did. Components use these roles, never a hex value.
  */
 @theme {
@@ -84,6 +84,68 @@
   @apply inline-flex items-center rounded-md bg-agent/10 px-1.5 py-0.5 font-mono text-[12px] text-agent ring-1 ring-agent/20 ring-inset;
 }
 
+/* ------------------------------------------------------------------ pads */
+
+/*
+ * Channel rack steps drawn as pads, as in the app (stepStyle in ui/src/features/rack/ChannelRack.tsx):
+ * lit from above, a darker lip below and a thin edge. Off pads are greys, lighter on alternate beats
+ * (.gk-pad-beat). On pads (.gk-pad-on) take the channel's colour from --pad; --vel is how strongly
+ * (45% + velocity/127 × 55%: 88% at velocity 100), so quieter steps lean toward the off grey.
+ * .gk-pad-playing marks the step that's playing.
+ */
+@layer components {
+  .gk-pad {
+    --off: #25252b;
+    --ring: rgb(255 255 255 / 0.55);
+    display: block;
+    border: 1px solid rgb(0 0 0 / 0.45);
+    border-radius: 4px;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--off) 82%, white),
+      var(--off) 55%,
+      color-mix(in srgb, var(--off) 85%, black)
+    );
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.07),
+      inset 0 -2px 0 rgb(0 0 0 / 0.28),
+      0 1px 1px rgb(0 0 0 / 0.35);
+    outline: 1px solid transparent;
+    transition:
+      filter 75ms,
+      transform 75ms;
+  }
+  .gk-pad:hover {
+    filter: brightness(1.25);
+  }
+  .gk-pad:active {
+    transform: translateY(1px);
+  }
+  .gk-pad-beat {
+    --off: #2e2e35;
+  }
+  .gk-pad-on {
+    --ring: rgb(255 255 255 / 0.7);
+    --base: color-mix(in srgb, var(--pad, var(--color-accent)) var(--vel, 88%), var(--off));
+    border-color: color-mix(in srgb, var(--base) 55%, black);
+    background: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--base) 72%, white),
+      var(--base) 50%,
+      color-mix(in srgb, var(--base) 82%, black)
+    );
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.38),
+      inset 0 -2px 0 rgb(0 0 0 / 0.22),
+      0 1px 2px rgb(0 0 0 / 0.45),
+      0 0 8px -2px color-mix(in srgb, var(--pad, var(--color-accent)) 55%, transparent);
+  }
+  .gk-pad-playing {
+    filter: brightness(1.5);
+    outline-color: var(--ring);
+  }
+}
+
 /* ---------------------------------------------------------------- motion */
 
 @keyframes gk-playhead {
@@ -94,14 +156,17 @@
     transform: translateX(var(--travel, 100%));
   }
 }
-@keyframes gk-step {
+/* The playing step: lit for one 16th of the bar (the pad's --bar), then dark until it comes round. */
+@keyframes gk-pad-play {
   0%,
   6.25% {
-    background-color: var(--color-fg);
+    filter: brightness(1.5);
+    outline-color: var(--ring);
   }
   6.26%,
   100% {
-    background-color: var(--step-color, transparent);
+    filter: none;
+    outline-color: transparent;
   }
 }
 @keyframes gk-meter {
@@ -147,6 +212,10 @@
 
 .gk-playhead {
   animation: gk-playhead 4s linear infinite;
+}
+.gk-pad-play {
+  animation: gk-pad-play var(--bar, 1.875s) linear infinite;
+  animation-delay: calc(var(--i, 0) * var(--bar, 1.875s) / 16);
 }
 .gk-meter {
   transform-origin: bottom;

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 100 824 824">
+  <!-- GrooveKit: four step pads, one lit by you (amber) and one by the agent (violet). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26262c"/>
+      <stop offset="1" stop-color="#121215"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd089"/>
+      <stop offset="0.5" stop-color="#f2a33a"/>
+      <stop offset="1" stop-color="#c47a1c"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9caff"/>
+      <stop offset="0.5" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#7a5ad6"/>
+    </linearGradient>
+    <linearGradient id="off" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#45454e"/>
+      <stop offset="0.55" stop-color="#34343c"/>
+      <stop offset="1" stop-color="#26262c"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="42"/>
+    </filter>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- macOS icon grid: an 824 square with rounded corners, centred -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="184.5" fill="none" stroke="#3a3a42" stroke-width="3"/>
+
+  <!-- glows behind the lit pads -->
+  <rect x="228" y="228" width="268" height="268" rx="56" fill="#f2a33a" opacity="0.8" filter="url(#glow)"/>
+  <rect x="528" y="528" width="268" height="268" rx="56" fill="#a78bfa" opacity="0.8" filter="url(#glow)"/>
+
+  <g filter="url(#shadow)">
+    <!-- lit: amber, top left -->
+    <rect x="228" y="228" width="268" height="268" rx="56" fill="url(#amber)" stroke="#8a520f" stroke-width="6"/>
+    <!-- off: top right, bottom left -->
+    <rect x="528" y="228" width="268" height="268" rx="56" fill="url(#off)" stroke="#0c0c0e" stroke-width="6"/>
+    <rect x="228" y="528" width="268" height="268" rx="56" fill="url(#off)" stroke="#0c0c0e" stroke-width="6"/>
+    <!-- lit: violet, bottom right -->
+    <rect x="528" y="528" width="268" height="268" rx="56" fill="url(#violet)" stroke="#4d3596" stroke-width="6"/>
+  </g>
+
+  <!-- top highlights and bottom lips -->
+  <g>
+    <rect x="246" y="240" width="232" height="96" rx="40" fill="url(#shine)"/>
+    <rect x="546" y="540" width="232" height="96" rx="40" fill="url(#shine)"/>
+    <rect x="546" y="240" width="232" height="70" rx="34" fill="url(#shine)" opacity="0.28"/>
+    <rect x="246" y="540" width="232" height="70" rx="34" fill="url(#shine)" opacity="0.28"/>
+  </g>
+  <g fill="#000" opacity="0.22">
+    <rect x="240" y="460" width="244" height="24" rx="12"/>
+    <rect x="540" y="760" width="244" height="24" rx="12"/>
+  </g>
+  <g fill="#000" opacity="0.35">
+    <rect x="540" y="460" width="244" height="24" rx="12"/>
+    <rect x="240" y="760" width="244" height="24" rx="12"/>
+  </g>
+</svg>
