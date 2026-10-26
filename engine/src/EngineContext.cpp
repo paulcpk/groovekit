@@ -5,6 +5,7 @@
 #include "live/MidiClockPlugin.h"
 #include "mixer/FaderPlugin.h"
 #include "mixer/LimiterPlugin.h"
+#include "plugins/PluginWindows.h"
 #include "sampler/SamplerPlugin.h"
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -46,7 +47,8 @@ namespace
 
 struct EngineContext::Impl
 {
-    explicit Impl (Options o) : engine (createStorage (o), nullptr, std::make_unique<HeadlessBehaviour> (o.outOfProcessPluginScanning)) {}
+    explicit Impl (Options o)
+        : engine (createStorage (o), std::make_unique<PluginWindowBehaviour>(), std::make_unique<HeadlessBehaviour> (o.outOfProcessPluginScanning)) {}
 
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     tracktion::Engine engine;

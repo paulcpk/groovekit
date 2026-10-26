@@ -61,9 +61,10 @@ private:
 
     model::Json render (const model::Json& params);
     model::Json peaks (const model::Json& params);
+    model::Json captureState (const std::string& pluginKey, const std::string& origin);
     model::Json callLibrary (const std::string& method, const model::Json& params);
     model::Json callLive (const std::string& method, const model::Json& params, Client&);
-    model::Json callPlugins (const std::string& method, const model::Json& params);
+    model::Json callPlugins (const std::string& method, const model::Json& params, Client&);
     void startLibraryScan();
 };
 

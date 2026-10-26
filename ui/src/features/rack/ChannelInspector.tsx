@@ -164,11 +164,14 @@ function PluginInstrument({ channel }: { channel: Channel }) {
         <div className="text-dim">{plugin.manufacturer} · {plugin.format}</div>
         {plugin.state && <div className="mt-1 truncate text-2xs text-faint" title={plugin.state}>State: {plugin.state}</div>}
       </div>
-      <Button size="sm" className="self-start" onClick={() =>
-        void call("plugins.captureState", { channel: channel.id }).then((r) => toast(`Saved the plugin's state (${Math.round(r.bytes / 1024)} KB)`))}>
-        Save plugin state
-      </Button>
-      <div className="text-2xs text-faint">Plugin windows open from the engine (coming next); until then the agent can set parameters by name.</div>
+      <div className="flex gap-1.5">
+        <Button size="sm" className="bg-control text-fg" onClick={() => void call("plugins.openEditor", { channel: channel.id })}>Open plugin window</Button>
+        <Button size="sm" onClick={() =>
+          void call("plugins.captureState", { channel: channel.id }).then((r) => toast(r.changed ? `Saved the plugin's state (${Math.round(r.bytes / 1024)} KB)` : "Nothing changed since the last save"))}>
+          Save state
+        </Button>
+      </div>
+      <div className="text-2xs text-faint">Closing the plugin's window saves what you changed there into the project.</div>
     </div>
   );
 }

@@ -24,6 +24,23 @@ namespace
     /** Tracktion's default for how often it looks for new MIDI devices. */
     constexpr int defaultMidiScanSeconds = 4;
 
+    /** Hosted plugins by CompiledEdit::plugins key, as the model describes them. */
+    std::map<std::string, Json> hostedPluginRefs (const Project& project)
+    {
+        std::map<std::string, Json> refs;
+
+        for (auto& channel : project.channels)
+            if (auto plugin = std::get_if<PluginInstrument> (&channel.instrument))
+                refs["channel:" + channel.id] = toJson (plugin->plugin);
+
+        for (auto& insert : project.mixer.inserts)
+            for (auto& effect : insert.effects)
+                if (auto plugin = std::get_if<PluginEffect> (&effect))
+                    refs["effect:" + insert.id + "/" + plugin->id] = toJson (plugin->plugin);
+
+        return refs;
+    }
+
     /** Runs the messages already posted to the message thread (it's first in, first out). */
     void runPostedMessages()
     {
@@ -125,6 +142,27 @@ void LiveEngine::rebuild()
     if (compiled.edit != nullptr && transport().looping.get())
         loop = transport().getLoopRange();
 
+    // Hosted plugins keep what was done in their windows (which isn't in the model until the
+    // window closes) unless the model changed them.
+    struct Carried
+    {
+        juce::MemoryBlock state;
+        bool windowOpen = false;
+    };
+
+    std::map<std::string, Carried> carried;
+
+    for (auto& [key, plugin] : compiled.plugins)
+    {
+        if (auto external = dynamic_cast<te::ExternalPlugin*> (plugin); external != nullptr && external->getAudioPluginInstance() != nullptr)
+        {
+            auto& c = carried[key];
+            external->getAudioPluginInstance()->getStateInformation (c.state);
+            c.windowOpen = external->windowState->isWindowShowing();
+            external->windowState->closeWindowExplicitly();
+        }
+    }
+
     // The clock carries on into the new Edit if it plays on from the same place.
     midiClock->setSource (nullptr);
 
@@ -142,6 +180,28 @@ void LiveEngine::rebuild()
 
     compiled = std::move (next);
     addClockTrack();
+
+    const auto refs = hostedPluginRefs (session.getProject());
+
+    for (auto& [key, c] : carried)
+    {
+        const auto before = builtPluginRefs.find (key);
+        const auto now = refs.find (key);
+        const auto plugin = compiled.plugins.find (key);
+
+        if (before == builtPluginRefs.end() || now == refs.end() || before->second != now->second || plugin == compiled.plugins.end())
+            continue;
+
+        if (auto external = dynamic_cast<te::ExternalPlugin*> (plugin->second); external != nullptr && external->getAudioPluginInstance() != nullptr)
+        {
+            external->getAudioPluginInstance()->setStateInformation (c.state.getData(), static_cast<int> (c.state.getSize()));
+
+            if (c.windowOpen)
+                external->windowState->showWindowExplicitly();
+        }
+    }
+
+    builtPluginRefs = refs;
 
     auto& tc = transport();
 
@@ -275,6 +335,31 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
     {
         return false;
     }
+
+    return true;
+}
+
+std::string LiveEngine::findPluginKey (const te::Plugin& plugin) const
+{
+    for (auto& [key, p] : compiled.plugins)
+        if (p == &plugin)
+            return key;
+
+    return {};
+}
+
+bool LiveEngine::showPluginWindow (const std::string& key, bool show)
+{
+    updateNow();
+    auto external = dynamic_cast<te::ExternalPlugin*> (findPlugin (key));
+
+    if (external == nullptr || external->getAudioPluginInstance() == nullptr)
+        return false;
+
+    if (show)
+        external->windowState->showWindowExplicitly();
+    else
+        external->windowState->closeWindowExplicitly();
 
     return true;
 }

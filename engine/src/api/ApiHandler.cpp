@@ -9,6 +9,7 @@
 #include "library/SampleLibrary.h"
 #include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
+#include "plugins/PluginWindows.h"
 #include "render/Render.h"
 #include "session/Mastering.h"
 #include "session/Summary.h"
@@ -120,6 +121,26 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
             broadcast (notification ("levels", { { "inserts", inserts }, { "channels", channels } }).dump());
         };
 
+    // What was done in a plugin's window goes into the project when the window closes.
+    if (live != nullptr)
+        PluginWindowBehaviour::onWindowClosed = [this, alive = alive] (tracktion::Plugin& plugin)
+        {
+            if (! *alive)
+                return;
+
+            if (const auto key = live->findPluginKey (plugin); ! key.empty())
+            {
+                try
+                {
+                    captureState (key, "ui");
+                }
+                catch (const std::exception& e)
+                {
+                    juce::Logger::writeToLog ("Couldn't save the plugin's state: " + juce::String (e.what()));
+                }
+            }
+        };
+
     listenerId = session.addListener ([this] (const Change& change)
     {
         if (! broadcast)
@@ -148,6 +169,7 @@ ApiHandler::~ApiHandler()
     {
         live->onTransportChange = {};
         live->onLevels = {};
+        PluginWindowBehaviour::onWindowClosed = {};
     }
 
     session.removeListener (listenerId);
@@ -335,7 +357,7 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
         return callLive (method, params, client);
 
     if (method.starts_with ("plugins."))
-        return callPlugins (method.substr (8), params);
+        return callPlugins (method.substr (8), params, client);
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 }
@@ -685,7 +707,7 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 }
 
-Json ApiHandler::callPlugins (const std::string& method, const Json& params)
+Json ApiHandler::callPlugins (const std::string& method, const Json& params, Client& client)
 {
     if (plugins == nullptr)
         throw RpcError (operationFailed, "this engine has no plugin catalog");
@@ -790,72 +812,88 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params)
         return result;
     }
 
-    if (method == "captureState")
+    if (method == "captureState" || method == "openEditor" || method == "closeEditor")
     {
         if (live == nullptr)
-            throw RpcError (operationFailed, "capturing plugin state needs live playback");
+            throw RpcError (operationFailed, "plugin windows and state need live playback");
 
-        const bool forChannel = params.contains ("channel");
-        const auto key = forChannel ? "channel:" + readParam<std::string> (params, "channel")
-                                    : "effect:" + readParam<std::string> (params, "insert") + "/" + readParam<std::string> (params, "effect");
+        const auto key = params.contains ("channel") ? "channel:" + readParam<std::string> (params, "channel")
+                                                     : "effect:" + readParam<std::string> (params, "insert") + "/" + readParam<std::string> (params, "effect");
 
-        live->updateNow();
-        auto external = dynamic_cast<tracktion::ExternalPlugin*> (live->findPlugin (key));
+        if (method == "captureState")
+            return captureState (key, client.origin);
 
-        if (external == nullptr || external->getAudioPluginInstance() == nullptr)
+        if (! live->showPluginWindow (key, method == "openEditor"))
             throw RpcError (invalidParams, "no hosted plugin at " + key);
 
-        juce::MemoryBlock data;
-        external->getAudioPluginInstance()->getStateInformation (data);
-
-        // Content-addressed, so identical states share one file.
-        uint64_t hash = 14695981039346656037ull;
-
-        for (size_t i = 0; i < data.getSize(); ++i)
-            hash = (hash ^ static_cast<unsigned char> (data[i])) * 1099511628211ull;
-
-        char name[40];
-        std::snprintf (name, sizeof (name), "plugins/%016llx.bin", static_cast<unsigned long long> (hash));
-
-        const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
-        std::filesystem::create_directories (projectDir / "plugins");
-        juce::File ((projectDir / name).string()).replaceWithData (data.getData(), data.getSize());
-
-        // Point the model at it.
-        auto& doc = session.getDocument();
-        std::string path;
-
-        auto indexOf = [] (const Json& array, const std::string& id)
-        {
-            for (size_t i = 0; i < array.size(); ++i)
-                if (array[i].value ("id", "") == id)
-                    return std::to_string (i);
-
-            throw RpcError (invalidParams, "no \"" + id + "\"");
-        };
-
-        if (forChannel)
-        {
-            path = "/channels/" + indexOf (doc["channels"], params["channel"]) + "/instrument/plugin/state";
-        }
-        else
-        {
-            const auto insertIndex = indexOf (doc["mixer"]["inserts"], params["insert"]);
-            path = "/mixer/inserts/" + insertIndex + "/effects/"
-                 + indexOf (doc["mixer"]["inserts"][std::stoul (insertIndex)]["effects"], params["effect"]) + "/plugin/state";
-        }
-
-        model::Patch patch;
-        patch.ops.push_back ({ model::PatchOpOp::add, path, Json (name) });
-
-        ExecuteOptions options;
-        options.label = "Save plugin state (" + external->getName().toStdString() + ")";
-        session.execute ({ patch }, options);
-
-        return { { "state", name }, { "bytes", data.getSize() } };
+        return { { "open", method == "openEditor" } };
     }
 
     throw RpcError (methodNotFound, "unknown method \"plugins." + method + "\"");
+}
+
+Json ApiHandler::captureState (const std::string& key, const std::string& origin)
+{
+    live->updateNow();
+    auto external = dynamic_cast<tracktion::ExternalPlugin*> (live->findPlugin (key));
+
+    if (external == nullptr || external->getAudioPluginInstance() == nullptr)
+        throw RpcError (invalidParams, "no hosted plugin at " + key);
+
+    juce::MemoryBlock data;
+    external->getAudioPluginInstance()->getStateInformation (data);
+
+    // Content-addressed, so identical states share one file.
+    uint64_t hash = 14695981039346656037ull;
+
+    for (size_t i = 0; i < data.getSize(); ++i)
+        hash = (hash ^ static_cast<unsigned char> (data[i])) * 1099511628211ull;
+
+    char name[40];
+    std::snprintf (name, sizeof (name), "plugins/%016llx.bin", static_cast<unsigned long long> (hash));
+
+    const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+    std::filesystem::create_directories (projectDir / "plugins");
+    juce::File ((projectDir / name).string()).replaceWithData (data.getData(), data.getSize());
+
+    // Point the model at it.
+    auto& doc = session.getDocument();
+
+    auto indexOf = [] (const Json& array, const std::string& id)
+    {
+        for (size_t i = 0; i < array.size(); ++i)
+            if (array[i].value ("id", "") == id)
+                return std::to_string (i);
+
+        throw RpcError (invalidParams, "no \"" + id + "\"");
+    };
+
+    std::string path;
+
+    if (key.starts_with ("channel:"))
+    {
+        path = "/channels/" + indexOf (doc["channels"], key.substr (8)) + "/instrument/plugin/state";
+    }
+    else
+    {
+        const auto slash = key.find ('/');
+        const auto insertIndex = indexOf (doc["mixer"]["inserts"], key.substr (7, slash - 7));
+        path = "/mixer/inserts/" + insertIndex + "/effects/"
+             + indexOf (doc["mixer"]["inserts"][std::stoul (insertIndex)]["effects"], key.substr (slash + 1)) + "/plugin/state";
+    }
+
+    if (doc.contains (Json::json_pointer (path)) && doc[Json::json_pointer (path)] == name)
+        return { { "state", name }, { "bytes", data.getSize() }, { "changed", false } };
+
+    model::Patch patch;
+    patch.ops.push_back ({ model::PatchOpOp::add, path, Json (name) });
+
+    ExecuteOptions options;
+    options.origin = origin;
+    options.label = "Save plugin state (" + external->getName().toStdString() + ")";
+    session.execute ({ patch }, options);
+
+    return { { "state", name }, { "bytes", data.getSize() }, { "changed", true } };
 }
 
 void ApiHandler::startLibraryScan()

@@ -64,10 +64,14 @@ export function EffectEditor({ insertId, effectId, onClose }: { insertId: string
         ) : (
           <div className="flex flex-col gap-2 text-xs">
             <div className="text-dim">{effect.plugin.manufacturer} · {effect.plugin.format}</div>
-            <Button size="sm" className="self-start" onClick={() =>
-              void call("plugins.captureState", { insert: insertId, effect: effectId }).then((r) => toast(`Saved the plugin's state (${Math.round(r.bytes / 1024)} KB)`))}>
-              Save plugin state
-            </Button>
+            <div className="flex gap-1.5">
+              <Button size="sm" className="bg-control text-fg" onClick={() => void call("plugins.openEditor", { insert: insertId, effect: effectId })}>Open plugin window</Button>
+              <Button size="sm" onClick={() =>
+                void call("plugins.captureState", { insert: insertId, effect: effectId }).then((r) => toast(r.changed ? `Saved the plugin's state (${Math.round(r.bytes / 1024)} KB)` : "Nothing changed since the last save"))}>
+                Save state
+              </Button>
+            </div>
+            <div className="text-2xs text-faint">Closing the plugin's window saves what you changed there into the project.</div>
           </div>
         )}
       </div>

@@ -150,11 +150,18 @@ public:
     /** A plugin in the live Edit, by the keys of CompiledEdit::plugins. */
     tracktion::Plugin* findPlugin (const std::string& key) const;
 
+    /** The key of a plugin in the live Edit, or empty if it isn't one of its instruments or effects. */
+    std::string findPluginKey (const tracktion::Plugin&) const;
+
+    /** Opens or closes a hosted plugin's own window. False if the key isn't a hosted plugin. */
+    bool showPluginWindow (const std::string& key, bool show);
+
 private:
     EngineContext& context;
     Session& session;
     CompiledEdit compiled;
     std::shared_ptr<MidiClock> midiClock = std::make_shared<MidiClock>();
+    std::map<std::string, model::Json> builtPluginRefs; // the hosted plugins the live Edit was built with
     const void* clockPlugin = nullptr;  // the live Edit's, the clock's source
     SamplePreview preview;
     bool hadSignal = false;

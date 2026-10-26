@@ -10,7 +10,7 @@ import { effectNames } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
 import { colorFor, formatDb, formatPan, insertName, palette, uniqueId } from "@/lib/model";
 import { useHeight } from "@/lib/useHeight";
-import { execute, useEngine } from "@/state/engine";
+import { call, execute, useEngine } from "@/state/engine";
 
 export function effectName(effect: Effect) {
   return effect.type === "builtin" ? effectNames[effect.kind] ?? effect.kind : effect.plugin.name;
@@ -45,6 +45,8 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
                   openEffect === effect.id ? "bg-accent/25 text-fg" : "bg-control text-dim hover:text-fg",
                 )}
                 onClick={() => onOpenEffect(openEffect === effect.id ? null : effect.id)}
+                onDoubleClick={() => effect.type === "plugin" && void call("plugins.openEditor", { insert: insert.id, effect: effect.id })}
+                title={effect.type === "plugin" ? "Double-click to open the plugin's window" : undefined}
               >
                 <button
                   type="button" title={effect.bypass ? "Turn on" : "Bypass"}
