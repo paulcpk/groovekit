@@ -4,13 +4,21 @@ import { cn } from "@/lib/cn";
 const content = "z-50 min-w-[180px] rounded-md border border-line bg-raised p-1 text-sm text-fg shadow-xl shadow-black/50";
 const item = "flex h-7 cursor-default items-center gap-2 rounded-[4px] px-2 outline-none data-[highlighted]:bg-hover data-[disabled]:opacity-40";
 
+/** Menus render in a portal, but React still bubbles their events to the components that own
+    them, so a click on an item would also land on, say, the playlist lane under a clip. */
+const ownEvents = {
+  onPointerDown: (e: React.SyntheticEvent) => e.stopPropagation(),
+  onClick: (e: React.SyntheticEvent) => e.stopPropagation(),
+  onDoubleClick: (e: React.SyntheticEvent) => e.stopPropagation(),
+};
+
 export const ContextMenu = CM.Root;
 export const ContextMenuTrigger = CM.Trigger;
 
 export function ContextMenuContent({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <CM.Portal>
-      <CM.Content className={cn(content, className)}>{children}</CM.Content>
+      <CM.Content className={cn(content, className)} {...ownEvents}>{children}</CM.Content>
     </CM.Portal>
   );
 }
@@ -42,7 +50,7 @@ export function ContextMenuSub({ label, children }: { label: React.ReactNode; ch
         <span className="text-faint">›</span>
       </CM.SubTrigger>
       <CM.Portal>
-        <CM.SubContent className={cn(content, "max-h-[60vh] overflow-y-auto")}>{children}</CM.SubContent>
+        <CM.SubContent className={cn(content, "max-h-[60vh] overflow-y-auto")} {...ownEvents}>{children}</CM.SubContent>
       </CM.Portal>
     </CM.Sub>
   );
@@ -54,7 +62,7 @@ export const DropdownTrigger = DM.Trigger;
 export function DropdownContent({ children, className, align = "start" }: { children: React.ReactNode; className?: string; align?: "start" | "end" | "center" }) {
   return (
     <DM.Portal>
-      <DM.Content align={align} sideOffset={4} className={cn(content, "max-h-[70vh] overflow-y-auto", className)}>{children}</DM.Content>
+      <DM.Content align={align} sideOffset={4} className={cn(content, "max-h-[70vh] overflow-y-auto", className)} {...ownEvents}>{children}</DM.Content>
     </DM.Portal>
   );
 }

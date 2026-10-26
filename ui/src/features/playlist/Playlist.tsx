@@ -118,7 +118,8 @@ export function Playlist() {
   };
 
   const beginEmptyDrag = (e: React.PointerEvent, laneIndex: number) => {
-    if (e.button !== 0) return;
+    // Only presses on the lane itself, not ones bubbling up from a menu or dialog it owns.
+    if (e.button !== 0 || !e.currentTarget.contains(e.target as Node)) return;
     const box = content.current!.getBoundingClientRect();
     const x0 = e.clientX - box.left - HEADER_W;
     const y0 = e.clientY - box.top - RULER_H;
