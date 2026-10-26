@@ -74,6 +74,7 @@ private:
     model::Json callLive (const std::string& method, const model::Json& params, Client&);
     model::Json callPlugins (const std::string& method, const model::Json& params, Client&);
     model::Json callProject (const std::string& method, const model::Json& params);
+    model::Json importIntoProject (const std::string& method, const model::Json& params);
     void startLibraryScan();
 };
 

@@ -31,7 +31,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `get` | `path?`: JSON Pointer into song.json (default: everything) | the value |
 | `getSummary` | | compact overview with bars, note counts and effect chains |
 | `getHistory` | | `{ entries: [{ id, parent?, time, origin, group?, label }], head }` |
-| `render` | `start?`, `end?` (ticks), `tailSeconds?`, `path?` | `{ path, analysis }` (the detailed analysis, as for `analyze`) |
+| `render` | `start?`, `end?` (ticks), `tailSeconds?`, `path?`, `sampleRate?` (48000), `bitDepth?` (16, 24 or 32), `stems?` | `{ path, analysis, stems? }` (the detailed analysis, as for `analyze`); with `stems`, each insert but master is also rendered on its own as `<name>-<insert>.wav` |
 | `analyze` | `path`, `start?`, `end?` (seconds) | `{ peakDb, truePeakDb, rmsDb, crestDb, integratedLufs, momentaryMaxLufs, shortTermMaxLufs, loudnessRangeLu, spectrum, stereo, onsets }` |
 | `master` | `targetLufs?` (default -14), `ceilingDb?` (-1), `releaseMs?`, `start?`, `end?`, `group?` | `{ inputGainDb, integratedLufs, truePeakDb, reachedTarget, renders }`; sets the master limiter as one history entry |
 | `analyzeMix` | `start?`, `end?` (ticks), `tailSeconds?` | `{ mix, bands, stems: [{ source, integratedLufs, peakDb, bandShare }], masking: [{ a, b, bands }] }` |
@@ -61,6 +61,9 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `plugins.describe` | `uid`, `query?`, `limit?` | the plugin with `parameterCount`, `parameters: [{ id, name, value, text }]` and a `pluginRef` for commands |
 | `plugins.openEditor` / `plugins.closeEditor` | `channel`, or `insert` and `effect` | `{ open }`; shows or closes a hosted plugin's own window. Closing it there saves its state into the project (as `captureState`); its state also carries over when the song is rebuilt |
 | `plugins.captureState` | `channel`, or `insert` and `effect` | `{ state, bytes, changed }`; saves the live plugin's state to `<project>/plugins/` and points the model at it (undoable) |
+| `project.importFile` | `path` | `{ path }`; copies an audio file into `<project>/samples` (or finds it there) and returns the path to use, relative to the project |
+| `project.importData` | `name`, `data` (base64) | `{ path }`; the same for a file's bytes, e.g. dropped from Finder into the web view |
+| `project.collectSamples` | | `{ copied, updated }`; copies every sample from outside the project into `samples/` and points the song at the copies (one undoable change) |
 | `project.recent` | | `{ projects: [{ path, name, modified }], current }`: project folders opened lately, most recent first (`modified` in ms since 1970) |
 | `project.open` | `path` | `{ project }`; switches the engine (and every client) to that project folder, which must hold a song.json. Refused if another engine serves it |
 | `project.new` | `path` | `{ project }`; creates a project in a new or empty folder and switches to it |

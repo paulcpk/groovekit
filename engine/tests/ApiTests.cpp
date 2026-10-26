@@ -1,6 +1,7 @@
 #include "TestHelpers.h"
 
 #include "api/ApiHandler.h"
+#include "analysis/Analysis.h"
 #include "library/SampleLibrary.h"
 #include "session/RecentProjects.h"
 
@@ -318,4 +319,72 @@ TEST_CASE ("Save as copies the project folder and opens the copy")
     CHECK (opened[0] == root / "copy");
 
     CHECK_THAT (call ("project.saveAs", { { "path", (root / "copy").string() } })["error"]["message"].get<std::string>(), ContainsSubstring ("choose a new folder"));
+}
+
+TEST_CASE ("Files are imported and collected into the project")
+{
+    const auto root = test::tempDir() / "api-import";
+    std::filesystem::remove_all (root);
+    auto session = Session::open (root / "song");
+    ApiHandler handler (*session, test::getEngineContext());
+
+    ApiHandler::Client client;
+    Json response;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+    auto call = [&] (const std::string& method, Json params)
+    {
+        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        return response;
+    };
+
+    const auto beep = test::fixture ("beep.wav");
+    CHECK (call ("project.importFile", { { "path", beep.string() } })["result"]["path"] == "samples/beep.wav");
+    CHECK (std::filesystem::is_regular_file (root / "song" / "samples" / "beep.wav"));
+
+    // The same file again is the same import; another with the name gets its own.
+    CHECK (call ("project.importFile", { { "path", beep.string() } })["result"]["path"] == "samples/beep.wav");
+    CHECK (call ("project.importData", { { "name", "beep.wav" }, { "data", juce::Base64::toBase64 ("not a wav", 9).toStdString() } })["result"]["path"] == "samples/beep-2.wav");
+
+    model::Reader r;
+    model::Command c;
+    readValue (r, Json::parse (R"({ "type": "addChannel", "channel": { "id": "k", "instrument": { "type": "sampler", "layers": [
+                  { "id": "l", "sample": ")" + test::fixture ("kick.wav").string() + R"(" } ] } } })"), c);
+    session->execute ({ c });
+
+    auto collected = call ("project.collectSamples", Json::object())["result"];
+    CHECK (collected["copied"] == 1);
+    CHECK (std::get<model::SamplerInstrument> (session->getProject().channels[0].instrument).layers[0].sample == "samples/kick.wav");
+    CHECK (std::filesystem::is_regular_file (root / "song" / "samples" / "kick.wav"));
+}
+
+TEST_CASE ("Renders take a format and can include stems")
+{
+    Harness h;
+    model::Reader r;
+    std::vector<model::Command> commands;
+
+    for (auto json : {
+             Json::parse (R"({ "type": "addInsert", "insert": { "id": "drums" } })"),
+             Json::parse (R"({ "type": "addChannel", "channel": { "id": "b", "insert": "drums", "instrument": { "type": "sampler", "layers": [
+                              { "id": "l", "pitchTracking": false, "sample": ")" + test::fixture ("beep.wav").string() + R"(" } ] } } })"),
+             Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "b", "start": 0, "length": 240 } ] } })"),
+             Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
+             Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 960, "pattern": "p" } })") })
+    {
+        readValue (r, json, commands.emplace_back());
+    }
+
+    h.session.execute (commands);
+
+    const auto output = test::tempDir() / "api-stems" / "mix.wav";
+    std::filesystem::create_directories (output.parent_path());
+    auto result = h.call ("render", { { "path", output.string() }, { "bitDepth", 16 }, { "sampleRate", 44100 }, { "stems", true } })["result"];
+
+    REQUIRE (result["stems"].size() == 1);
+    CHECK (result["stems"][0]["insert"] == "drums");
+    CHECK (std::filesystem::is_regular_file (output.parent_path() / "mix-drums.wav"));
+
+    auto mix = analysis::loadAudio (output);
+    CHECK (mix.sampleRate == 44100);
+    CHECK (h.call ("render", { { "bitDepth", 12 } })["error"]["code"] == -32602);
 }

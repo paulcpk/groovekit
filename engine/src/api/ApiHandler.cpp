@@ -439,6 +439,14 @@ Json ApiHandler::render (const Json& params)
     if (auto v = optionalNumber (params, "start"))          options.start = static_cast<model::Ticks> (*v);
     if (auto v = optionalNumber (params, "end"))            options.end = static_cast<model::Ticks> (*v);
     if (auto v = optionalNumber (params, "tailSeconds"))    options.tailSeconds = *v;
+    if (auto v = optionalNumber (params, "sampleRate"))     options.sampleRate = *v;
+    if (auto v = optionalNumber (params, "bitDepth"))       options.bitDepth = static_cast<int> (*v);
+
+    if (options.bitDepth != 16 && options.bitDepth != 24 && options.bitDepth != 32)
+        throw RpcError (invalidParams, "bitDepth must be 16, 24 or 32");
+
+    if (options.sampleRate < 8000 || options.sampleRate > 192000)
+        throw RpcError (invalidParams, "sampleRate must be between 8000 and 192000");
 
     const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
 
@@ -457,8 +465,41 @@ Json ApiHandler::render (const Json& params)
     auto compiled = compileProject (context.getEngine(), session.getProject(), { projectDir, tracktion::Edit::forRendering });
     renderToWav (compiled, session.getProject(), output, options);
 
-    return { { "path", std::filesystem::absolute (output).string() },
-             { "analysis", analysis::analyse (analysis::loadAudio (output), true) } };
+    Json result { { "path", std::filesystem::absolute (output).string() },
+                  { "analysis", analysis::analyse (analysis::loadAudio (output), true) } };
+
+    // Stems: each insert but master on its own (soloed, so it's heard through what it feeds),
+    // over the same range, next to the mix as <name>-<insert>.wav.
+    if (params.value ("stems", false))
+    {
+        auto stems = Json::array();
+
+        for (auto& insert : session.getProject().mixer.inserts)
+        {
+            if (insert.id == model::masterInsertId)
+                continue;
+
+            auto project = session.getProject();
+
+            for (auto& i : project.mixer.inserts)
+                i.solo = i.id == insert.id;
+
+            for (auto& c : project.channels)
+                c.solo = false;
+
+            for (auto& t : project.playlist.tracks)
+                t.solo = false;
+
+            auto stem = output.parent_path() / (output.stem().string() + "-" + insert.id + ".wav");
+            auto stemEdit = compileProject (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering });
+            renderToWav (stemEdit, project, stem, options);
+            stems.push_back ({ { "insert", insert.id }, { "path", std::filesystem::absolute (stem).string() } });
+        }
+
+        result["stems"] = stems;
+    }
+
+    return result;
 }
 
 Json ApiHandler::callLibrary (const std::string& method, const Json& params)
@@ -853,6 +894,9 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
         return result;
     }
 
+    if (method == "project.importFile" || method == "project.importData" || method == "project.collectSamples")
+        return importIntoProject (method, params);
+
     if (method != "project.open" && method != "project.new" && method != "project.saveAs")
         throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 
@@ -901,6 +945,110 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
 
     onOpenProject (dir);
     return { { "project", dir.string() } };
+}
+
+Json ApiHandler::importIntoProject (const std::string& method, const Json& params)
+{
+    const auto projectDir = session.getProjectDir();
+
+    if (! projectDir)
+        throw RpcError (operationFailed, "this session has no project folder");
+
+    const auto samplesDir = *projectDir / "samples";
+    std::filesystem::create_directories (samplesDir);
+
+    // A free name in samples/ ("kick.wav", "kick-2.wav", ...), or the same file if it's already there.
+    auto destinationFor = [&] (const std::string& fileName, std::uintmax_t size) -> std::pair<std::filesystem::path, bool>
+    {
+        const auto name = std::filesystem::path (fileName);
+        auto target = samplesDir / name.filename();
+        std::error_code ec;
+
+        for (int n = 2; std::filesystem::exists (target); ++n)
+        {
+            if (std::filesystem::file_size (target, ec) == size)
+                return { target, true };
+
+            target = samplesDir / (name.stem().string() + "-" + std::to_string (n) + name.extension().string());
+        }
+
+        return { target, false };
+    };
+
+    auto relative = [&] (const std::filesystem::path& p) { return p.lexically_relative (*projectDir).generic_string(); };
+
+    auto importFile = [&] (const std::filesystem::path& source)
+    {
+        std::error_code ec;
+
+        if (! std::filesystem::is_regular_file (source, ec))
+            throw RpcError (invalidParams, "No file at " + source.string());
+
+        auto [target, exists] = destinationFor (source.filename().string(), std::filesystem::file_size (source, ec));
+
+        if (! exists)
+            std::filesystem::copy_file (source, target, ec);
+
+        if (ec)
+            throw RpcError (operationFailed, "Can't copy " + source.string() + ": " + ec.message());
+
+        return relative (target);
+    };
+
+    if (method == "project.importFile")
+        return { { "path", importFile (readParam<std::string> (params, "path")) } };
+
+    if (method == "project.importData")
+    {
+        juce::MemoryOutputStream decoded;
+
+        if (! juce::Base64::convertFromBase64 (decoded, readParam<std::string> (params, "data")))
+            throw RpcError (invalidParams, "data isn't base64");
+
+        auto [target, exists] = destinationFor (readParam<std::string> (params, "name"), decoded.getDataSize());
+
+        if (! exists && ! juce::File (target.string()).replaceWithData (decoded.getData(), decoded.getDataSize()))
+            throw RpcError (operationFailed, "Can't write " + target.string());
+
+        return { { "path", relative (target) } };
+    }
+
+    // collectSamples: every sample outside the project folder is copied in, and the song uses the copies.
+    std::vector<model::Command> commands;
+    std::map<std::string, std::string> copied;
+    const auto& project = session.getProject();
+
+    auto collect = [&] (const std::string& sample) -> std::optional<std::string>
+    {
+        std::filesystem::path p (sample);
+
+        if (p.is_relative())
+            return {};
+
+        if (auto it = copied.find (sample); it != copied.end())
+            return it->second;
+
+        if (! std::filesystem::exists (p))
+            return {};
+
+        return copied[sample] = importFile (p);
+    };
+
+    for (auto& channel : project.channels)
+        if (auto sampler = std::get_if<model::SamplerInstrument> (&channel.instrument))
+            for (auto& layer : sampler->layers)
+                if (auto path = collect (layer.sample))
+                    commands.push_back (model::UpdateSamplerLayer { channel.id, layer.id, Json { { "sample", *path } } });
+
+    for (auto& clip : project.playlist.clips)
+        if (auto audio = std::get_if<model::AudioClip> (&clip))
+            if (auto path = collect (audio->sample))
+                commands.push_back (model::UpdateClip { audio->id, Json { { "sample", *path } } });
+
+    if (! commands.empty())
+        session.execute (commands, { "ui", {}, "Collect samples into the project" });
+
+    return { { "copied", copied.size() }, { "updated", commands.size() } };
 }
 
 Json ApiHandler::callPlugins (const std::string& method, const Json& params, Client& client)
