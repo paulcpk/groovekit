@@ -1,0 +1,89 @@
+---
+import { LINKS } from "../lib/site";
+import Icon from "./Icon.astro";
+
+const credits = [
+  ["JUCE 8", "https://juce.com", "audio, plugins, I/O"],
+  ["Tracktion Engine", "https://github.com/Tracktion/tracktion_engine", "playback and rendering"],
+  ["Rubber Band", "https://breakfastquay.com/rubberband/", "time-stretching"],
+  ["IXWebSocket", "https://github.com/machinezone/IXWebSocket", "the engine API"],
+];
+
+const build = `git clone --recursive https://github.com/paulcpk/groovekit
+cd groovekit
+cmake --preset dev && cmake --build --preset dev
+pnpm install && cd ui && pnpm app`;
+---
+
+<section id="open-source" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site">
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)] lg:items-end">
+      <div>
+        <p class="eyebrow">Open source</p>
+        <h2 class="title mt-4">Yours to read, change and build on.</h2>
+      </div>
+      <p class="text-lg leading-relaxed text-dim">
+        GrooveKit is free software under the GNU AGPLv3: the engine, the app, the MCP server and the
+        schemas. Your songs are plain JSON in a folder, described by a published schema.
+      </p>
+    </div>
+
+    <div class="mt-14 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <article class="flex flex-col rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">AGPLv3, no strings</h3>
+        <p class="mt-2 leading-relaxed text-dim">
+          Use it for anything, including commercial music. If you ship a changed version — or
+          serve one over a network — share its source under the same license.
+        </p>
+        <a href={LINKS.license} class="mt-auto inline-flex items-center gap-1.5 pt-6 text-sm font-medium text-accent underline-offset-4 hover:underline">
+          Read the license <Icon name="arrow" class="size-3.5" />
+        </a>
+      </article>
+
+      <article class="flex flex-col rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">Build your own client</h3>
+        <p class="mt-2 leading-relaxed text-dim">
+          The engine speaks JSON-RPC over a local WebSocket: commands in, live patches out. A
+          script, a controller bridge or another UI is a client like the app.
+        </p>
+        <a href={LINKS.protocol} class="mt-auto inline-flex items-center gap-1.5 pt-6 text-sm font-medium text-accent underline-offset-4 hover:underline">
+          Engine API reference <Icon name="arrow" class="size-3.5" />
+        </a>
+      </article>
+
+      <article class="flex flex-col rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">Contribute</h3>
+        <p class="mt-2 leading-relaxed text-dim">
+          Issues and pull requests are welcome. Contributions are licensed under the AGPLv3 and
+          also to the maintainer under other terms, so GrooveKit can be offered under other
+          licenses too; you keep your copyright.
+        </p>
+        <a href={LINKS.contributing} class="mt-auto inline-flex items-center gap-1.5 pt-6 text-sm font-medium text-accent underline-offset-4 hover:underline">
+          Contribution terms <Icon name="arrow" class="size-3.5" />
+        </a>
+      </article>
+    </div>
+
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+      <div class="min-w-0 rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7">
+        <h3 class="font-semibold">Build from source</h3>
+        <p class="mt-1.5 text-[14.5px] text-dim">
+          Needs Xcode Command Line Tools, CMake, Ninja, Node 24+, pnpm and Rust. Full steps in the{" "}
+          <a href={LINKS.readme} class="text-fg underline decoration-line underline-offset-4 hover:decoration-fg">README</a>.
+        </p>
+        <pre class="mt-4 overflow-x-auto rounded-lg bg-bg px-4 py-3.5 text-[12.5px] leading-relaxed text-fg ring-1 ring-line"><code>{build}</code></pre>
+      </div>
+      <div class="rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7">
+        <h3 class="font-semibold">Standing on</h3>
+        <ul class="mt-4 divide-y divide-line">
+          {credits.map(([name, href, role]) => (
+            <li class="flex items-baseline justify-between gap-4 py-2.5">
+              <a href={href} class="font-medium hover:text-accent">{name}</a>
+              <span class="text-right text-sm text-faint">{role}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>

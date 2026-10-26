@@ -1,0 +1,180 @@
+@import "tailwindcss";
+
+/*
+ * Dark only, like the app (ui/src/index.css): flat greys, with colour kept for meaning. Accent is
+ * the app's amber (transport, steps, calls to action); agent is the violet the app uses for
+ * everything the agent did. Components use these roles, never a hex value.
+ */
+@theme {
+  --color-bg: #111113;
+  --color-panel: #18181b;
+  --color-raised: #202024;
+  --color-control: #29292e;
+  --color-hover: #323238;
+  --color-line: #2c2c31;
+  --color-grid: #1d1d21;
+  --color-fg: #ededf0;
+  --color-dim: #a3a3ad;
+  --color-faint: #85858f;
+  --color-accent: #f2a33a;
+  --color-accent-ink: #1a1206;
+  --color-agent: #a78bfa;
+  --color-rec: #ef4f4f;
+  --color-ok: #6fd08c;
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    @apply bg-bg text-fg antialiased;
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-bg;
+    overflow-x: clip;
+  }
+  ::selection {
+    @apply bg-accent text-accent-ink;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  code,
+  pre,
+  kbd {
+    font-family: var(--font-mono);
+  }
+}
+
+@utility container-site {
+  @apply mx-auto w-full max-w-6xl px-5 sm:px-8;
+}
+
+/* Small uppercase label above a section title. */
+@utility eyebrow {
+  @apply font-mono text-xs font-medium tracking-[0.14em] text-faint uppercase;
+}
+
+/* Section titles: tight, large, balanced. */
+@utility title {
+  @apply text-[clamp(2rem,4.6vw,3.25rem)] leading-[1.05] font-semibold tracking-[-0.035em] text-balance;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-[15px] font-semibold whitespace-nowrap transition duration-200;
+}
+@utility btn-primary {
+  @apply bg-accent text-accent-ink shadow-[0_0_0_1px_rgb(255_255_255/0.08)_inset,0_8px_30px_-8px_rgb(242_163_58/0.45)] hover:brightness-110;
+}
+@utility btn-secondary {
+  @apply bg-raised text-fg ring-1 ring-line ring-inset hover:bg-control;
+}
+
+/* A tool name, as the agent sees it. */
+@utility chip {
+  @apply inline-flex items-center rounded-md bg-agent/10 px-1.5 py-0.5 font-mono text-[12px] text-agent ring-1 ring-agent/20 ring-inset;
+}
+
+/* ---------------------------------------------------------------- motion */
+
+@keyframes gk-playhead {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--travel, 100%));
+  }
+}
+@keyframes gk-step {
+  0%,
+  6.25% {
+    background-color: var(--color-fg);
+  }
+  6.26%,
+  100% {
+    background-color: var(--step-color, transparent);
+  }
+}
+@keyframes gk-meter {
+  0%,
+  100% {
+    transform: scaleY(var(--lo, 0.35));
+  }
+  12% {
+    transform: scaleY(var(--hi, 0.85));
+  }
+  50% {
+    transform: scaleY(var(--mid, 0.55));
+  }
+}
+@keyframes gk-flash {
+  0%,
+  55% {
+    box-shadow: 0 0 0 1.5px var(--color-agent), 0 0 18px -2px rgb(167 139 250 / 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 1.5px rgb(167 139 250 / 0.35), 0 0 0 0 transparent;
+  }
+}
+@keyframes gk-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes gk-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.gk-playhead {
+  animation: gk-playhead 4s linear infinite;
+}
+.gk-meter {
+  transform-origin: bottom;
+  animation: gk-meter 0.469s ease-out infinite; /* one beat at 128 BPM */
+}
+.gk-flash {
+  animation: gk-flash 2.4s var(--ease-out-expo) infinite alternate;
+}
+.gk-in {
+  animation: gk-fade-up 0.8s var(--ease-out-expo) both;
+  animation-delay: calc(var(--d, 0) * 90ms);
+}
+.gk-pulse {
+  animation: gk-pulse 1.6s ease-in-out infinite;
+}
+
+/* Nothing moves for visitors who ask for less motion; everything is shown in its resting state. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .gk-playhead {
+    display: none;
+  }
+}

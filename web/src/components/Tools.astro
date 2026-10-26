@@ -1,0 +1,130 @@
+---
+/** Every MCP tool, grouped by what it gives the agent, with a small picture where it helps. */
+import { TOOL_COUNT, TOOL_GROUPS } from "../lib/site";
+
+// analyze_mix picture: each source's share of ten bands (31 Hz … 16 kHz), as in the tool's output.
+const bands = ["31", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
+const kick = [70, 92, 55, 20, 10, 8, 6, 5, 3, 2];
+const bass = [40, 85, 78, 45, 20, 10, 5, 3, 2, 1];
+---
+
+<section id="tools" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site">
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)] lg:items-end">
+      <div>
+        <p class="eyebrow">Agent tools</p>
+        <h2 class="title mt-4">{TOOL_COUNT} tools. The whole studio, in the agent’s hands.</h2>
+      </div>
+      <p class="text-lg leading-relaxed text-dim">
+        Coarse tools rather than hundreds of tiny ones, so the agent’s context stays small and its
+        plans stay simple. Read the song, change it in one atomic step, render, measure, adjust.
+      </p>
+    </div>
+
+    <div class="mt-14 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {TOOL_GROUPS.map((g) => (
+        <article
+          id={`tools-${g.id}`}
+          class:list={[
+            "flex flex-col rounded-2xl bg-panel p-6 ring-1 ring-line transition-colors hover:ring-hover sm:p-7",
+            g.wide && "md:col-span-2",
+          ]}
+        >
+          <h3 class="text-lg font-semibold tracking-[-0.015em]">{g.title}</h3>
+          <p class="mt-2 leading-relaxed text-dim">{g.lead}</p>
+
+          {g.id === "sounds" && (
+            <div class="mt-5 overflow-hidden rounded-xl bg-bg font-mono text-[11.5px] ring-1 ring-line" aria-hidden="true">
+              <div class="flex items-center gap-2 border-b border-line px-3 py-2 text-faint">
+                <span class="text-agent">search_samples</span>
+                <span class="truncate">"dark kick" · kick · one-shot</span>
+              </div>
+              {[
+                ["Industrial Kick 03.wav", "kick one-shot, 0.42 s, pitched F1, sharp attack, dark, bass-heavy"],
+                ["Rumble Kick 11.wav", "kick one-shot, 0.88 s, pitched E1 (+14 c), sharp attack, dark, bass-heavy"],
+                ["Warehouse BD.wav", "kick one-shot, 0.31 s, sharp attack, dark"],
+              ].map(([file, desc], i) => (
+                <div class:list={["grid gap-0.5 px-3 py-2 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-3", i > 0 && "border-t border-grid"]}>
+                  <span class="truncate text-fg">{file}</span>
+                  <span class="truncate text-faint">{desc}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {g.id === "ears" && (
+            <dl class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line font-mono ring-1 ring-line" aria-label="Example render measurements">
+              {[
+                ["integrated", "−14.1 LUFS"],
+                ["true peak", "−1.0 dB"],
+                ["range", "5.8 LU"],
+                ["onsets", "64"],
+              ].map(([k, v]) => (
+                <div class="bg-bg px-3 py-2.5">
+                  <dt class="text-[10.5px] tracking-wide text-faint uppercase">{k}</dt>
+                  <dd class="mt-0.5 text-[13px] text-fg tabular-nums">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+
+          {g.id === "mix" && (
+            <div class="mt-5 rounded-xl bg-bg p-3 ring-1 ring-line" aria-hidden="true">
+              <div class="flex h-16 items-end gap-1">
+                {bands.map((_, i) => (
+                  <div class="relative flex h-full flex-1 items-end">
+                    <span class="absolute bottom-0 left-0 w-1/2 rounded-t-sm bg-accent/80" style={`height:${kick[i]}%`}></span>
+                    <span class="absolute right-0 bottom-0 w-1/2 rounded-t-sm bg-[#5cc8c0]/80" style={`height:${bass[i]}%`}></span>
+                    {(i === 1 || i === 2) && <span class="absolute -inset-x-px -top-1 bottom-0 rounded-sm ring-1 ring-rec/70"></span>}
+                  </div>
+                ))}
+              </div>
+              <div class="mt-2 flex items-center gap-3 font-mono text-[10.5px] text-faint">
+                <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-accent"></span>kick</span>
+                <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-[#5cc8c0]"></span>bass</span>
+                <span class="ml-auto text-rec">masking 60–120 Hz</span>
+              </div>
+            </div>
+          )}
+
+          {g.id === "master" && (
+            <div class="mt-5 rounded-xl bg-bg p-3 ring-1 ring-line" aria-hidden="true">
+              <div class="relative h-3 overflow-hidden rounded-full bg-control">
+                <span class="absolute inset-y-0 left-0 w-[68%] rounded-full bg-gradient-to-r from-ok via-ok to-accent"></span>
+              </div>
+              <div class="relative mt-1 h-4 font-mono text-[10.5px] text-faint">
+                <span class="absolute left-0">−30</span>
+                <span class="absolute left-[68%] -translate-x-1/2 text-fg">−14</span>
+                <span class="absolute right-0">−6 LUFS</span>
+              </div>
+            </div>
+          )}
+
+          {g.id === "record" && (
+            <div class="mt-5 grid grid-cols-8 gap-1 rounded-xl bg-bg p-3 ring-1 ring-line" aria-hidden="true">
+              {Array.from({ length: 16 }, (_, i) => (
+                <span
+                  class:list={[
+                    "h-6 rounded-[4px] font-mono text-[9px] leading-6 text-center",
+                    [2, 6, 9, 13].includes(i) ? "bg-control/60 text-faint/60" : "bg-rec/20 text-rec ring-1 ring-rec/40",
+                  ]}
+                >
+                  {i + 1}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <ul class="mt-6 space-y-3.5 border-t border-line pt-5">
+            {g.tools.map((t) => (
+              <li class="grid gap-1.5">
+                <span><code class="chip">{t.name}</code></span>
+                <span class="text-[14.5px] leading-relaxed text-dim">{t.does}</span>
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>

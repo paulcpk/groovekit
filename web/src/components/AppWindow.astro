@@ -1,0 +1,202 @@
+---
+/**
+ * The app, drawn in HTML and CSS (no screenshot): transport bar, the sidebar's Agent tab, the
+ * playlist and the channel rack, with the agent's latest changes outlined in its colour.
+ * Decorative: screen readers get one sentence instead.
+ */
+const BARS = 8;
+
+// Playlist: track name, then clips as [start bar (0-based), length in bars, label, colour, agent?]
+type Clip = [number, number, string, string, boolean?];
+const tracks: { name: string; clips: Clip[]; kind?: "audio" | "auto" }[] = [
+  { name: "Drums", clips: [[0, 8, "Groove", "#f2a33a"]] },
+  { name: "Bass", clips: [[2, 6, "Bass", "#5cc8c0", true]] },
+  { name: "Hats", clips: [[1, 3, "Hats", "#e2789b", true], [4, 4, "Hats", "#e2789b", true]] },
+  { name: "Digitakt", kind: "audio", clips: [[0, 4, "rec-track3", "#6aa5f0"], [4, 4, "rec-track3", "#6aa5f0"]] },
+  { name: "Filter", kind: "auto", clips: [[4, 4, "Bass · lowpass", "#a78bfa", true]] },
+];
+
+// Channel rack: 16 steps per row, 1 = on.
+const rows: { name: string; steps: string; agent?: boolean }[] = [
+  { name: "Kick", steps: "1000100010001000" },
+  { name: "Clap", steps: "0000100000001000" },
+  { name: "Hat", steps: "0010001000100010", agent: true },
+  { name: "Bass", steps: "0010011000100110", agent: true },
+];
+
+const activity = [
+  { label: "Master to −14 LUFS", n: 1, t: "now" },
+  { label: "Carve room for the kick", n: 2, t: "12s" },
+  { label: "Dark techno groove", n: 16, t: "40s" },
+];
+
+// Pseudo-random but fixed waveform heights for the audio clips.
+const wave = Array.from({ length: 48 }, (_, i) => 25 + Math.round(70 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.6))));
+const BAR_SECONDS = 1.875; // one bar at 128 BPM
+---
+
+<div
+  class="relative overflow-hidden rounded-2xl bg-panel text-left shadow-[0_40px_120px_-30px_rgb(0_0_0/0.9)] ring-1 ring-line"
+  role="img"
+  aria-label="Illustration of the GrooveKit window: the playlist and channel rack, with clips and steps the agent just added outlined in violet, and the Agent tab listing its latest changes."
+>
+  <!-- Title bar -->
+  <div class="flex h-9 items-center gap-2 border-b border-line bg-raised/60 px-3.5">
+    <span class="size-3 rounded-full bg-[#ff5f57]"></span>
+    <span class="size-3 rounded-full bg-[#febc2e]"></span>
+    <span class="size-3 rounded-full bg-[#28c840]"></span>
+    <span class="ml-3 truncate text-xs text-faint">Night Drive — GrooveKit</span>
+  </div>
+
+  <!-- Transport -->
+  <div class="flex items-center gap-2 border-b border-line px-3 py-2 text-[11px] sm:gap-3">
+    <span class="grid size-7 place-items-center rounded-md bg-accent/15 text-accent">
+      <svg viewBox="0 0 12 12" class="size-3" fill="currentColor"><path d="M3 2v8l7-4z"></path></svg>
+    </span>
+    <span class="grid size-7 place-items-center rounded-md bg-control text-dim">
+      <svg viewBox="0 0 12 12" class="size-2.5" fill="currentColor"><rect x="2" y="2" width="8" height="8" rx="1"></rect></svg>
+    </span>
+    <span class="flex overflow-hidden rounded-md ring-1 ring-line">
+      <span class="px-2 py-1 font-semibold text-faint">PAT</span>
+      <span class="bg-accent px-2 py-1 font-semibold text-accent-ink">SONG</span>
+    </span>
+    <span class="rounded-md bg-bg px-2 py-1 font-mono tabular-nums">128.000</span>
+    <span class="hidden rounded-md bg-bg px-2 py-1 font-mono text-dim tabular-nums sm:inline">5:1:01</span>
+    <span class="ml-auto hidden items-center gap-1.5 text-faint sm:flex">
+      <span class="size-1.5 rounded-full bg-agent gk-pulse"></span> agent connected
+    </span>
+    <span class="ml-auto flex h-5 items-end gap-0.5 sm:ml-2" aria-hidden="true">
+      {[0, 1].map((i) => (
+        <span class="h-full w-1.5 overflow-hidden rounded-sm bg-control">
+          <span
+            class="gk-meter block h-full w-full bg-gradient-to-t from-ok via-ok to-accent"
+            style={`--lo:.4;--hi:${0.9 - i * 0.06};--mid:.6;animation-delay:${i * 40}ms`}
+          ></span>
+        </span>
+      ))}
+    </span>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-[13.5rem_minmax(0,1fr)]">
+    <!-- Sidebar: Agent tab -->
+    <aside class="hidden border-r border-line bg-panel md:block">
+      <div class="flex gap-1 border-b border-line p-2 text-[11px] font-medium">
+        <span class="rounded px-2 py-1 text-faint">Browser</span>
+        <span class="rounded px-2 py-1 text-faint">History</span>
+        <span class="flex items-center gap-1 rounded bg-control px-2 py-1 text-fg">
+          Agent <span class="size-1.5 rounded-full bg-agent"></span>
+        </span>
+      </div>
+      <div class="space-y-3 p-3">
+        {activity.map((a, i) => (
+          <div>
+            <div class="flex items-center gap-1.5 text-[9px] tracking-wide text-faint uppercase">
+              <svg viewBox="0 0 12 12" class="size-2.5 text-agent" fill="currentColor"><rect x="2" y="4" width="8" height="6" rx="1.5"></rect><rect x="5.4" y="1" width="1.2" height="3"></rect></svg>
+              agent · {a.n} change{a.n === 1 ? "" : "s"} · {a.t}
+            </div>
+            <div
+              class:list={[
+                "mt-1 rounded-md px-2 py-1.5 text-[11px] leading-snug",
+                i === 0 ? "bg-agent/10 text-fg ring-1 ring-agent/30" : "bg-raised text-dim",
+              ]}
+            >
+              {a.label}
+            </div>
+          </div>
+        ))}
+        <div class="rounded-md border border-dashed border-line px-2 py-2 text-[10px] leading-snug text-faint">
+          Click a change to see it in the playlist, rack or mixer. ⌘Z undoes a whole request.
+        </div>
+      </div>
+    </aside>
+
+    <div class="min-w-0">
+      <!-- Playlist -->
+      <div class="relative">
+        <div class="grid grid-cols-[4.5rem_minmax(0,1fr)] border-b border-line text-[10px] text-faint sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+          <span class="px-2 py-1">Playlist</span>
+          <div class="grid font-mono" style={`grid-template-columns:repeat(${BARS},minmax(0,1fr))`}>
+            {Array.from({ length: BARS }, (_, i) => <span class="border-l border-line/60 px-1 py-1">{i + 1}</span>)}
+          </div>
+        </div>
+        {tracks.map((t) => (
+          <div class="grid h-8 grid-cols-[4.5rem_minmax(0,1fr)] border-b border-grid sm:h-9 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+            <span class="flex items-center truncate border-r border-line bg-raised/40 px-2 text-[11px] text-dim">{t.name}</span>
+            <div
+              class="relative bg-[linear-gradient(to_right,var(--color-grid)_1px,transparent_1px)]"
+              style={`background-size:calc(100%/${BARS}) 100%`}
+            >
+              {t.clips.map(([start, len, label, color, agent]) => (
+                <div
+                  class:list={["absolute inset-y-1 overflow-hidden rounded-[4px]", agent && "gk-flash"]}
+                  style={`left:calc(${(start / BARS) * 100}% + 1px);width:calc(${(len / BARS) * 100}% - 2px);background:color-mix(in oklab, ${color} 22%, var(--color-panel));box-shadow:inset 0 0 0 1px color-mix(in oklab, ${color} 55%, transparent)`}
+                >
+                  <span class="block truncate px-1.5 pt-0.5 text-[9px] font-medium" style={`color:${color}`}>{label}</span>
+                  {t.kind === "audio" && (
+                    <span class="absolute inset-x-1 top-3.5 bottom-0.5 flex items-center gap-px" aria-hidden="true">
+                      {wave.slice(0, len * 6).map((h) => (
+                        <span class="flex-1 rounded-full" style={`height:${h}%;background:${color};opacity:.55`}></span>
+                      ))}
+                    </span>
+                  )}
+                  {t.kind === "auto" && (
+                    <svg viewBox="0 0 100 20" preserveAspectRatio="none" class="absolute inset-x-0 top-3 bottom-0.5 h-auto w-full" aria-hidden="true">
+                      <path d="M0 16 L30 14 L60 6 L85 3 L100 12" fill="none" stroke={color} stroke-width="1.5" vector-effect="non-scaling-stroke"></path>
+                    </svg>
+                  )}
+                  {t.kind === undefined && (
+                    <span class="absolute inset-x-1.5 top-4 bottom-1 bg-[repeating-linear-gradient(to_right,currentColor_0_2px,transparent_2px_12.5%)] opacity-40" style={`color:${color}`}></span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <!-- Playhead over the lanes -->
+        <div class="pointer-events-none absolute inset-y-0 right-0 left-[4.5rem] overflow-hidden sm:left-[5.5rem]" aria-hidden="true">
+          <div class="gk-playhead h-full w-full" style={`animation-duration:${BAR_SECONDS * BARS}s`}>
+            <span class="block h-full w-px bg-fg/80 shadow-[0_0_8px_rgb(255_255_255/0.5)]"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Channel rack -->
+      <div class="border-t border-line bg-bg/40 p-3">
+        <div class="mb-2 flex items-center gap-2 text-[11px] text-faint">
+          <span class="font-medium text-dim">Channel rack</span>
+          <span>·</span>
+          <span>Groove</span>
+          <span class="ml-auto hidden items-center gap-1 text-agent sm:flex">
+            <span class="size-1.5 rounded-full bg-agent"></span> edited by agent
+          </span>
+        </div>
+        <div class="space-y-1.5">
+          {rows.map((r) => (
+            <div class="grid grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
+              <span
+                class:list={[
+                  "truncate rounded px-1.5 py-1 text-[10px] sm:text-[11px]",
+                  r.agent ? "bg-agent/10 text-agent ring-1 ring-agent/30" : "bg-control text-dim",
+                ]}
+              >
+                {r.name}
+              </span>
+              <div class="grid grid-cols-16 gap-[3px] sm:gap-1">
+                {[...r.steps].map((s, i) => (
+                  <span
+                    class:list={["h-4 rounded-[3px] sm:h-5", s === "1" && "gk-step-on"]}
+                    style={
+                      s === "1"
+                        ? `--step-color:${r.agent ? "var(--color-agent)" : "var(--color-accent)"};background-color:var(--step-color);animation:gk-step ${BAR_SECONDS}s linear infinite;animation-delay:${(i * BAR_SECONDS) / 16}s`
+                        : `background-color:${Math.floor(i / 4) % 2 ? "#2a2a30" : "#323238"}`
+                    }
+                  ></span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

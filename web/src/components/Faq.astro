@@ -1,0 +1,34 @@
+---
+import { FAQ, LINKS } from "../lib/site";
+import Icon from "./Icon.astro";
+---
+
+<section id="faq" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site grid grid-cols-[minmax(0,1fr)] gap-12 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)] lg:gap-20">
+    <div class="lg:sticky lg:top-28 lg:self-start">
+      <p class="eyebrow">FAQ</p>
+      <h2 class="title mt-4">Questions, answered.</h2>
+      <p class="mt-5 text-dim">
+        Something else?
+        <a href={LINKS.issues} class="font-medium text-fg underline decoration-accent underline-offset-4">Open an issue on GitHub</a>.
+      </p>
+    </div>
+    <div class="divide-y divide-line border-y border-line">
+      {FAQ.map((item, index) => (
+        <details class="group" open={index === 0}>
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-6 py-5 text-[17px] font-medium [&::-webkit-details-marker]:hidden">
+            {item.q}
+            <span class="grid size-8 shrink-0 place-items-center rounded-full text-dim ring-1 ring-line transition-transform duration-300 group-open:rotate-45 group-open:bg-fg group-open:text-bg">
+              <Icon name="plus" class="size-3.5" />
+            </span>
+          </summary>
+          <p class="max-w-2xl pb-6 leading-relaxed break-words text-dim sm:pr-12">
+            {item.a.split("`").map((part, i) =>
+              i % 2 ? <code class="rounded bg-raised px-1.5 py-0.5 text-[0.85em] text-fg ring-1 ring-line [overflow-wrap:anywhere]">{part}</code> : part,
+            )}
+          </p>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>

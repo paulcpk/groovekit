@@ -1,0 +1,220 @@
+---
+/**
+ * How the agent works: MCP in plain words, three steps, a realistic Claude Code session (real tool
+ * names and argument shapes from mcp/src/tools.ts and the schema) and the one-engine diagram.
+ */
+import { LINKS, MCP_ADD, TOOL_COUNT } from "../lib/site";
+
+const steps = [
+  {
+    n: "01",
+    title: "Connect Claude once",
+    text: "GrooveKit comes with an MCP server: the standard way Claude picks up new tools. Register it with Claude Code and the studio is one of Claude’s toolboxes.",
+    code: MCP_ADD,
+  },
+  {
+    n: "02",
+    title: "Say what you want",
+    text: "A genre, a tempo, a feeling, a reference loudness. Or something smaller: “the hats are too busy in the drop”. The agent reads the song before it touches it.",
+  },
+  {
+    n: "03",
+    title: "Watch, listen, undo",
+    text: "Each edit lands in the open app as it happens, outlined in violet and listed in the Agent tab. A whole request is one undo step, so trying an idea costs nothing.",
+  },
+];
+
+type Line =
+  | { kind: "user"; text: string }
+  | { kind: "say"; text: string }
+  | { kind: "call"; tool: string; args: string; result: string[]; ok?: boolean };
+
+const session: Line[] = [
+  {
+    kind: "user",
+    text: "Make a dark techno groove at 128 from my own samples: four-on-the-floor kick, offbeat bass, busy hats. Keep the kick and bass out of each other’s way, then master it for streaming.",
+  },
+  { kind: "call", tool: "get_summary", args: "", result: ["tempo 120 · 0 channels · 0 patterns · empty playlist"] },
+  {
+    kind: "call",
+    tool: "search_samples",
+    args: `{"query":"dark kick","category":"kick","loop":false,"limit":5}`,
+    result: ["Kicks/Industrial Kick 03.wav", "“kick one-shot, 0.42 s, pitched F1, sharp attack, dark, bass-heavy”", "5 of 38,214 samples"],
+  },
+  {
+    kind: "call",
+    tool: "search_samples",
+    args: `{"query":"reese bass","category":"bass","loop":false}`,
+    result: ["Bass/Reese Stab F.wav · rootKey 29", "“bass one-shot, 0.61 s, pitched F1 (−8 c), sharp attack, bass-heavy”"],
+  },
+  {
+    kind: "call",
+    tool: "edit_project",
+    args: `{"label":"Dark techno groove","commands":[
+  {"type":"setTempo","tempo":128},
+  {"type":"addChannel","channel":{"id":"kick","instrument":{"type":"sampler",
+    "layers":[{"id":"l1","sample":"…/Industrial Kick 03.wav","pitchTracking":false}]}}},
+  {"type":"addPattern","pattern":{"id":"groove","length":3840,
+    "notes":[{"channel":"kick","start":0,"length":240}, …]}},
+  {"type":"addClip","clip":{"type":"pattern","id":"g1","track":"drums",
+    "start":0,"length":61440,"pattern":"groove"}},
+  … 12 more]}`,
+    result: ["entry 14 · “Dark techno groove” · applied atomically"],
+    ok: true,
+  },
+  {
+    kind: "call",
+    tool: "analyze_mix",
+    args: `{"startBar":1,"endBar":17}`,
+    result: ["mix −17.6 LUFS · true peak −3.2 dB", "masking: kick × bass at 60–120 Hz"],
+  },
+  {
+    kind: "call",
+    tool: "edit_project",
+    args: `{"label":"Carve room for the kick","commands":[{"type":"addEffect","insert":"bass",
+  "effect":{"type":"builtin","id":"eq","kind":"eq","params":{"lowFreq":110,"lowGainDb":-4}}}]}`,
+    result: ["entry 15 · “Carve room for the kick”"],
+    ok: true,
+  },
+  {
+    kind: "call",
+    tool: "master",
+    args: `{"targetLufs":-14,"ceilingDb":-1}`,
+    result: ["integrated −14.1 LUFS · true peak −1.0 dB · reached target in 3 renders"],
+    ok: true,
+  },
+  { kind: "call", tool: "transport", args: `{"action":"play","fromBar":1}`, result: ["playing · song mode · bar 1"] },
+  {
+    kind: "say",
+    text: "Done: 16 bars at 128 BPM with kick, offbeat bass and 16th hats, a low shelf on the bass so the kick owns 60–120 Hz, mastered to −14 LUFS. It’s playing now. One undo takes the whole thing back.",
+  },
+];
+---
+
+<section id="agent" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site">
+    <div class="max-w-3xl">
+      <p class="eyebrow">How the agent works</p>
+      <h2 class="title mt-4">Ask in words. Watch it happen in the app.</h2>
+      <p class="mt-6 text-lg leading-relaxed text-dim">
+        GrooveKit gives Claude {TOOL_COUNT} tools over the{" "}
+        <a href={LINKS.mcp} class="text-fg underline decoration-line underline-offset-4 hover:decoration-fg">Model Context Protocol</a>:
+        the same engine API the interface is built on. Anything you can click, the agent can do —
+        and anything it does, you can see, change and undo.
+      </p>
+    </div>
+
+    <div class="mt-16 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-14">
+      <!-- Steps -->
+      <ol class="space-y-4">
+        {steps.map((s) => (
+          <li class="rounded-2xl bg-panel p-6 ring-1 ring-line">
+            <div class="flex items-baseline gap-3">
+              <span class="font-mono text-xs text-accent">{s.n}</span>
+              <h3 class="text-lg font-semibold tracking-[-0.01em]">{s.title}</h3>
+            </div>
+            <p class="mt-2.5 leading-relaxed text-dim">{s.text}</p>
+            {s.code && (
+              <pre class="mt-4 overflow-x-auto rounded-lg bg-bg px-3.5 py-3 text-[12.5px] leading-relaxed text-fg ring-1 ring-line"><code><span class="text-faint select-none">$ </span>{s.code}</code></pre>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      <!-- Session -->
+      <figure class="min-w-0">
+        <div class="overflow-hidden rounded-2xl bg-[#0c0c0e] ring-1 ring-line">
+          <div class="flex h-9 items-center gap-2 border-b border-line bg-panel px-3.5">
+            <span class="size-3 rounded-full bg-control"></span>
+            <span class="size-3 rounded-full bg-control"></span>
+            <span class="size-3 rounded-full bg-control"></span>
+            <span class="ml-2 truncate font-mono text-[11px] text-faint">claude — ~/Music/GrooveKit/Scratch</span>
+          </div>
+          <ol class="space-y-4 p-4 font-mono text-[12.5px] leading-relaxed sm:p-5" aria-label="Example Claude Code session">
+            {session.map((line) => (
+              <li>
+                {line.kind === "user" && (
+                  <div class="rounded-lg bg-raised px-3.5 py-3 text-fg ring-1 ring-line">
+                    <span class="text-accent select-none">&gt; </span>
+                    <span class="font-sans text-[14px]">{line.text}</span>
+                  </div>
+                )}
+                {line.kind === "say" && (
+                  <p class="flex gap-2 font-sans text-[14px] text-fg">
+                    <span class="mt-[0.45em] size-2 shrink-0 rounded-full bg-fg/80" aria-hidden="true"></span>
+                    <span>{line.text}</span>
+                  </p>
+                )}
+                {line.kind === "call" && (
+                  <div>
+                    <div class="flex flex-wrap items-baseline gap-x-1.5">
+                      <span class="mt-[0.45em] size-2 shrink-0 self-start rounded-full bg-agent" aria-hidden="true"></span>
+                      <span class="text-faint">groovekit ·</span>
+                      <span class="font-semibold text-agent">{line.tool}</span>
+                    </div>
+                    {line.args && (
+                      <pre class="mt-1.5 ml-3.5 overflow-x-auto rounded-md bg-panel/70 px-3 py-2 text-[11.5px] leading-relaxed whitespace-pre text-dim ring-1 ring-line/70"><code>{line.args}</code></pre>
+                    )}
+                    <div class="mt-1.5 ml-3.5 border-l border-line pl-3 text-[12px] text-faint">
+                      {line.result.map((r, i) => (
+                        <div class:list={[i === 0 && line.ok && "text-ok"]}>
+                          {i === 0 && <span class="select-none">⎿ </span>}
+                          {r}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+        <figcaption class="mt-3 text-sm text-faint">
+          An illustrative session. Tool names and arguments are GrooveKit’s real ones; sample names
+          and numbers will be yours.
+        </figcaption>
+      </figure>
+    </div>
+
+    <!-- One engine, every client -->
+    <div class="mt-20 rounded-3xl bg-panel p-6 ring-1 ring-line sm:p-10">
+      <div class="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
+        <div>
+          <h3 class="text-2xl font-semibold tracking-[-0.025em]">One engine. You and the agent are peers.</h3>
+          <p class="mt-4 leading-relaxed text-dim">
+            The audio engine owns the song. The app and the agent are both clients of its JSON-RPC
+            API over WebSocket, sending the same typed commands. Each command becomes a history
+            entry, and every client gets the change as a live patch — that’s how the agent’s edits
+            appear in your window the moment it makes them.
+          </p>
+          <a href={LINKS.protocol} class="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline underline-offset-4">
+            Read the engine API
+            <svg viewBox="0 0 16 16" class="size-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"></path></svg>
+          </a>
+        </div>
+
+        <div class="grid grid-cols-[minmax(0,1fr)] items-center gap-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.1fr)_auto_minmax(0,1fr)]" aria-label="Diagram: the GrooveKit app and Claude, through the MCP server, both talk to one engine over JSON-RPC.">
+          <div class="rounded-xl bg-raised p-4 ring-1 ring-line">
+            <div class="font-semibold">GrooveKit app</div>
+            <div class="mt-1 text-xs leading-snug text-faint">You: clicks, keys, knobs</div>
+          </div>
+          <div class="flex flex-col items-center text-[10px] text-faint sm:px-1" aria-hidden="true">
+            <span class="hidden sm:block">⇄</span><span class="sm:hidden">⇅</span>
+          </div>
+          <div class="rounded-xl bg-accent/10 p-4 ring-1 ring-accent/40">
+            <div class="font-semibold text-accent">Engine</div>
+            <div class="mt-1 text-xs leading-snug text-dim">Song, history, playback, render, analysis</div>
+            <div class="mt-2 font-mono text-[10.5px] text-faint">ws://127.0.0.1 · JSON-RPC</div>
+          </div>
+          <div class="flex flex-col items-center text-[10px] text-faint sm:px-1" aria-hidden="true">
+            <span class="hidden sm:block">⇄</span><span class="sm:hidden">⇅</span>
+          </div>
+          <div class="rounded-xl bg-agent/10 p-4 ring-1 ring-agent/40">
+            <div class="font-semibold text-agent">Claude</div>
+            <div class="mt-1 text-xs leading-snug text-dim">via the GrooveKit MCP server</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

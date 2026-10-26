@@ -1,0 +1,23 @@
+---
+import Agent from "../components/Agent.astro";
+import Closing from "../components/Closing.astro";
+import Faq from "../components/Faq.astro";
+import Features from "../components/Features.astro";
+import Hardware from "../components/Hardware.astro";
+import Hero from "../components/Hero.astro";
+import OpenSource from "../components/OpenSource.astro";
+import Tools from "../components/Tools.astro";
+import Base from "../layouts/Base.astro";
+import { DESCRIPTION, NAME, TAGLINE } from "../lib/site";
+---
+
+<Base title={`${NAME}: ${TAGLINE}`} description={DESCRIPTION}>
+  <Hero />
+  <Agent />
+  <Tools />
+  <Features />
+  <Hardware />
+  <OpenSource />
+  <Faq />
+  <Closing />
+</Base>

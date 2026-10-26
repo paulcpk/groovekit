@@ -1,0 +1,12 @@
+---
+import Base from "../layouts/Base.astro";
+import { NAME } from "../lib/site";
+---
+
+<Base title={`Page not found · ${NAME}`} description="Page not found">
+  <section class="container-site py-32 text-center">
+    <p class="eyebrow text-accent">404</p>
+    <h1 class="title mt-4">This page doesn’t exist.</h1>
+    <a href="/" class="btn btn-primary mt-10">Back to the home page</a>
+  </section>
+</Base>

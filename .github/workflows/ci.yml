@@ -26,6 +26,8 @@ jobs:
       - run: pnpm test
       - name: UI builds
         run: pnpm --filter @groovekit/ui build
+      - name: Website builds
+        run: pnpm --filter web typecheck && pnpm --filter web build
 
   engine:
     name: Engine (ASan + UBSan)

@@ -1,0 +1,13 @@
+// The GrooveKit website: one static page, no JavaScript of its own. SITE_URL sets the canonical
+// and social URLs (e.g. SITE_URL=https://groovekit.example pnpm build); without it they're left out.
+import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from "astro/config";
+
+export default defineConfig({
+  site: process.env.SITE_URL || undefined,
+  server: { port: Number(process.env.WEB_PORT || 4321) },
+  // Stylesheets as files, so a strict Content-Security-Policy (styles from this origin only) works.
+  build: { inlineStylesheets: "never" },
+  devToolbar: { enabled: false },
+  vite: { plugins: [tailwindcss()] },
+});

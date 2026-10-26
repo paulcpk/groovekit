@@ -1,0 +1,65 @@
+---
+import { LINKS } from "../lib/site";
+import Logo from "./Logo.astro";
+
+const columns: { title: string; links: [string, string][] }[] = [
+  {
+    title: "Product",
+    links: [
+      ["Download for macOS", LINKS.download],
+      ["All releases", LINKS.releases],
+      ["Roadmap", LINKS.roadmap],
+    ],
+  },
+  {
+    title: "Developers",
+    links: [
+      ["Source on GitHub", LINKS.github],
+      ["Engine API", LINKS.protocol],
+      ["Architecture", LINKS.architecture],
+      ["Contributing", LINKS.contributing],
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      ["Report an issue", LINKS.issues],
+      ["License (AGPLv3)", LINKS.license],
+    ],
+  },
+];
+---
+
+<footer class="border-t border-line">
+  <div class="container-site grid grid-cols-1 gap-12 py-14 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+    <div class="max-w-xs">
+      <Logo />
+      <p class="mt-4 text-sm leading-relaxed text-dim">
+        An agent-first music production app for macOS. Free and open source.
+      </p>
+    </div>
+    {columns.map((col) => (
+      <div>
+        <h2 class="text-sm font-semibold">{col.title}</h2>
+        <ul class="mt-4 space-y-2.5">
+          {col.links.map(([label, href]) => (
+            <li>
+              <a href={href} class="text-sm text-dim transition-colors hover:text-fg">
+                {label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </div>
+  <div class="border-t border-line">
+    <div class="container-site flex flex-col gap-2 py-6 text-xs text-faint sm:flex-row sm:items-center sm:justify-between">
+      <p>GrooveKit is free software under the GNU AGPLv3.</p>
+      <p>
+        Built with JUCE, Tracktion Engine, Rubber Band and IXWebSocket. Claude is a trademark of
+        Anthropic.
+      </p>
+    </div>
+  </div>
+</footer>

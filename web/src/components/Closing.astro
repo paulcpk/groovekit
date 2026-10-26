@@ -1,0 +1,32 @@
+---
+import { LINKS } from "../lib/site";
+import Icon from "./Icon.astro";
+import Logo from "./Logo.astro";
+---
+
+<section class="relative isolate overflow-hidden border-t border-line py-24 sm:py-32">
+  <div class="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+    <div class="absolute bottom-[-18rem] left-1/2 h-[34rem] w-[60rem] max-w-[160vw] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(242_163_58/0.14),transparent)]"></div>
+  </div>
+  <div class="container-site text-center">
+    <div class="inline-grid size-16 place-items-center rounded-2xl bg-panel ring-1 ring-line [&_svg]:size-10">
+      <Logo word={false} />
+    </div>
+    <h2 class="title mx-auto mt-8 max-w-2xl">Make the next track together.</h2>
+    <p class="mx-auto mt-5 max-w-xl text-lg text-dim">Free, open source, and on your Mac in a minute.</p>
+    <div class="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+      <a href={LINKS.download} class="btn btn-primary px-6 py-3.5">
+        <Icon name="apple" class="size-[18px] -mt-0.5" />
+        Download for macOS
+      </a>
+      <a href={LINKS.github} class="btn btn-secondary px-6 py-3.5">
+        <Icon name="github" class="size-[18px]" />
+        View on GitHub
+      </a>
+    </div>
+    <p class="mt-5 text-[13px] text-faint">
+      Apple silicon · macOS 12 or later ·
+      <a href={LINKS.releases} class="text-dim underline decoration-line underline-offset-4 hover:text-fg">All releases</a>
+    </p>
+  </div>
+</section>

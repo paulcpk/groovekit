@@ -1,0 +1,24 @@
+---
+/** The app icon (four steps, two lit) as an inline mark, plus the name. */
+interface Props {
+  class?: string;
+  /** Show the word mark next to the icon. */
+  word?: boolean;
+}
+const { class: className = "", word = true } = Astro.props;
+---
+
+<span class:list={["inline-flex items-center gap-2.5", className]}>
+  <svg viewBox="0 0 64 64" class="size-7 shrink-0" aria-hidden="true">
+    <rect width="64" height="64" rx="14" fill="var(--color-panel)"></rect>
+    <rect x="0.5" y="0.5" width="63" height="63" rx="13.5" fill="none" stroke="var(--color-line)"></rect>
+    <g transform="translate(0 -3)">
+      <rect x="10" y="24" width="9" height="14" rx="2" fill="var(--color-accent)"></rect>
+      <rect x="21.5" y="24" width="9" height="14" rx="2" fill="#3a3a41"></rect>
+      <rect x="33" y="24" width="9" height="14" rx="2" fill="var(--color-accent)"></rect>
+      <rect x="44.5" y="24" width="9" height="14" rx="2" fill="#3a3a41"></rect>
+      <rect x="10" y="43" width="43.5" height="2.5" rx="1.25" fill="#4a4a52"></rect>
+    </g>
+  </svg>
+  {word && <span class="text-[17px] font-semibold tracking-[-0.02em]">GrooveKit</span>}
+</span>

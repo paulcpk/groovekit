@@ -1,0 +1,86 @@
+---
+/** Recording hardware: the Digitakt II workflow the record tool and the app's record panel support. */
+
+const points = [
+  ["GrooveKit is the clock", "It sends MIDI clock, start and stop, so the box starts with the song and follows its tempo."],
+  ["Every output, its own track", "Main, all 16 tracks and the Delay, Reverb and Chorus returns record at once, each into its own mixer insert and playlist track."],
+  ["Takes land on the grid", "Calibrate the round trip once with a few kick hits; every take after that is placed where it was played."],
+  ["Ready to mix", "Silent tracks are skipped, and each take’s clip gain brings it to about −20 LUFS, since hardware outputs arrive quiet."],
+];
+
+const inputs = [
+  { name: "Main", on: true },
+  { name: "Track 1", on: true },
+  { name: "Track 2", on: true },
+  { name: "Track 3", on: true },
+  { name: "Track 4", on: false },
+  { name: "Track 5", on: true },
+  { name: "Track 6", on: false },
+  { name: "Reverb", on: true },
+];
+---
+
+<section id="hardware" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site grid grid-cols-1 gap-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-center lg:gap-20">
+    <div>
+      <p class="eyebrow">Built for hardware</p>
+      <h2 class="title mt-4">Jam on the box. Let the agent arrange the takes.</h2>
+      <p class="mt-6 text-lg leading-relaxed text-dim">
+        Plug in an Elektron Digitakt II over USB, or any audio interface. Record long grooves by
+        hand or ask the agent to — then let it cut, arrange, mix and master the takes like any
+        other audio clips.
+      </p>
+      <dl class="mt-10 grid grid-cols-1 gap-x-8 gap-y-7 sm:grid-cols-2">
+        {points.map(([t, d]) => (
+          <div>
+            <dt class="flex items-center gap-2 font-semibold">
+              <span class="size-1.5 rounded-full bg-rec"></span>
+              {t}
+            </dt>
+            <dd class="mt-1.5 text-[14.5px] leading-relaxed text-dim">{d}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+
+    <div class="overflow-hidden rounded-2xl bg-panel ring-1 ring-line" aria-hidden="true">
+      <div class="flex items-center gap-3 border-b border-line px-4 py-3">
+        <span class="flex items-center gap-1.5 rounded-md bg-rec/15 px-2 py-1 text-[11px] font-semibold text-rec">
+          <span class="gk-pulse size-2 rounded-full bg-rec"></span> REC
+        </span>
+        <span class="truncate text-sm font-medium">Digitakt II</span>
+        <span class="ml-auto hidden font-mono text-[11px] text-faint sm:inline">bar 3 of 8</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-bg/50 px-4 py-2.5 font-mono text-[11px] text-faint">
+        <span><span class="text-accent">MIDI clock →</span> Elektron Digitakt II</span>
+        <span class="text-dim">128.0 BPM</span>
+        <span>align 11.4 ms</span>
+      </div>
+      <ul class="divide-y divide-grid">
+        {inputs.map((input, i) => (
+          <li class:list={["grid grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2", !input.on && "opacity-45"]}>
+            <span class="truncate text-[12px] text-dim">{input.name}</span>
+            <span class="relative h-5 overflow-hidden rounded-[4px] bg-bg ring-1 ring-line">
+              {input.on ? (
+                <span class="absolute inset-y-0 left-0 flex w-[37.5%] items-center gap-px bg-rec/15 px-0.5">
+                  {Array.from({ length: 24 }, (_, j) => (
+                    <span
+                      class="flex-1 rounded-full bg-rec/70"
+                      style={`height:${15 + Math.round(75 * Math.abs(Math.sin((j + i * 3) * (0.9 + i * 0.13))))}%`}
+                    ></span>
+                  ))}
+                </span>
+              ) : (
+                <span class="absolute inset-0 flex items-center px-2 font-mono text-[10px] text-faint">MIDI track · silent</span>
+              )}
+            </span>
+            <span class="w-[4.75rem] truncate text-right font-mono text-[10.5px] text-faint">
+              {input.on ? `rec-${input.name.toLowerCase().replace(/[^a-z0-9]+/g, "")}` : "skipped"}
+            </span>
+          </li>
+        ))}
+        <li class="px-4 py-2 font-mono text-[11px] text-faint">+ Tracks 7–16, Delay, Chorus</li>
+      </ul>
+    </div>
+  </div>
+</section>

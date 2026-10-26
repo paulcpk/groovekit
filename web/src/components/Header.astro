@@ -1,0 +1,36 @@
+---
+import { LINKS, NAV } from "../lib/site";
+import Icon from "./Icon.astro";
+import Logo from "./Logo.astro";
+---
+
+<header class="sticky top-0 z-40 border-b border-line/70 bg-bg/80 backdrop-blur-md">
+  <div class="container-site flex h-16 items-center gap-4 lg:gap-6">
+    <a href="/" aria-label="GrooveKit home" class="rounded-lg">
+      <Logo />
+    </a>
+    <nav class="hidden items-center gap-0.5 lg:flex" aria-label="Sections">
+      {NAV.map(([id, label]) => (
+        <a
+          href={`#${id}`}
+          class="rounded-md px-3 py-1.5 text-sm font-medium text-dim transition-colors hover:text-fg"
+        >
+          {label}
+        </a>
+      ))}
+    </nav>
+    <div class="ml-auto flex items-center gap-2">
+      <a
+        href={LINKS.github}
+        class="hidden size-10 place-items-center rounded-lg text-dim sm:grid transition-colors hover:bg-raised hover:text-fg"
+        aria-label="GrooveKit on GitHub"
+      >
+        <Icon name="github" class="size-5" />
+      </a>
+      <a href={LINKS.download} class="btn btn-primary px-3.5 py-2 text-sm">
+        <Icon name="apple" class="size-4 -mt-0.5" />
+        <span>Download</span>
+      </a>
+    </div>
+  </div>
+</header>

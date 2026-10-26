@@ -1,0 +1,218 @@
+---
+/** The app itself: what you work with by hand. Pictures are HTML/CSS, not screenshots. */
+
+const strips = [
+  { name: "Kick", db: "−3.0", level: 0.82, fx: ["eq"] },
+  { name: "Bass", db: "−6.5", level: 0.7, fx: ["eq", "compressor"], agent: true },
+  { name: "Hats", db: "−9.0", level: 0.5, fx: ["highpass", "delay"] },
+  { name: "Master", db: "0.0", level: 0.88, fx: ["eq", "compressor", "limiter"], master: true },
+];
+
+// Piano roll notes: [step (16ths), key row from top, length in steps]
+const notes: [number, number, number][] = [
+  [0, 4, 3], [4, 2, 2], [6, 4, 2], [8, 1, 4], [12, 3, 2], [14, 5, 2],
+  [16, 4, 3], [20, 2, 2], [22, 0, 2], [24, 1, 4], [28, 3, 4],
+];
+
+const more = [
+  ["PAT / SONG", "Loop one pattern while you build it, or play the arrangement. Space twice stops and goes back."],
+  ["VST3 & AU plugins", "Instruments and effects in any channel or insert, with their own windows and automatable parameters."],
+  ["Automation clips", "Draw curves for any mixer or effect parameter as clips on the playlist."],
+  ["Render & master", "Bounce to a 48 kHz WAV, measure it, and master to a loudness target with a lookahead limiter."],
+  ["History", "Every change from you or the agent, in order, with who made it. Undo and redo by request."],
+  ["Projects as folders", "song.json, history, recordings and plugin states in one folder. Saved as you go; ⌘S and ⇧⌘S save as."],
+];
+---
+
+<section id="features" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site">
+    <div class="max-w-3xl">
+      <p class="eyebrow">The studio</p>
+      <h2 class="title mt-4">A real DAW, not a chat window.</h2>
+      <p class="mt-6 text-lg leading-relaxed text-dim">
+        Everything the agent does, you can do by hand — and the other way round. Channels and
+        patterns, a playlist of free tracks, and a mixer of inserts, effects and sends.
+      </p>
+    </div>
+
+    <div class="mt-14 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-6">
+      <!-- Channel rack -->
+      <article class="rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7 lg:col-span-4">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">Channel rack & step sequencer</h3>
+        <p class="mt-2 max-w-xl leading-relaxed text-dim">
+          Every instrument is a channel. Click steps to program a beat, and the same notes open in
+          the piano roll. One pattern holds notes for any number of channels.
+        </p>
+        <div class="mt-6 space-y-1.5 rounded-xl bg-bg p-3 ring-1 ring-line sm:p-4" aria-hidden="true">
+          {[
+            ["Kick", "1000100010001000"],
+            ["Snare", "0000100000001000"],
+            ["Open hat", "0010001000100010"],
+            ["Closed hat", "1011101110111011"],
+            ["Perc", "0001000001000100"],
+          ].map(([name, steps]) => (
+            <div class="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+              <span class="truncate rounded bg-control px-1.5 py-1 text-[11px] text-dim">{name}</span>
+              <div class="grid grid-cols-16 gap-[3px] sm:gap-1">
+                {[...steps].map((s, i) => (
+                  <span
+                    class="h-5 rounded-[3px] sm:h-6"
+                    style={`background-color:${s === "1" ? "var(--color-accent)" : Math.floor(i / 4) % 2 ? "#26262b" : "#2f2f35"}`}
+                  ></span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <!-- Sampler -->
+      <article class="rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7 lg:col-span-2">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">Multi-layer sampler</h3>
+        <p class="mt-2 leading-relaxed text-dim">
+          Stack samples in one channel, each with its own key and velocity range, root note,
+          gain, pan and envelope, one-shot or gated.
+        </p>
+        <div class="mt-6 space-y-1.5 rounded-xl bg-bg p-3 font-mono text-[10.5px] ring-1 ring-line" aria-hidden="true">
+          {[
+            ["Layer 1", "C1–B2", "vel 1–90", 8, 46],
+            ["Layer 2", "C1–B2", "vel 91–127", 8, 46],
+            ["Layer 3", "C3–C5", "vel 1–127", 50, 42],
+          ].map(([name, keys, vel, l, w]) => (
+            <div>
+              <div class="flex justify-between text-faint"><span class="text-dim">{name}</span><span>{keys} · {vel}</span></div>
+              <div class="relative mt-1 h-2 rounded-full bg-control">
+                <span class="absolute inset-y-0 rounded-full bg-accent/70" style={`left:${l}%;width:${w}%`}></span>
+              </div>
+            </div>
+          ))}
+          <svg viewBox="0 0 120 30" class="mt-2 h-8 w-full" preserveAspectRatio="none">
+            <path d="M2 28 L14 3 L34 12 L86 12 L118 28" fill="none" stroke="var(--color-accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"></path>
+          </svg>
+          <div class="flex justify-between text-faint"><span>A</span><span>D</span><span>S</span><span>R</span></div>
+        </div>
+      </article>
+
+      <!-- Mixer -->
+      <article class="rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7 lg:col-span-3">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">Mixer</h3>
+        <p class="mt-2 leading-relaxed text-dim">
+          Inserts with effect chains, faders, pan, sends and routing, all ending at master.
+          Live meters while it plays.
+        </p>
+        <div class="mt-6 grid grid-cols-4 gap-2 rounded-xl bg-bg p-3 ring-1 ring-line" aria-hidden="true">
+          {strips.map((s, i) => (
+            <div class:list={["flex min-w-0 flex-col gap-1.5 rounded-lg p-1.5", s.agent ? "bg-agent/10 ring-1 ring-agent/30" : "bg-raised"]}>
+              <span class:list={["truncate text-[10.5px] font-medium", s.master ? "text-accent" : s.agent ? "text-agent" : "text-dim"]}>{s.name}</span>
+              <div class="space-y-0.5">
+                {s.fx.map((f) => <span class="block truncate rounded bg-control px-1 py-0.5 font-mono text-[9px] text-faint">{f}</span>)}
+              </div>
+              <div class="flex h-24 items-end justify-center gap-1.5">
+                <span class="relative h-full w-1 rounded-full bg-control">
+                  <span class="absolute left-1/2 h-2 w-4 -translate-x-1/2 rounded-sm bg-fg/90" style={`bottom:calc(${s.level * 100}% - 4px)`}></span>
+                </span>
+                {[0, 1].map((c) => (
+                  <span class="h-full w-1.5 overflow-hidden rounded-sm bg-control">
+                    <span
+                      class="gk-meter block h-full w-full bg-gradient-to-t from-ok via-ok to-accent"
+                      style={`--lo:${s.level * 0.45};--hi:${s.level};--mid:${s.level * 0.7};animation-delay:${i * 23 + c * 11}ms`}
+                    ></span>
+                  </span>
+                ))}
+              </div>
+              <span class="text-center font-mono text-[9.5px] text-faint tabular-nums">{s.db}</span>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <!-- Piano roll -->
+      <article class="rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7 lg:col-span-3">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">Piano roll</h3>
+        <p class="mt-2 leading-relaxed text-dim">
+          Draw, move and stretch notes, and shape them in the velocity lane. It edits the same
+          notes as the step sequencer, so a beat can grow into a melody.
+        </p>
+        <div class="mt-6 grid grid-cols-[1.25rem_minmax(0,1fr)] overflow-hidden rounded-xl bg-bg ring-1 ring-line" aria-hidden="true">
+          <div class="grid grid-rows-6">
+            {[0, 1, 0, 1, 0, 0].map((black) => <span class:list={["border-b border-grid", black ? "bg-[#1a1a1d]" : "bg-[#d6d6db]/80"]}></span>)}
+          </div>
+          <div
+            class="relative h-[8.5rem] bg-[linear-gradient(to_right,var(--color-grid)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid)_1px,transparent_1px)]"
+            style="background-size:calc(100%/32) 100%, 100% calc(100%/6)"
+          >
+            {notes.map(([step, row, len]) => (
+              <span
+                class="absolute rounded-[3px] bg-accent/85 ring-1 ring-accent"
+                style={`left:calc(${(step / 32) * 100}% + 1px);width:calc(${(len / 32) * 100}% - 2px);top:calc(${(row / 6) * 100}% + 2px);height:calc(${100 / 6}% - 4px)`}
+              ></span>
+            ))}
+          </div>
+        </div>
+      </article>
+
+      <!-- Playlist -->
+      <article class="rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7 lg:col-span-3">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">Playlist</h3>
+        <p class="mt-2 leading-relaxed text-dim">
+          Free tracks that hold anything: pattern clips, audio clips and automation clips. Move,
+          duplicate and mute clips, loop a range of bars; audio is time-stretched to the song’s tempo.
+        </p>
+        <div class="mt-6 space-y-1 rounded-xl bg-bg p-2 ring-1 ring-line" aria-hidden="true">
+          <div class="relative h-7">
+            <span class="absolute inset-y-0 left-0 w-[49%] rounded-[4px] bg-accent/20 ring-1 ring-accent/50"></span>
+            <span class="absolute inset-y-0 left-[50%] w-[50%] rounded-[4px] bg-accent/20 ring-1 ring-accent/50"></span>
+            <span class="absolute top-1 left-2 text-[9.5px] font-medium text-accent">Pattern · Groove</span>
+          </div>
+          <div class="relative h-7">
+            <span class="absolute inset-y-0 left-[25%] flex w-[75%] items-center gap-px overflow-hidden rounded-[4px] bg-[#6aa5f0]/15 px-1 ring-1 ring-[#6aa5f0]/50">
+              {Array.from({ length: 60 }, (_, i) => (
+                <span class="flex-1 rounded-full bg-[#6aa5f0]/70" style={`height:${20 + Math.round(70 * Math.abs(Math.sin(i * 1.3) * Math.cos(i * 0.4)))}%`}></span>
+              ))}
+            </span>
+          </div>
+          <div class="relative h-7">
+            <span class="absolute inset-y-0 left-[50%] w-[50%] overflow-hidden rounded-[4px] bg-agent/15 ring-1 ring-agent/50">
+              <svg viewBox="0 0 100 20" preserveAspectRatio="none" class="h-full w-full">
+                <path d="M0 17 C30 16 45 4 70 4 S95 10 100 14" fill="none" stroke="var(--color-agent)" stroke-width="1.5" vector-effect="non-scaling-stroke"></path>
+              </svg>
+            </span>
+          </div>
+        </div>
+      </article>
+
+      <!-- Sample browser -->
+      <article class="rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7 lg:col-span-3">
+        <h3 class="text-lg font-semibold tracking-[-0.015em]">Sample browser</h3>
+        <p class="mt-2 leading-relaxed text-dim">
+          Your sample folders as a tree, and one search across tens of thousands of files by
+          name, folder and category. Click to preview; drag onto the playlist or the channel rack.
+        </p>
+        <div class="mt-6 rounded-xl bg-bg p-2 font-mono text-[11px] ring-1 ring-line" aria-hidden="true">
+          <div class="flex items-center gap-2 rounded-md bg-raised px-2 py-1.5 text-dim ring-1 ring-line">
+            <svg viewBox="0 0 16 16" class="size-3 text-faint" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"></circle><path d="m10.5 10.5 3 3"></path></svg>
+            vinyl hat
+            <span class="ml-auto rounded bg-control px-1.5 text-[10px] text-faint">hat</span>
+          </div>
+          <ul class="mt-1.5 space-y-0.5 text-faint">
+            <li class="px-2 py-0.5">▾ Samples <span class="text-faint/70">· 38,214</span></li>
+            <li class="px-2 py-0.5 pl-5">▾ Drums</li>
+            <li class="px-2 py-0.5 pl-8">▸ Kicks</li>
+            <li class="px-2 py-0.5 pl-8">▾ Hats</li>
+            <li class="flex items-center gap-2 rounded bg-accent/10 py-0.5 pl-11 text-fg"><span class="text-accent">▶</span> Dusty Vinyl Hat 02.wav</li>
+            <li class="px-2 py-0.5 pl-11">Dusty Vinyl Hat 05.wav</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+
+    <ul class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {more.map(([title, text]) => (
+        <li class="rounded-2xl bg-panel p-6 ring-1 ring-line">
+          <h3 class="font-semibold">{title}</h3>
+          <p class="mt-1.5 text-[14.5px] leading-relaxed text-dim">{text}</p>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
