@@ -42,6 +42,10 @@ While playing, `transport` notifications (`{ playing, recording, position, secon
 | `record.stop` | `group?` | `{ clips: [id], transport }`; the takes become audio clips (files in `<project>/recordings`) |
 | `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, sampleRate, bufferSize } }` |
 | `audio.setDevice` | `type?`, `output?`, `input?`, `sampleRate?`, `bufferSize?` | same as `audio.devices` |
+| `plugins.scan` / `plugins.status` | | `{ running, scanned, total, current, plugins }`; `pluginScanProgress` notifications while scanning |
+| `plugins.list` | `query?`, `instrument?` | `{ plugins: [{ uid, name, manufacturer, format, instrument, category, inputs, outputs }] }` |
+| `plugins.describe` | `uid`, `query?`, `limit?` | the plugin with `parameterCount`, `parameters: [{ id, name, value, text }]` and a `pluginRef` for commands |
+| `plugins.captureState` | `channel`, or `insert` and `effect` | `{ state, bytes }`; saves the live plugin's state to `<project>/plugins/` and points the model at it (undoable) |
 | `library.status` | | `{ folders, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |
 | `library.scan` | | progress; `libraryProgress` notifications follow |

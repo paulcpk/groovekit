@@ -25,6 +25,9 @@ struct CompiledEdit
     std::map<model::Id, tracktion::AudioTrack*> insertTracks;
     std::map<model::Id, tracktion::AudioTrack*> channelTracks;
 
+    /** Instruments as "channel:<id>" and effects as "effect:<insert>/<effect>". */
+    std::map<std::string, tracktion::Plugin*> plugins;
+
     /** Plugin latency on the longest path to the output. Tracktion aligns every path to it and
         removes it from offline renders; live playback (and recording alignment) will need it. */
     double outputLatencySeconds = 0;

@@ -74,6 +74,9 @@ public:
 
     tracktion::Edit* getEdit() const    { return compiled.edit.get(); }
 
+    /** A plugin in the live Edit, by the keys of CompiledEdit::plugins. */
+    tracktion::Plugin* findPlugin (const std::string& key) const;
+
 private:
     EngineContext& context;
     Session& session;

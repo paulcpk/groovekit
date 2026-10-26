@@ -3,6 +3,8 @@
 #include "TestHelpers.h"
 
 #include "analysis/Analysis.h"
+#include "api/ApiHandler.h"
+#include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
 #include "render/Render.h"
 
@@ -108,4 +110,52 @@ TEST_CASE ("A hosted plugin effect processes the mix")
         CHECK_THROWS_WITH (compileProject (test::getEngine(), model::parseProject (doc), { test::tempDir(), tracktion::Edit::forRendering }),
                            ContainsSubstring ("isn't installed or hasn't been scanned"));
     }
+}
+
+TEST_CASE ("Plugin state is captured into the project and restored")
+{
+    auto lowpass = findByName (appleUnits(), "AULowpass");
+    REQUIRE (lowpass);
+
+    auto dir = test::tempDir() / "plugin-state";
+    std::filesystem::remove_all (dir);
+    auto session = Session::open (dir);
+
+    auto doc = Json::parse (std::ifstream (test::repoRoot() / "tests" / "songs" / "beeps" / "song.json"));
+    doc["channels"][0]["instrument"]["layers"][0]["sample"] = test::fixture ("beep.wav").string();
+    doc["mixer"]["inserts"][0]["effects"] = Json::array ({ { { "type", "plugin" }, { "id", "lp" },
+        { "plugin", { { "format", "AU" }, { "uid", lowpass->createIdentifierString().toStdString() }, { "name", "AULowpass" },
+                      { "params", { { "Cutoff Frequency", 0.0 } } } } } } });
+
+    model::Patch replace;
+    replace.ops.push_back ({ model::PatchOpOp::replace, "/channels", doc["channels"] });
+    replace.ops.push_back ({ model::PatchOpOp::replace, "/patterns", doc["patterns"] });
+    replace.ops.push_back ({ model::PatchOpOp::replace, "/playlist", doc["playlist"] });
+    replace.ops.push_back ({ model::PatchOpOp::replace, "/mixer", doc["mixer"] });
+    session->execute ({ replace });
+
+    LiveEngine live (test::getEngineContext(), *session);
+    ApiHandler handler (*session, test::getEngineContext(), nullptr, &live, &appleUnits());
+
+    Json response;
+    ApiHandler::Client client;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+    handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", "plugins.captureState" },
+                                  { "params", { { "insert", "master" }, { "effect", "lp" } } } }.dump(), client);
+
+    REQUIRE (response.contains ("result"));
+    const auto state = response["result"]["state"].get<std::string>();
+    CHECK (state.starts_with ("plugins/"));
+    CHECK (std::filesystem::exists (dir / state));
+    CHECK (session->getDocument()["mixer"]["inserts"][0]["effects"][0]["plugin"]["state"] == state);
+
+    // Without the parameter, the saved state alone keeps the filter closed.
+    model::Patch dropParams;
+    dropParams.ops.push_back ({ model::PatchOpOp::remove, "/mixer/inserts/0/effects/0/plugin/params", {} });
+    session->execute ({ dropParams });
+
+    auto compiled = compileProject (test::getEngine(), session->getProject(), { dir, tracktion::Edit::forRendering });
+    auto file = test::tempDir() / "plugin-state.wav";
+    renderToWav (compiled, session->getProject(), file, {});
+    CHECK (analysis::rmsDb (analysis::loadAudio (file), { 0, 0.1, {} }) < -30);
 }

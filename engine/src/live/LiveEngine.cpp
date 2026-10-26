@@ -278,6 +278,12 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
     return ids;
 }
 
+tracktion::Plugin* LiveEngine::findPlugin (const std::string& key) const
+{
+    auto it = compiled.plugins.find (key);
+    return it != compiled.plugins.end() ? it->second : nullptr;
+}
+
 //==============================================================================
 LiveEngine::TransportState LiveEngine::getTransportState() const
 {

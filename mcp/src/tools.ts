@@ -14,6 +14,8 @@ Units: time is integer ticks at 960 per quarter note (in 4/4 a 16th is 240, a be
 
 Sounds: search_samples finds samples in the user's library by words, category, loop, tempo and key, with a description of each sound. Use one-shots as sampler layers; set rootKey from the result's rootKey so pitched samples play in tune, and pitchTracking false for drums. Use loops as audio clips (their tempo must match the song's for now). describe_sample gives full measurements (spectrum bands, attack, pitch, loudness). Paths in results are absolute.
 
+Plugins: the user's VST3/AU plugins are listed by plugins (scan first if the list is empty). describe_plugin gives a pluginRef and parameter names; use it in a channel instrument {"type":"plugin","plugin":pluginRef} or an insert effect {"type":"plugin","id":...,"plugin":pluginRef}, set "params" by name (normalized 0-1), and automate them with effect-scope automation clips.
+
 Workflow: get_summary to see the song, get_schema once for exact shapes, edit_project to change it (commands apply atomically; errors name the offending field), render to hear it as numbers (LUFS, peak, onsets), then adjust and re-render. Every edit is undoable; edits made close together form one group that undo reverts in one step.`;
 
 const GROUP_IDLE_MS = 120_000;
@@ -261,6 +263,40 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
       },
     },
     ({ action, path }) => attempt(() => engine.call(`library.${action}`, path ? { path } : {}))
+  );
+
+  server.registerTool(
+    "plugins",
+    {
+      description: "The user's VST3 and AU plugins: list (filtered by words in name, manufacturer or category, and by instrument or effect), scan (finds newly installed plugins, takes about a minute; progress via status), or status.",
+      inputSchema: {
+        action: z.enum(["list", "scan", "status"]).optional().describe("Default list"),
+        query: z.string().optional(),
+        instrument: z.boolean().optional().describe("true for instruments, false for effects"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    ({ action, query, instrument }) =>
+      attempt(() =>
+        engine.call(`plugins.${action ?? "list"}`, {
+          ...(query ? { query } : {}),
+          ...(instrument !== undefined ? { instrument } : {}),
+        })
+      )
+  );
+
+  server.registerTool(
+    "describe_plugin",
+    {
+      description: "Loads a plugin and lists its parameters (id, name, normalized value, display text), plus a pluginRef to use in commands. Instruments like the Digitakt have thousands of parameters: filter with query (words in the name, e.g. \"T1 filter\").",
+      inputSchema: {
+        uid: z.string().describe("From plugins"),
+        query: z.string().optional(),
+        limit: z.number().int().min(1).max(1000).optional().describe("Default 200"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ uid, query, limit }) => attempt(() => engine.call("plugins.describe", { uid, ...(query ? { query } : {}), ...(limit ? { limit } : {}) }))
   );
 
   server.registerTool(

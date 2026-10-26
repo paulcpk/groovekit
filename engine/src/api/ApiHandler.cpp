@@ -596,26 +596,112 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params)
             throw RpcError (invalidParams, "no plugin \"" + uid + "\"; run plugins.scan first");
 
         // Load it in a scratch Edit to read its parameters.
-        auto edit = tracktion::Edit::createSingleTrackEdit (context.getEngine(), tracktion::Edit::forExamining);
+        auto edit = tracktion::Edit::createSingleTrackEdit (context.getEngine(), tracktion::Edit::forRendering);
         auto plugin = edit->getPluginCache().createNewPlugin (tracktion::ExternalPlugin::xmlTypeName, *desc);
         auto external = dynamic_cast<tracktion::ExternalPlugin*> (plugin.get());
 
         if (external == nullptr || external->getAudioPluginInstance() == nullptr)
-            throw RpcError (operationFailed, "couldn't load \"" + desc->name.toStdString() + "\"");
+            throw RpcError (operationFailed, "couldn't load \"" + desc->name.toStdString() + "\""
+                                             + (external != nullptr ? ": " + external->getLoadError().toStdString() : std::string()));
 
+        // Instruments like the Digitakt have thousands of parameters: filter by words, and cap.
+        const auto words = juce::StringArray::fromTokens (juce::String (params.value ("query", "")), true);
+        const auto limit = std::clamp (params.value ("limit", 200), 1, 5000);
         auto parameters = Json::array();
+        int matching = 0;
 
         for (int i = 0; i < external->getNumAutomatableParameters(); ++i)
-            if (auto p = external->getAutomatableParameter (i))
-                parameters.push_back ({ { "id", p->paramID.toStdString() }, { "name", p->getParameterName().toStdString() },
-                                        { "value", std::round (p->getCurrentNormalisedValue() * 1000.0) / 1000.0 },
-                                        { "text", p->getCurrentValueAsStringWithLabel().toStdString() } });
+        {
+            auto p = external->getAutomatableParameter (i);
+
+            if (p == nullptr)
+                continue;
+
+            bool all = true;
+
+            for (auto& w : words)
+                all = all && p->getParameterName().containsIgnoreCase (w);
+
+            if (! all || matching++ >= limit)
+                continue;
+
+            parameters.push_back ({ { "id", p->paramID.toStdString() }, { "name", p->getParameterName().toStdString() },
+                                    { "value", std::round (p->getCurrentNormalisedValue() * 1000.0) / 1000.0 },
+                                    { "text", p->getCurrentValueAsStringWithLabel().toStdString() } });
+        }
 
         auto result = PluginCatalog::toJson (*desc);
+        result["parameterCount"] = external->getNumAutomatableParameters();
+        result["matchingParameters"] = matching;
         result["parameters"] = parameters;
         result["pluginRef"] = { { "format", PluginCatalog::formatName (*desc) }, { "uid", uid }, { "name", desc->name.toStdString() },
                                 { "manufacturer", desc->manufacturerName.toStdString() } };
         return result;
+    }
+
+    if (method == "captureState")
+    {
+        if (live == nullptr)
+            throw RpcError (operationFailed, "capturing plugin state needs live playback");
+
+        const bool forChannel = params.contains ("channel");
+        const auto key = forChannel ? "channel:" + readParam<std::string> (params, "channel")
+                                    : "effect:" + readParam<std::string> (params, "insert") + "/" + readParam<std::string> (params, "effect");
+
+        live->updateNow();
+        auto external = dynamic_cast<tracktion::ExternalPlugin*> (live->findPlugin (key));
+
+        if (external == nullptr || external->getAudioPluginInstance() == nullptr)
+            throw RpcError (invalidParams, "no hosted plugin at " + key);
+
+        juce::MemoryBlock data;
+        external->getAudioPluginInstance()->getStateInformation (data);
+
+        // Content-addressed, so identical states share one file.
+        uint64_t hash = 14695981039346656037ull;
+
+        for (size_t i = 0; i < data.getSize(); ++i)
+            hash = (hash ^ static_cast<unsigned char> (data[i])) * 1099511628211ull;
+
+        char name[40];
+        std::snprintf (name, sizeof (name), "plugins/%016llx.bin", static_cast<unsigned long long> (hash));
+
+        const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+        std::filesystem::create_directories (projectDir / "plugins");
+        juce::File ((projectDir / name).string()).replaceWithData (data.getData(), data.getSize());
+
+        // Point the model at it.
+        auto& doc = session.getDocument();
+        std::string path;
+
+        auto indexOf = [] (const Json& array, const std::string& id)
+        {
+            for (size_t i = 0; i < array.size(); ++i)
+                if (array[i].value ("id", "") == id)
+                    return std::to_string (i);
+
+            throw RpcError (invalidParams, "no \"" + id + "\"");
+        };
+
+        if (forChannel)
+        {
+            path = "/channels/" + indexOf (doc["channels"], params["channel"]) + "/instrument/plugin/state";
+        }
+        else
+        {
+            const auto insertIndex = indexOf (doc["mixer"]["inserts"], params["insert"]);
+            path = "/mixer/inserts/" + insertIndex + "/effects/"
+                 + indexOf (doc["mixer"]["inserts"][std::stoul (insertIndex)]["effects"], params["effect"]) + "/plugin/state";
+        }
+
+        model::Patch patch;
+        patch.ops.push_back ({ model::PatchOpOp::add, path, Json (name) });
+
+        ExecuteOptions options;
+        options.label = "Save plugin state (" + external->getName().toStdString() + ")";
+        session.execute ({ patch }, options);
+
+        return { { "state", name }, { "bytes", data.getSize() } };
     }
 
     throw RpcError (methodNotFound, "unknown method \"plugins." + method + "\"");

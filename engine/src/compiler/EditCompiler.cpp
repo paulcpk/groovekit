@@ -161,6 +161,7 @@ namespace
                         auto plugin = effects::createEffect (*edit, *builtin);
                         track.pluginList.insertPlugin (plugin, -1, nullptr);
                         effectPlugins[insert.id][builtin->id] = { plugin.get(), builtin->kind };
+                        result.plugins["effect:" + insert.id + "/" + builtin->id] = plugin.get();
                     }
                     else
                     {
@@ -169,6 +170,7 @@ namespace
                         track.pluginList.insertPlugin (plugin, -1, nullptr);
                         plugin->setEnabled (! pe.bypass);
                         effectPlugins[insert.id][pe.id] = { plugin.get(), {} };
+                        result.plugins["effect:" + insert.id + "/" + pe.id] = plugin.get();
                     }
                 }
 
@@ -214,7 +216,9 @@ namespace
                 {
                     try
                     {
-                        addPlugin<sampler::SamplerPlugin> (track).setInstrument (*sampler, options.projectDir);
+                        auto& samplerPlugin = addPlugin<sampler::SamplerPlugin> (track);
+                        samplerPlugin.setInstrument (*sampler, options.projectDir);
+                        result.plugins["channel:" + channel.id] = &samplerPlugin;
                     }
                     catch (const std::exception& e)
                     {
@@ -224,7 +228,9 @@ namespace
                 else
                 {
                     auto& pi = std::get<PluginInstrument> (channel.instrument);
-                    track.pluginList.insertPlugin (createHostedPlugin (pi.plugin, "Channel \"" + channel.id + "\""), -1, nullptr);
+                    auto plugin = createHostedPlugin (pi.plugin, "Channel \"" + channel.id + "\"");
+                    track.pluginList.insertPlugin (plugin, -1, nullptr);
+                    result.plugins["channel:" + channel.id] = plugin.get();
                 }
 
                 channelFaders[channel.id] = &addFader (track, channel.volumeDb, channel.pan);
