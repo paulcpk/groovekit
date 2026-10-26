@@ -25,6 +25,18 @@ using model::Json;
 
 namespace
 {
+    /** Transport state as clients get it; mode "pattern" plays one pattern on a loop. */
+    model::Json transportJson (const LiveEngine::TransportState& t)
+    {
+        model::Json j { { "playing", t.playing }, { "recording", t.recording }, { "position", t.position }, { "seconds", t.seconds },
+                        { "mode", t.pattern ? "pattern" : "song" } };
+
+        if (t.pattern)
+            j["pattern"] = *t.pattern;
+
+        return j;
+    }
+
     /** JSON-RPC error codes. */
     enum ErrorCode
     {
@@ -101,8 +113,7 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
         live->onTransportChange = [this] (const LiveEngine::TransportState& t)
         {
             if (broadcast)
-                broadcast (notification ("transport", { { "playing", t.playing }, { "recording", t.recording },
-                                                        { "position", t.position }, { "seconds", t.seconds } }).dump());
+                broadcast (notification ("transport", transportJson (t)).dump());
         };
 
     if (live != nullptr)
@@ -547,11 +558,7 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
     if (live == nullptr)
         throw RpcError (operationFailed, "this engine has no live playback");
 
-    auto state = [this]
-    {
-        auto t = live->getTransportState();
-        return Json { { "playing", t.playing }, { "recording", t.recording }, { "position", t.position }, { "seconds", t.seconds } };
-    };
+    auto state = [this] { return transportJson (live->getTransportState()); };
 
     if (method == "preview.play")
     {
@@ -583,7 +590,21 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
     if (method == "transport.play")     { live->play(); return state(); }
     if (method == "transport.stop")     { live->stop(); return state(); }
 
-    if (method == "transport.setPosition")
+    if (method == "transport.setMode")
+    {
+        const auto mode = readParam<std::string> (params, "mode");
+
+        if (mode == "pattern")
+            live->setPlayPattern (readParam<std::string> (params, "pattern"));
+        else if (mode == "song")
+            live->setPlayPattern ({});
+        else
+            throw RpcError (invalidParams, "mode must be \"song\" or \"pattern\"");
+
+        return state();
+    }
+
+        if (method == "transport.setPosition")
     {
         live->setPosition (static_cast<model::Ticks> (optionalNumber (params, "position").value_or (0)));
         return state();

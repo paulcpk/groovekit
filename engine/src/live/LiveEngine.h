@@ -63,8 +63,15 @@ public:
     void setPosition (model::Ticks);
     model::Ticks getPosition() const;
 
-    /** Loops between two positions, or turns looping off. */
+    /** Loops between two positions of the song, or turns looping off. In pattern mode this is
+        kept for when the song plays again. */
     void setLoop (std::optional<std::pair<model::Ticks, model::Ticks>>);
+
+    /** Pattern mode: plays one pattern on a loop instead of the song (positions are then within
+        the pattern), or with nothing, the song again. Either way playback goes back to the start.
+        Recording switches back to the song. */
+    void setPlayPattern (std::optional<model::Id>);
+    const std::optional<model::Id>& getPlayPattern() const     { return playPattern; }
 
     //==============================================================================
     struct RecordTarget
@@ -129,6 +136,7 @@ public:
         bool playing = false, recording = false;
         model::Ticks position = 0;
         double seconds = 0;
+        std::optional<model::Id> pattern;   // in pattern mode
     };
 
     TransportState getTransportState() const;
@@ -200,6 +208,14 @@ private:
     RecordOptions recordOptions;
     model::Ticks recordStart = 0;
     TransportState lastNotified;
+
+    std::optional<model::Id> playPattern;
+    std::optional<std::pair<model::Ticks, model::Ticks>> songLoop;
+
+    /** What plays: the song, or in pattern mode a song holding just the pattern. */
+    model::Project projectToPlay() const;
+    std::optional<model::TickLength> playPatternLength() const;
+    void applyLoop();
 
     void rebuild();
     void addClockTrack();

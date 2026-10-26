@@ -162,11 +162,7 @@ void LiveEngine::rebuild()
     needsRebuild = false;
 
     const bool wasPlaying = compiled.edit != nullptr && transport().isPlaying();
-    const auto position = compiled.edit != nullptr ? transport().getPosition() : te::TimePosition();
-    std::optional<te::TimeRange> loop;
-
-    if (compiled.edit != nullptr && transport().looping.get())
-        loop = transport().getLoopRange();
+    auto position = compiled.edit != nullptr ? transport().getPosition() : te::TimePosition();
 
     // Hosted plugins keep what was done in their windows (which isn't in the model until the
     // window closes) unless the model changed them.
@@ -196,7 +192,7 @@ void LiveEngine::rebuild()
         transport().stop (false, true);
 
     const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
-    auto next = compileProject (context.getEngine(), session.getProject(), { projectDir, te::Edit::forEditing });
+    auto next = compileProject (context.getEngine(), projectToPlay(), { projectDir, te::Edit::forEditing });
 
     // Tracktion puts recordings next to the Edit's file, but only if that folder exists
     // (otherwise they land in the working directory).
@@ -235,13 +231,12 @@ void LiveEngine::rebuild()
     if (hasAudioDevice())
         tc.ensureContextAllocated();
 
-    tc.setPosition (position);
+    // A pattern that got shorter starts over.
+    if (auto length = playPatternLength(); length && toTicks (position) >= *length)
+        position = {};
 
-    if (loop)
-    {
-        tc.setLoopRange (*loop);
-        tc.looping = true;
-    }
+    tc.setPosition (position);
+    applyLoop();
 
     if (wasPlaying)
         tc.play (false);
@@ -463,15 +458,87 @@ Ticks LiveEngine::getPosition() const
 
 void LiveEngine::setLoop (std::optional<std::pair<Ticks, Ticks>> range)
 {
-    if (range)
-    {
-        if (range->second <= range->first)
-            throw std::runtime_error ("The loop must end after it starts");
+    if (range && range->second <= range->first)
+        throw std::runtime_error ("The loop must end after it starts");
 
-        transport().setLoopRange ({ toTime (range->first), toTime (range->second) });
+    songLoop = range;
+    applyLoop();
+}
+
+void LiveEngine::applyLoop()
+{
+    auto& tc = transport();
+
+    if (playPattern)
+    {
+        const auto length = playPatternLength();
+
+        if (length)
+            tc.setLoopRange ({ toTime (0), toTime (*length) });
+
+        tc.looping = length.has_value();
+        return;
     }
 
-    transport().looping = range.has_value();
+    if (songLoop)
+        tc.setLoopRange ({ toTime (songLoop->first), toTime (songLoop->second) });
+
+    tc.looping = songLoop.has_value();
+}
+
+void LiveEngine::setPlayPattern (std::optional<Id> pattern)
+{
+    if (pattern)
+    {
+        auto& patterns = session.getProject().patterns;
+
+        if (std::none_of (patterns.begin(), patterns.end(), [&] (auto& p) { return p.id == *pattern; }))
+            throw std::runtime_error ("No pattern \"" + *pattern + "\"");
+    }
+
+    if (pattern == playPattern)
+        return;
+
+    if (! recordings.empty())
+        throw std::runtime_error ("Can't switch to pattern mode while recording");
+
+    playPattern = pattern;
+    rebuild();
+    transport().setPosition (toTime (0));
+    notifyTransport (true);
+}
+
+std::optional<TickLength> LiveEngine::playPatternLength() const
+{
+    if (! playPattern)
+        return {};
+
+    auto& project = session.getProject();
+
+    for (auto& p : project.patterns)
+        if (p.id == *playPattern)
+            return getPatternLength (p, project.timeSignature);
+
+    return {};
+}
+
+Project LiveEngine::projectToPlay() const
+{
+    if (! playPattern)
+        return session.getProject();
+
+    // The song's channels and mixer, with a playlist holding only the pattern.
+    auto project = session.getProject();
+    project.playlist = {};
+
+    if (auto length = playPatternLength())
+    {
+        project.playlist.tracks.push_back ({ .id = "pattern-mode" });
+        project.playlist.clips.push_back (PatternClip { .id = "pattern-mode", .track = "pattern-mode", .start = 0,
+                                                        .length = *length, .pattern = *playPattern });
+    }
+
+    return project;
 }
 
 //==============================================================================
@@ -582,6 +649,10 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const
 
     if (! recordings.empty())
         throw std::runtime_error ("Already recording");
+
+    // Takes belong to the song.
+    if (playPattern)
+        setPlayPattern ({});
 
     updateNow();
     requireAudioDevice();
@@ -878,6 +949,7 @@ LiveEngine::TransportState LiveEngine::getTransportState() const
     s.recording = transport().isRecording();
     s.position = getPosition();
     s.seconds = transport().getPosition().inSeconds();
+    s.pattern = playPattern;
     return s;
 }
 

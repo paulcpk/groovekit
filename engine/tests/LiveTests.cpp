@@ -337,3 +337,46 @@ TEST_CASE ("Levels report what plays")
     CHECK (channel > 0.1f);
 }
 
+
+TEST_CASE ("Pattern mode plays the pattern on a loop instead of the song")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-pattern-mode");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
+
+    // The song stays silent for its first two bars.
+    model::Reader r;
+    model::Command c;
+    readValue (r, Json::parse (R"({ "type": "updateClip", "clip": "c", "changes": { "start": 7680 } })"), c);
+    session->execute ({ c });
+    live.updateNow();
+
+    live.setLoop (std::make_pair<model::Ticks, model::Ticks> (7680, 11520));
+    live.setPlayPattern ("p");
+    CHECK (live.getTransportState().pattern == "p");
+
+    // The pattern is a bar long (2 seconds at 120 BPM) with beeps on beats 1 and 2.
+    auto& tc = live.getEdit()->getTransport();
+    CHECK (tc.looping.get());
+    CHECK (tc.getLoopRange().getEnd().inSeconds() == Approx (2.0));
+
+    live.play();
+    // Beeps at 0 and 0.5 s, then again from the top at 2 and 2.5 s.
+    auto onsets = analysis::detectOnsets (audio.silence (2.8));
+    REQUIRE (onsets.size() == 4);
+    CHECK (onsets[0] < 0.05);
+    CHECK (onsets[1] - onsets[0] == Approx (0.5).margin (0.001));
+    CHECK (onsets[2] - onsets[0] == Approx (2.0).margin (0.02));
+    CHECK (live.getPosition() < 3840);
+
+    // Back to the song with its loop, playing from the loop's start, where the song's clip begins.
+    live.setPlayPattern ({});
+    CHECK_FALSE (live.getTransportState().pattern);
+    CHECK (live.getEdit()->getTransport().getLoopRange().getStart().inSeconds() == Approx (4.0));
+    CHECK (live.getPosition() >= 7680);
+    CHECK (live.getPosition() < 7680 + 960);
+    CHECK (analysis::detectOnsets (audio.silence (0.4)).size() == 1);
+
+    CHECK_THROWS (live.setPlayPattern ("nope"));
+    live.stop();
+}

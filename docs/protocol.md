@@ -36,9 +36,10 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `master` | `targetLufs?` (default -14), `ceilingDb?` (-1), `releaseMs?`, `start?`, `end?`, `group?` | `{ inputGainDb, integratedLufs, truePeakDb, reachedTarget, renders }`; sets the master limiter as one history entry |
 | `analyzeMix` | `start?`, `end?` (ticks), `tailSeconds?` | `{ mix, bands, stems: [{ source, integratedLufs, peakDb, bandShare }], masking: [{ a, b, bands }] }` |
 | `listEffects` | | built-in effects with parameter names, units and ranges |
-| `transport.state` / `transport.play` / `transport.stop` | | `{ playing, recording, position (ticks), seconds }` |
+| `transport.state` / `transport.play` / `transport.stop` | | `{ playing, recording, position (ticks), seconds, mode, pattern? }`; stop keeps the position |
 | `transport.setPosition` | `position` (ticks) | transport state |
-| `transport.setLoop` | `start`, `end` (ticks); omit both to stop looping | transport state |
+| `transport.setLoop` | `start`, `end` (ticks); omit both to stop looping | transport state; in pattern mode it's kept for the song |
+| `transport.setMode` | `mode` (`song` or `pattern`), `pattern` (for pattern mode) | transport state; pattern mode plays one pattern on a loop (positions within it), and either way playback goes back to the start. Recording switches to song mode |
 | `record.inputs` | | `{ inputs: [name] }`; channels named "X L"/"X R" (e.g. the Digitakt's) are paired into stereo inputs named "X" |
 | `record.start` | `targets: [{ input, track, insert? }]` (insert defaults to master), `fromBar?`, `bars?` (stops by itself), `dropSilent?`, `normalizeLufs?` (sets each take's clip gain) | transport state |
 | `record.calibrate` | `input?` (default "Track 1"), `bars?` (2) | `{ alignmentMs, spreadMs, hits, device }`: records clean hits in time with GrooveKit (e.g. a kick on clock-synced hardware) and stores how much later that device's takes are placed |
