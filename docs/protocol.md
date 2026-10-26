@@ -39,6 +39,11 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `transport.state` / `transport.play` / `transport.stop` | | `{ playing, recording, position (ticks), seconds, mode, pattern? }`; stop keeps the position |
 | `transport.setPosition` | `position` (ticks) | transport state |
 | `transport.setLoop` | `start`, `end` (ticks); omit both to stop looping | transport state; in pattern mode it's kept for the song |
+| `transport.setMetronome` | `enabled?`, `countInBars?` (0-2) | transport state (with `metronome`, `countInBars`); the click while playing, and the bars recordings count in with |
+| `live.setChannel` | `channel` (or null) | `{ channel }`; MIDI keyboards (enabled ones) and the app's keyboard play this channel live |
+| `live.noteOn` / `live.noteOff` | `key`, `velocity?`, `channel?` | `{}`; plays a note on the live channel from the app (piano roll preview, computer keyboard) |
+| `record.notes` | `pattern`, `channel`, `quantize?` (ticks) | transport state; loops the pattern and records what's played on the channel into it after the count-in, until `record.stop` or `transport.stop` |
+| `midi.setInput` | `input`, `enabled` | same as `midi.devices`, which lists `enabledInputs` too |
 | `transport.setMode` | `mode` (`song` or `pattern`), `pattern` (for pattern mode) | transport state; pattern mode plays one pattern on a loop (positions within it), and either way playback goes back to the start. Recording switches to song mode |
 | `record.inputs` | | `{ inputs: [name] }`; channels named "X L"/"X R" (e.g. the Digitakt's) are paired into stereo inputs named "X" |
 | `record.start` | `targets: [{ input, track, insert? }]` (insert defaults to master), `fromBar?`, `bars?` (stops by itself), `dropSilent?`, `normalizeLufs?` (sets each take's clip gain) | transport state |

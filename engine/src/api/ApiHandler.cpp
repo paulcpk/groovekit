@@ -29,7 +29,7 @@ namespace
     model::Json transportJson (const LiveEngine::TransportState& t)
     {
         model::Json j { { "playing", t.playing }, { "recording", t.recording }, { "position", t.position }, { "seconds", t.seconds },
-                        { "mode", t.pattern ? "pattern" : "song" } };
+                        { "mode", t.pattern ? "pattern" : "song" }, { "metronome", t.metronome }, { "countInBars", t.countInBars } };
 
         if (t.pattern)
             j["pattern"] = *t.pattern;
@@ -638,7 +638,65 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         for (auto& port : live->getMidiOutputs())
             outputs.push_back ({ { "name", port.name }, { "enabled", port.enabled }, { "clock", port.sendsClock } });
 
-        return { { "outputs", outputs }, { "inputs", live->getMidiInputs() } };
+        auto inputs = Json::array(), enabledInputs = Json::array();
+
+        for (auto& name : live->getMidiInputs())
+        {
+            inputs.push_back (name);
+
+            if (live->isMidiInputEnabled (name))
+                enabledInputs.push_back (name);
+        }
+
+        return { { "outputs", outputs }, { "inputs", inputs }, { "enabledInputs", enabledInputs } };
+    }
+
+    if (method == "midi.setInput")
+    {
+        live->setMidiInputEnabled (readParam<std::string> (params, "input"), params.value ("enabled", true));
+        return call ("midi.devices", Json::object(), client);
+    }
+
+    if (method == "transport.setMetronome")
+    {
+        if (params.contains ("enabled"))       live->setMetronome (readParam<bool> (params, "enabled"));
+        if (auto bars = optionalNumber (params, "countInBars")) live->setCountInBars (static_cast<int> (*bars));
+        return state();
+    }
+
+    if (method == "live.setChannel")
+    {
+        if (params.contains ("channel") && ! params["channel"].is_null())
+            live->setLiveChannel (readParam<std::string> (params, "channel"));
+        else
+            live->setLiveChannel ({});
+
+        return { { "channel", live->getLiveChannel() ? Json (*live->getLiveChannel()) : Json() } };
+    }
+
+    if (method == "live.noteOn" || method == "live.noteOff")
+    {
+        if (params.contains ("channel"))
+            live->setLiveChannel (readParam<std::string> (params, "channel"));
+
+        const auto key = static_cast<int> (optionalNumber (params, "key").value_or (60));
+
+        if (method == "live.noteOn")
+            live->noteOn (key, static_cast<int> (optionalNumber (params, "velocity").value_or (100)));
+        else
+            live->noteOff (key);
+
+        return Json::object();
+    }
+
+    if (method == "record.notes")
+    {
+        LiveEngine::NoteRecordOptions options;
+        options.pattern = readParam<std::string> (params, "pattern");
+        options.channel = readParam<std::string> (params, "channel");
+        options.quantize = static_cast<model::Ticks> (optionalNumber (params, "quantize").value_or (0));
+        live->startNoteRecording (options);
+        return state();
     }
 
     if (method == "midi.setClock")
@@ -690,6 +748,12 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
 
         live->startRecording (targets, options);
         return state();
+    }
+
+    if (method == "record.stop" && live->isRecordingNotes())
+    {
+        live->stop();
+        return { { "clips", Json::array() }, { "transport", state() } };
     }
 
     if (method == "record.stop")

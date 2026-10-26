@@ -7,6 +7,8 @@
 
 #include <juce_events/juce_events.h>
 
+#include <mutex>
+
 namespace gk
 {
 
@@ -67,6 +69,32 @@ public:
         kept for when the song plays again. */
     void setLoop (std::optional<std::pair<model::Ticks, model::Ticks>>);
 
+    /** The click while playing, and how many bars recordings count in with first (0-2).
+        Kept with the recording settings. */
+    void setMetronome (bool);
+    void setCountInBars (int);
+
+    //==============================================================================
+    /** Routes the MIDI inputs (keyboards and controllers, plus the app's own keyboard: noteOn and
+        noteOff) to a channel's instrument, so it plays live. Nothing: they play nothing. */
+    void setLiveChannel (std::optional<model::Id>);
+    const std::optional<model::Id>& getLiveChannel() const     { return liveChannel; }
+
+    /** Plays a note on the live channel, as if from a MIDI keyboard. */
+    void noteOn (int key, int velocity);
+    void noteOff (int key);
+
+    struct NoteRecordOptions
+    {
+        model::Id pattern, channel;
+        model::Ticks quantize = 0;  // starts snap to this grid; 0 keeps them as played
+    };
+
+    /** Loops the pattern (pattern mode) and records what's played on the channel into it, after
+        the count-in bars, until stop(). Notes are added to what's there, as one change. */
+    void startNoteRecording (const NoteRecordOptions&);
+    bool isRecordingNotes() const;
+
     /** Pattern mode: plays one pattern on a loop instead of the song (positions are then within
         the pattern), or with nothing, the song again. Either way playback goes back to the start.
         Recording switches back to the song. */
@@ -90,7 +118,11 @@ public:
     };
 
     std::vector<MidiPort> getMidiOutputs() const;
+
+    /** MIDI keyboards and controllers; the enabled ones play the live channel (setLiveChannel). */
     std::vector<std::string> getMidiInputs() const;
+    bool isMidiInputEnabled (const std::string&) const;
+    void setMidiInputEnabled (const std::string&, bool);
 
     /** Sends MIDI clock, start and stop to an output, so hardware like the Digitakt follows
         GrooveKit's tempo and starts with its transport. Throws if there's no such output. */
@@ -137,6 +169,8 @@ public:
         model::Ticks position = 0;
         double seconds = 0;
         std::optional<model::Id> pattern;   // in pattern mode
+        bool metronome = false;
+        int countInBars = 0;
     };
 
     TransportState getTransportState() const;
@@ -211,6 +245,39 @@ private:
 
     std::optional<model::Id> playPattern;
     std::optional<std::pair<model::Ticks, model::Ticks>> songLoop;
+    bool metronome = false, clickForCountIn = false;
+    int countInBars = 0;
+
+    /** Notes from the MIDI inputs, timestamped as they arrive (on MIDI threads). */
+    struct NoteCapture : tracktion::InputDeviceInstance::Consumer
+    {
+        void handleIncomingMidiMessage (const juce::MidiMessage&, tracktion::MPESourceID) override;
+        std::vector<std::pair<juce::MidiMessage, double>> take();
+
+        std::mutex mutex;
+        std::vector<std::pair<juce::MidiMessage, double>> messages; // with Time::getMillisecondCounterHiRes()
+    };
+
+    std::optional<model::Id> liveChannel;
+    NoteCapture capture;
+    std::vector<juce::WeakReference<tracktion::InputDeviceInstance>> capturedInputs;
+    bool needsLiveRouting = false;
+
+    struct NoteRecording
+    {
+        NoteRecordOptions options;
+        model::TickLength loopLength = 0;
+        double fromMs = 0;                              // after the count-in
+        std::map<int, std::pair<model::Ticks, int>> held; // key -> start, velocity
+        std::vector<model::Note> notes;
+    };
+
+    std::optional<NoteRecording> noteRecording;
+
+    tracktion::MidiInputDevice* keyboardDevice();
+    void routeLiveInput();
+    void takeCapturedNotes();
+    std::vector<model::Id> finishNoteRecording();
 
     /** What plays: the song, or in pattern mode a song holding just the pattern. */
     model::Project projectToPlay() const;

@@ -380,3 +380,75 @@ TEST_CASE ("Pattern mode plays the pattern on a loop instead of the song")
     CHECK_THROWS (live.setPlayPattern ("nope"));
     live.stop();
 }
+
+TEST_CASE ("The metronome clicks while playing")
+{
+    HostedAudio audio (2);
+    auto dir = test::tempDir() / "live-metronome";
+    std::filesystem::remove_all (dir);
+    auto session = Session::open (dir);
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "metronome.json");
+
+    live.play();
+    CHECK (analysis::peakDb (audio.silence (1.2)) < -90);
+    live.stop();
+
+    live.setMetronome (true);
+    CHECK (live.getTransportState().metronome);
+    live.setPosition (0);
+    live.play();
+
+    // Clicks on every beat: 0, 0.5 and 1.0 s at 120 BPM.
+    auto onsets = analysis::detectOnsets (audio.silence (1.2));
+    CHECK (onsets.size() == 3);
+    live.stop();
+    live.setMetronome (false);
+}
+
+TEST_CASE ("Notes from the app's keyboard play the live channel and record into a pattern")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-notes");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "live-notes.json");
+
+    live.setLiveChannel ("beep");
+
+    // The keyboard device appears after a MIDI rescan.
+    for (int i = 0; i < 100; ++i)
+    {
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
+        live.updateNow();
+
+        if (std::any_of (test::getEngine().getDeviceManager().getMidiInDevices().begin(),
+                         test::getEngine().getDeviceManager().getMidiInDevices().end(),
+                         [] (auto& d) { return d->getName() == "GrooveKit keyboard"; }))
+            break;
+    }
+
+    // Let the routing catch up with the new device.
+    for (int i = 0; i < 10; ++i)
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (40);
+
+    audio.silence (0.1);
+    live.noteOn (60, 127);
+    auto out = audio.silence (0.2);
+    live.noteOff (60);
+    CHECK (analysis::peakDb (out) > -12);
+
+    live.startNoteRecording ({ "p", "beep", 0 });
+    CHECK (live.isRecordingNotes());
+    audio.silence (0.2);
+    live.noteOn (64, 90);
+    audio.silence (0.1);
+    live.noteOff (64);
+    audio.silence (0.1);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    live.stop();
+    CHECK_FALSE (live.isRecordingNotes());
+
+    auto& notes = session->getProject().patterns[0].notes;
+    REQUIRE (notes.size() == 3);
+    CHECK (notes[2].key == 64);
+    CHECK (notes[2].velocity == 90);
+    CHECK (notes[2].channel == "beep");
+}

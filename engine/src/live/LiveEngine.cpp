@@ -91,6 +91,10 @@ LiveEngine::~LiveEngine()
     session.removeListener (listenerId);
     context.getEngine().getDeviceManager().deviceManager.removeChangeListener (this);
 
+    for (auto& input : capturedInputs)
+        if (auto instance = input.get())
+            instance->removeConsumer (&capture);
+
     midiClock->setSource (nullptr);
     midiClock->stopNow();
     context.getEngine().getDeviceManager().deviceManager.removeAudioCallback (midiClock.get());
@@ -202,6 +206,8 @@ void LiveEngine::rebuild()
 
     compiled = std::move (next);
     addClockTrack();
+    compiled.edit->clickTrackEnabled = metronome || clickForCountIn;
+    compiled.edit->clickTrackEmphasiseBars = true;
 
     const auto refs = hostedPluginRefs (session.getProject());
 
@@ -240,6 +246,8 @@ void LiveEngine::rebuild()
 
     if (wasPlaying)
         tc.play (false);
+
+    routeLiveInput();
 }
 
 void LiveEngine::addClockTrack()
@@ -428,6 +436,12 @@ void LiveEngine::stop()
         return;
     }
 
+    if (noteRecording)
+    {
+        finishNoteRecording();
+        return;
+    }
+
     stopTransport();
     notifyTransport (true);
 }
@@ -583,10 +597,37 @@ std::vector<std::string> LiveEngine::getMidiInputs() const
 {
     std::vector<std::string> names;
 
+    // Not the app's own keyboard, which is always on.
     for (auto& d : context.getEngine().getDeviceManager().getMidiInDevices())
-        names.push_back (d->getName().toStdString());
+        if (dynamic_cast<te::VirtualMidiInputDevice*> (d.get()) == nullptr)
+            names.push_back (d->getName().toStdString());
 
     return names;
+}
+
+bool LiveEngine::isMidiInputEnabled (const std::string& name) const
+{
+    for (auto& d : context.getEngine().getDeviceManager().getMidiInDevices())
+        if (d->getName().toStdString() == name)
+            return d->isEnabled();
+
+    return false;
+}
+
+void LiveEngine::setMidiInputEnabled (const std::string& name, bool enabled)
+{
+    for (auto& d : context.getEngine().getDeviceManager().getMidiInDevices())
+    {
+        if (d->getName().toStdString() == name)
+        {
+            d->setEnabled (enabled);
+            context.getEngine().getDeviceManager().dispatchPendingUpdates();
+            needsLiveRouting = true;
+            return;
+        }
+    }
+
+    throw std::runtime_error ("No MIDI input \"" + name + "\"");
 }
 
 void LiveEngine::setMidiClock (const std::string& output, bool enabled)
@@ -708,6 +749,20 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const
 
     recordOptions = options;
     recordStart = getPosition();
+
+    // The count-in plays (with the click) from bars before; takes are trimmed to start here.
+    if (countInBars > 0)
+    {
+        const auto from = std::max<Ticks> (0, recordStart - countInBars * ticksPerBar (project.timeSignature));
+        transport().setPosition (toTime (from));
+
+        if (from < recordStart)
+        {
+            clickForCountIn = true;
+            edit.clickTrackEnabled = true;
+        }
+    }
+
     EditGraveyard::getInstance().hold();
 
     // When the MIDI device list changes, Tracktion detaches and reattaches every device, which
@@ -778,6 +833,13 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             auto start = position.getStart().inSeconds() + getAlignmentMs() / 1000.0;
             const auto end = position.getEnd().inSeconds() + getAlignmentMs() / 1000.0;
             auto offset = position.getOffset().inSeconds();
+
+            // What was played during the count-in isn't part of the take.
+            if (const auto from = toTime (recordStart).inSeconds(); start < from)
+            {
+                offset += from - start;
+                start = from;
+            }
 
             if (start < 0)
             {
@@ -922,6 +984,9 @@ void LiveEngine::loadSettings()
         for (auto& [device, ms] : devices.items())
             alignmentMs[device] = ms.get<double>();
 
+        metronome = j.value ("metronome", false);
+        countInBars = std::clamp (j.value ("countInBars", 0), 0, 2);
+
     }
     catch (const std::exception&)
     {
@@ -932,7 +997,7 @@ void LiveEngine::loadSettings()
 void LiveEngine::saveSettings() const
 {
     std::filesystem::create_directories (settingsFile.parent_path());
-    std::ofstream (settingsFile) << Json { { "alignmentMs", alignmentMs } }.dump (2) << "\n";
+    std::ofstream (settingsFile) << Json { { "alignmentMs", alignmentMs }, { "metronome", metronome }, { "countInBars", countInBars } }.dump (2) << "\n";
 }
 
 tracktion::Plugin* LiveEngine::findPlugin (const std::string& key) const
@@ -950,6 +1015,9 @@ LiveEngine::TransportState LiveEngine::getTransportState() const
     s.position = getPosition();
     s.seconds = transport().getPosition().inSeconds();
     s.pattern = playPattern;
+    s.recording = s.recording || noteRecording.has_value();
+    s.metronome = metronome;
+    s.countInBars = countInBars;
     return s;
 }
 
@@ -959,6 +1027,25 @@ void LiveEngine::timerCallback()
     // Timed recordings stop on their own; the takes are trimmed to the exact length.
     if (! recordings.empty() && recordOptions.length && getPosition() >= recordStart + *recordOptions.length)
         stopRecording();
+
+    takeCapturedNotes();
+
+    // The app's keyboard appears a moment after it's first created.
+    if (needsLiveRouting)
+        routeLiveInput();
+
+    // The click that counted in goes back to the metronome setting once the count-in is over.
+    if (clickForCountIn && compiled.edit != nullptr)
+    {
+        const bool over = noteRecording ? juce::Time::getMillisecondCounterHiRes() >= noteRecording->fromMs
+                                        : recordings.empty() || getPosition() >= recordStart;
+
+        if (over)
+        {
+            clickForCountIn = false;
+            compiled.edit->clickTrackEnabled = metronome;
+        }
+    }
 
     notifyTransport (false);
     reportLevels();
@@ -1005,6 +1092,256 @@ void LiveEngine::notifyTransport (bool force)
         lastNotified = s;
         onTransportChange (s);
     }
+}
+
+//==============================================================================
+void LiveEngine::setMetronome (bool enabled)
+{
+    metronome = enabled;
+
+    if (compiled.edit != nullptr)
+        compiled.edit->clickTrackEnabled = metronome || clickForCountIn;
+
+    saveSettings();
+    notifyTransport (true);
+}
+
+void LiveEngine::setCountInBars (int bars)
+{
+    countInBars = std::clamp (bars, 0, 2);
+    saveSettings();
+    notifyTransport (true);
+}
+
+//==============================================================================
+void LiveEngine::NoteCapture::handleIncomingMidiMessage (const juce::MidiMessage& message, te::MPESourceID)
+{
+    if (! message.isNoteOnOrOff())
+        return;
+
+    const std::lock_guard lock (mutex);
+    messages.emplace_back (message, juce::Time::getMillisecondCounterHiRes());
+}
+
+std::vector<std::pair<juce::MidiMessage, double>> LiveEngine::NoteCapture::take()
+{
+    const std::lock_guard lock (mutex);
+    return std::exchange (messages, {});
+}
+
+te::MidiInputDevice* LiveEngine::keyboardDevice()
+{
+    static const juce::String name ("GrooveKit keyboard");
+    auto& devices = context.getEngine().getDeviceManager();
+
+    for (auto& d : devices.getMidiInDevices())
+        if (d->getName() == name)
+            return d.get();
+
+    // Kept in the settings, so this happens once; the device shows up after a rescan.
+    (void) devices.createVirtualMidiDevice (name);
+    return nullptr;
+}
+
+void LiveEngine::routeLiveInput()
+{
+    needsLiveRouting = false;
+
+    for (auto& input : capturedInputs)
+        if (auto instance = input.get())
+            instance->removeConsumer (&capture);
+
+    capturedInputs.clear();
+
+    auto playbackContext = compiled.edit != nullptr ? compiled.edit->getCurrentPlaybackContext() : nullptr;
+    auto keyboard = keyboardDevice();
+
+    if (keyboard != nullptr && ! keyboard->isEnabled())
+        keyboard->setEnabled (true);
+
+    if (playbackContext == nullptr)
+        return;
+
+    te::AudioTrack* target = nullptr;
+
+    if (liveChannel)
+        if (auto it = compiled.channelTracks.find (*liveChannel); it != compiled.channelTracks.end())
+            target = it->second;
+
+    bool keyboardRouted = false;
+
+    for (auto instance : playbackContext->getAllInputs())
+    {
+        auto& device = instance->getInputDevice();
+
+        if (! device.isMidi())
+            continue;
+
+        for (auto id : instance->getTargets())
+            (void) instance->removeTarget (id, nullptr);
+
+        // Physical inputs play only once they're switched on in the settings.
+        if (target == nullptr || ! device.isEnabled())
+            continue;
+
+        if (auto destination = instance->setTarget (target->itemID, false, nullptr))
+            (*destination)->recordEnabled = false;
+
+        device.setMonitorMode (te::InputDevice::MonitorMode::on);
+        instance->addConsumer (&capture);
+        capturedInputs.push_back (instance);
+        keyboardRouted = keyboardRouted || &device == keyboard;
+    }
+
+    if (target != nullptr && ! keyboardRouted)
+        needsLiveRouting = true;
+}
+
+void LiveEngine::setLiveChannel (std::optional<Id> channel)
+{
+    if (channel == liveChannel)
+        return;
+
+    liveChannel = std::move (channel);
+    routeLiveInput();
+}
+
+void LiveEngine::noteOn (int key, int velocity)
+{
+    if (auto keyboard = keyboardDevice())
+    {
+        auto message = juce::MidiMessage::noteOn (1, std::clamp (key, 0, 127), static_cast<juce::uint8> (std::clamp (velocity, 1, 127)));
+        message.setTimeStamp (juce::Time::getMillisecondCounterHiRes() * 0.001);
+        keyboard->handleIncomingMidiMessage (message, keyboard->getMPESourceID());
+    }
+}
+
+void LiveEngine::noteOff (int key)
+{
+    if (auto keyboard = keyboardDevice())
+    {
+        auto message = juce::MidiMessage::noteOff (1, std::clamp (key, 0, 127));
+        message.setTimeStamp (juce::Time::getMillisecondCounterHiRes() * 0.001);
+        keyboard->handleIncomingMidiMessage (message, keyboard->getMPESourceID());
+    }
+}
+
+//==============================================================================
+void LiveEngine::startNoteRecording (const NoteRecordOptions& options)
+{
+    if (! recordings.empty() || noteRecording)
+        throw std::runtime_error ("Already recording");
+
+    auto& project = session.getProject();
+
+    if (findChannel (project, options.channel) == nullptr)
+        throw std::runtime_error ("No channel \"" + options.channel + "\"");
+
+    setPlayPattern (options.pattern);   // throws if there's no such pattern
+    setLiveChannel (options.channel);
+    requireAudioDevice();
+
+    const auto barMs = static_cast<double> (ticksPerBar (project.timeSignature)) / ticksPerQuarter * 60000.0 / project.tempo;
+
+    NoteRecording r;
+    r.options = options;
+    r.loopLength = *playPatternLength();
+    r.fromMs = juce::Time::getMillisecondCounterHiRes() + countInBars * barMs;
+    noteRecording = std::move (r);
+    capture.take();
+
+    if (countInBars > 0)
+    {
+        clickForCountIn = true;
+        compiled.edit->clickTrackEnabled = true;
+    }
+
+    transport().play (false);
+    notifyTransport (true);
+}
+
+void LiveEngine::takeCapturedNotes()
+{
+    auto messages = capture.take();
+
+    if (! noteRecording || messages.empty() || compiled.edit == nullptr)
+        return;
+
+    auto& r = *noteRecording;
+    const auto& project = session.getProject();
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    const auto ticksPerMs = project.tempo * ticksPerQuarter / 60000.0;
+
+    // Where each note was played: back from where the transport is now by how long ago it
+    // arrived, and by the output latency, since the player answers what they hear.
+    const auto latencyMs = context.getEngine().getDeviceManager().getOutputLatencySeconds() * 1000.0;
+    const auto loop = r.loopLength;
+    const auto nowTicks = getPosition();
+
+    for (auto& [message, at] : messages)
+    {
+        if (at < r.fromMs)
+            continue;
+
+        auto t = nowTicks - static_cast<Ticks> (std::llround ((now - at + latencyMs) * ticksPerMs));
+        t = ((t % loop) + loop) % loop;
+        const auto key = message.getNoteNumber();
+
+        if (message.isNoteOn())
+        {
+            r.held[key] = { t, message.getVelocity() };
+        }
+        else if (auto it = r.held.find (key); it != r.held.end())
+        {
+            auto [start, velocity] = it->second;
+            auto length = t - start;
+
+            if (length <= 0)
+                length += loop;
+
+            r.notes.push_back ({ r.options.channel, start, std::max<TickLength> (1, length), key, velocity });
+            r.held.erase (it);
+        }
+    }
+}
+
+bool LiveEngine::isRecordingNotes() const
+{
+    return noteRecording.has_value();
+}
+
+std::vector<Id> LiveEngine::finishNoteRecording()
+{
+    takeCapturedNotes();
+    stopTransport();
+
+    auto r = std::move (*noteRecording);
+    noteRecording.reset();
+
+    if (clickForCountIn)
+    {
+        clickForCountIn = false;
+        compiled.edit->clickTrackEnabled = metronome;
+    }
+
+    // Notes still held end where the recording stopped.
+    const auto end = getPosition() % r.loopLength;
+
+    for (auto& [key, held] : r.held)
+    {
+        auto length = end - held.first;
+        r.notes.push_back ({ r.options.channel, held.first, std::max<TickLength> (1, length <= 0 ? length + r.loopLength : length), key, held.second });
+    }
+
+    if (r.options.quantize > 0)
+        for (auto& n : r.notes)
+            n.start = (std::llround (static_cast<double> (n.start) / r.options.quantize) * r.options.quantize) % r.loopLength;
+
+    if (! r.notes.empty())
+        session.execute ({ AddNotes { r.options.pattern, r.notes } }, { "recording", {}, "Record notes" });
+
+    notifyTransport (true);
+    return {};
 }
 
 } // namespace gk
