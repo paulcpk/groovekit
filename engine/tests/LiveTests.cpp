@@ -478,3 +478,49 @@ TEST_CASE ("The API reaches the live engine for transport, live and record metho
     CHECK (call ("record.stop").contains ("result"));
     CHECK (call ("transport.setMetronome", { { "countInBars", 0 } })["result"]["countInBars"] == 0);
 }
+
+TEST_CASE ("Solo and mute switch the playing Edit without rebuilding it")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-solo");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
+
+    auto run = [&] (const char* json)
+    {
+        model::Reader r;
+        model::Command c;
+        readValue (r, Json::parse (json), c);
+        session->execute ({ c });
+        live.updateNow();
+    };
+
+    run (R"({ "type": "addTrack", "track": { "id": "other" } })");
+    auto edit = live.getEdit();
+
+    live.play();
+    CHECK (analysis::peakDb (audio.silence (0.6)) > -12);
+
+    // Soloing a track without clips silences the one with the beeps, in the same Edit.
+    run (R"({ "type": "updateTrack", "track": "other", "changes": { "solo": true } })");
+    CHECK (live.getEdit() == edit);
+    audio.silence (0.05);
+    CHECK (analysis::peakDb (audio.silence (1.0)) < -90);
+
+    run (R"({ "type": "updateTrack", "track": "other", "changes": { "solo": false } })");
+    CHECK (live.getEdit() == edit);
+    audio.silence (0.05);
+    CHECK (analysis::peakDb (audio.silence (1.0)) > -12);
+
+    // Muting the channel, and the clip, likewise.
+    run (R"({ "type": "updateChannel", "channel": "beep", "changes": { "mute": true } })");
+    CHECK (live.getEdit() == edit);
+    audio.silence (0.05);
+    CHECK (analysis::peakDb (audio.silence (1.0)) < -90);
+    run (R"({ "type": "updateChannel", "channel": "beep", "changes": { "mute": false } })");
+    run (R"({ "type": "updateClip", "clip": "c", "changes": { "mute": true } })");
+    CHECK (live.getEdit() == edit);
+    audio.silence (0.05);
+    CHECK (analysis::peakDb (audio.silence (1.0)) < -90);
+
+    live.stop();
+}

@@ -300,6 +300,9 @@ private:
 
     void rebuild();
     void addClockTrack();
+
+    /** Switches tracks, clips, channels, inserts and sends on and off for the project's mutes and solos. */
+    void applyMutes();
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     /** Applies a change that only moves mixer values (volume, pan, send levels, effect

@@ -102,79 +102,7 @@ namespace
             return start + static_cast<Ticks> (std::llround (project.swing * sixteenth / 2));
         }
 
-        /** With inserts soloed: those, the inserts that feed them, and the ones they feed (by
-            output or send), so a soloed drum bus is heard through its reverb and master. */
-        std::set<Id> audibleInserts() const
-        {
-            std::set<Id> audible;
-            auto& inserts = project.mixer.inserts;
-
-            for (auto& i : inserts)
-                if (i.solo)
-                    audible.insert (i.id);
-
-            if (audible.empty())
-            {
-                for (auto& i : inserts)
-                    audible.insert (i.id);
-
-                return audible;
-            }
-
-            auto findInsert = [&] (const Id& id) { return std::find_if (inserts.begin(), inserts.end(), [&] (auto& i) { return i.id == id; }); };
-
-            // Downstream: outputs and send targets.
-            for (std::vector<Id> queue (audible.begin(), audible.end()); ! queue.empty();)
-            {
-                auto it = findInsert (queue.back());
-                queue.pop_back();
-
-                if (it == inserts.end())
-                    continue;
-
-                std::vector<Id> next;
-
-                if (it->id != masterInsertId)
-                    next.push_back (it->output);
-
-                for (auto& send : it->sends)
-                    next.push_back (send.target);
-
-                for (auto& id : next)
-                    if (audible.insert (id).second)
-                        queue.push_back (id);
-            }
-
-            // Upstream: inserts whose output chain reaches a soloed insert.
-            std::set<Id> soloed;
-
-            for (auto& i : inserts)
-                if (i.solo)
-                    soloed.insert (i.id);
-
-            for (auto& i : inserts)
-            {
-                std::set<Id> seen;
-
-                for (auto id = i.id; id != masterInsertId && seen.insert (id).second;)
-                {
-                    if (soloed.contains (id))
-                    {
-                        audible.insert (i.id);
-                        break;
-                    }
-
-                    auto it = findInsert (id);
-
-                    if (it == inserts.end())
-                        break;
-
-                    id = it->output;
-                }
-            }
-
-            return audible;
-        }
+        std::set<Id> audibleInserts() const     { return gk::audibleInserts (project); }
 
         te::AudioTrack& addTrack (const juce::String& name)
         {
@@ -328,7 +256,7 @@ namespace
                 }
 
                 result.channelFaders[channel.id] = channelFaders[channel.id] = &addFader (track, channel.volumeDb, channel.pan);
-                track.setMute (channel.mute || (anyChannelSolo && ! channel.solo));
+                track.setMute (! isChannelAudible (project, channel));
                 track.getOutput().setOutputToTrack (result.insertTracks.at (channel.insert));
             }
         }
@@ -384,6 +312,7 @@ namespace
                     }
 
                     midiClip->setMuted (muted);
+                    result.clips[pc->id].push_back (midiClip.get());
                 }
             }
         }
@@ -452,6 +381,7 @@ namespace
                 waveClip->setFadeIn (te::TimeDuration::fromSeconds (ac->fadeIn));
                 waveClip->setFadeOut (te::TimeDuration::fromSeconds (ac->fadeOut));
                 waveClip->setMuted (ac->mute || isTrackMuted (ac->track));
+                result.clips[ac->id].push_back (waveClip.get());
             }
         }
 
@@ -691,6 +621,7 @@ CompiledEdit& CompiledEdit::operator= (CompiledEdit&& other)
         insertFaders = std::move (other.insertFaders);
         channelFaders = std::move (other.channelFaders);
         trackFaders = std::move (other.trackFaders);
+        clips = std::move (other.clips);
         plugins = std::move (other.plugins);
         sends = std::move (other.sends);
         outputLatencySeconds = other.outputLatencySeconds;
@@ -702,6 +633,96 @@ CompiledEdit& CompiledEdit::operator= (CompiledEdit&& other)
 CompiledEdit::~CompiledEdit()
 {
     EditGraveyard::getInstance().bury (std::move (edit));
+}
+
+    /** With inserts soloed: those, the inserts that feed them, and the ones they feed (by
+        output or send), so a soloed drum bus is heard through its reverb and master. */
+    std::set<Id> audibleInserts (const Project& project)
+    {
+        std::set<Id> audible;
+        auto& inserts = project.mixer.inserts;
+
+        for (auto& i : inserts)
+            if (i.solo)
+                audible.insert (i.id);
+
+        if (audible.empty())
+        {
+            for (auto& i : inserts)
+                audible.insert (i.id);
+
+            return audible;
+        }
+
+        auto findInsert = [&] (const Id& id) { return std::find_if (inserts.begin(), inserts.end(), [&] (auto& i) { return i.id == id; }); };
+
+        // Downstream: outputs and send targets.
+        for (std::vector<Id> queue (audible.begin(), audible.end()); ! queue.empty();)
+        {
+            auto it = findInsert (queue.back());
+            queue.pop_back();
+
+            if (it == inserts.end())
+                continue;
+
+            std::vector<Id> next;
+
+            if (it->id != masterInsertId)
+                next.push_back (it->output);
+
+            for (auto& send : it->sends)
+                next.push_back (send.target);
+
+            for (auto& id : next)
+                if (audible.insert (id).second)
+                    queue.push_back (id);
+        }
+
+        // Upstream: inserts whose output chain reaches a soloed insert.
+        std::set<Id> soloed;
+
+        for (auto& i : inserts)
+            if (i.solo)
+                soloed.insert (i.id);
+
+        for (auto& i : inserts)
+        {
+            std::set<Id> seen;
+
+            for (auto id = i.id; id != masterInsertId && seen.insert (id).second;)
+            {
+                if (soloed.contains (id))
+                {
+                    audible.insert (i.id);
+                    break;
+                }
+
+                auto it = findInsert (id);
+
+                if (it == inserts.end())
+                    break;
+
+                id = it->output;
+            }
+        }
+
+        return audible;
+    }
+
+bool isChannelAudible (const Project& project, const Channel& channel)
+{
+    const bool anySolo = std::any_of (project.channels.begin(), project.channels.end(), [] (auto& c) { return c.solo; });
+    return ! channel.mute && (! anySolo || channel.solo);
+}
+
+bool isClipAudible (const Project& project, const Clip& clip)
+{
+    if (std::visit ([] (auto& c) { return c.mute; }, clip))
+        return false;
+
+    const bool anySolo = std::any_of (project.playlist.tracks.begin(), project.playlist.tracks.end(), [] (auto& t) { return t.solo; });
+    auto track = findTrack (project, getClipTrack (clip));
+    return track == nullptr || (! track->mute && (! anySolo || track->solo));
 }
 
 CompiledEdit compileProject (te::Engine& engine, const Project& project, const CompileOptions& options)

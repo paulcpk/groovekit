@@ -325,6 +325,35 @@ void LiveEngine::addClockTrack()
     }
 }
 
+void LiveEngine::applyMutes()
+{
+    auto& project = session.getProject();
+
+    for (auto& clip : project.playlist.clips)
+        if (auto it = compiled.clips.find (getClipId (clip)); it != compiled.clips.end())
+            for (auto c : it->second)
+                c->setMuted (! isClipAudible (project, clip));
+
+    for (auto& channel : project.channels)
+        if (auto it = compiled.channelTracks.find (channel.id); it != compiled.channelTracks.end())
+            it->second->setMute (! isChannelAudible (project, channel));
+
+    const auto audible = audibleInserts (project);
+
+    for (auto& insert : project.mixer.inserts)
+    {
+        const bool muted = insert.mute || ! audible.contains (insert.id);
+
+        if (auto it = compiled.insertTracks.find (insert.id); it != compiled.insertTracks.end())
+            it->second->setMute (muted);
+
+        // Levels set directly: the send's own mute brings back whatever level it last had.
+        for (auto& send : insert.sends)
+            if (auto it = compiled.sends.find (insert.id + "/" + send.id); it != compiled.sends.end())
+                it->second->setGainDb (muted ? -100.0f : static_cast<float> (send.levelDb));
+    }
+}
+
 bool LiveEngine::applyToLiveEdit (const Change& change)
 {
     if (compiled.edit == nullptr || change.ops.empty())
@@ -332,6 +361,7 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
 
     auto& project = session.getProject();
     std::vector<std::function<void()>> actions;
+    bool mutesQueued = false;
 
     auto index = [] (const std::string& s) -> std::optional<size_t>
     {
@@ -349,6 +379,21 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             const auto end = std::min (op.path.find ('/', start), op.path.size());
             keys.push_back (op.path.substr (start, end - start));
             start = end + 1;
+        }
+
+        // Mute and solo of playlist tracks, clips, channels and inserts: everything is switched
+        // on or off where it is (one solo changes who else is heard), without rebuilding.
+        const auto isFlag = [] (const std::string& k) { return k == "mute" || k == "solo"; };
+
+        if ((keys.size() == 4 && keys[0] == "playlist" && (keys[1] == "tracks" || keys[1] == "clips") && isFlag (keys[3]))
+            || (keys.size() == 3 && keys[0] == "channels" && isFlag (keys[2]))
+            || (keys.size() == 4 && keys[0] == "mixer" && keys[1] == "inserts" && isFlag (keys[3])))
+        {
+            if (! mutesQueued)
+                actions.push_back ([this] { applyMutes(); });
+
+            mutesQueued = true;
+            continue;
         }
 
         // /channels/<i>/volumeDb or /pan

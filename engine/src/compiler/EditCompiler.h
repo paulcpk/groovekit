@@ -1,5 +1,7 @@
 #pragma once
 
+#include <set>
+
 #include "model/Project.h"
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -40,6 +42,9 @@ struct CompiledEdit
     /** The volume and pan stages of each playlist track's audio clips (one per insert they play into). */
     std::map<model::Id, std::vector<mixer::FaderPlugin*>> trackFaders;
 
+    /** The Tracktion clips that play each playlist clip (a pattern clip has one per channel). */
+    std::map<model::Id, std::vector<tracktion::Clip*>> clips;
+
     /** Instruments as "channel:<id>" and effects as "effect:<insert>/<effect>". */
     std::map<std::string, tracktion::Plugin*> plugins;
 
@@ -60,6 +65,16 @@ struct CompileOptions
     /** Where time-stretched copies of audio clips are kept. Empty means the default. */
     std::filesystem::path cacheDir;
 };
+
+/** Which inserts are heard: all of them, or with some soloed, those with the inserts feeding them
+    and the ones they feed (by output or send). */
+std::set<model::Id> audibleInserts (const model::Project&);
+
+/** Whether a channel is heard: not muted, and soloed if any channel is. */
+bool isChannelAudible (const model::Project&, const model::Channel&);
+
+/** Whether a playlist clip is heard: it and its track not muted, and its track soloed if any is. */
+bool isClipAudible (const model::Project&, const model::Clip&);
 
 /** Validates the project and builds the Edit. Throws std::runtime_error on invalid input or missing files. */
 CompiledEdit compileProject (tracktion::Engine&, const model::Project&, const CompileOptions&);
