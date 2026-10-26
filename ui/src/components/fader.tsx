@@ -36,7 +36,8 @@ export function Fader({ db, onChange, onCommit, height = 140 }: {
         const p0 = dbToFader(db);
         let value = db;
         startDrag(e, (_dx, dy, ev) => {
-          const p = Math.min(1, Math.max(0, p0 - dy / track / (ev.shiftKey ? 8 : 1)));
+          // At least 180 px for the whole range, however short the fader is drawn.
+          const p = Math.min(1, Math.max(0, p0 - dy / Math.max(track, 180) / (ev.shiftKey ? 8 : 1)));
           value = faderToDb(p);
           setLive(value);
           onChange?.(value);

@@ -31,13 +31,13 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
   const [faderArea, faderAreaHeight] = useHeight<HTMLDivElement>();
   const volume = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { volumeDb: v } }), `${insertName(insert, index)} volume`);
   const pan = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan insert");
-  const faderH = Math.max(60, faderAreaHeight - 4);
+  const faderH = Math.max(20, faderAreaHeight - 4);
 
   return (
     <div className={cn("relative flex h-full w-[92px] shrink-0 flex-col bg-panel", insert.mute && "opacity-70")}>
       <StripName insert={insert} index={index} color={color} />
 
-      <div className="max-h-[45%] shrink-0 overflow-y-auto">
+      <div className="h-[34%] shrink-0 overflow-y-auto">
       <div className="flex flex-col gap-px px-1.5 pt-1.5">
         {(insert.effects ?? []).map((effect, i) => (
           <ContextMenu key={effect.id}>
@@ -77,7 +77,7 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
       <Sends doc={doc} insert={insert} />
       </div>
 
-      {!master && <OutputPicker doc={doc} insert={insert} />}
+      {master ? <div className="h-[20px] shrink-0" /> : <OutputPicker doc={doc} insert={insert} />}
 
       <div className="flex shrink-0 justify-center py-1.5">
         <ContextMenu>
@@ -119,7 +119,7 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
         <ToggleChip on={!insert.mute} label={master ? "M" : String(index)} title={insert.mute ? "Unmute" : "Mute"}
           onClick={() => update({ mute: !insert.mute }, insert.mute ? "Unmute insert" : "Mute insert")} />
       </div>
-      {feeders > 0 && <div className="shrink-0 px-2 pb-1 text-[9px] text-faint">{feeders} channel{feeders === 1 ? "" : "s"}</div>}
+      <div className="h-4 shrink-0 px-2 text-[9px] text-faint">{feeders > 0 && `${feeders} channel${feeders === 1 ? "" : "s"}`}</div>
 
       {touched !== undefined && Date.now() - touched < 2000 && (
         <span key={touched} className="pointer-events-none absolute inset-0 animate-agent-flash bg-agent/20 ring-1 ring-agent ring-inset" />

@@ -16,7 +16,9 @@ export function App() {
   const status = useEngine((s) => s.status);
   const error = useEngine((s) => s.error);
   const hasDoc = useEngine((s) => s.doc !== undefined);
-  const { sidebarOpen, sidebarWidth, bottomOpen, bottomHeight } = useUi();
+  const { sidebarOpen, sidebarWidth, bottomOpen, bottomHeight: chosenHeight, bottomPanel } = useUi();
+  // The mixer needs room for its faders.
+  const bottomHeight = bottomPanel === "mixer" ? Math.max(chosenHeight, 420) : chosenHeight;
   useShortcuts();
   useDefaultSelection();
 
