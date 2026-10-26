@@ -1,6 +1,6 @@
 name: Website
 
-# Builds web/ and publishes it on GitHub Pages: https://paulcpk.github.io/groovekit/
+# Builds web/ and publishes it on GitHub Pages at https://groovekit.org (web/public/CNAME holds the domain).
 
 on:
   push:
@@ -31,8 +31,7 @@ jobs:
       - name: Build
         run: pnpm --filter web build
         env:
-          SITE_URL: https://paulcpk.github.io
-          BASE_PATH: /groovekit
+          SITE_URL: https://groovekit.org
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist

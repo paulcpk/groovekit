@@ -32,5 +32,5 @@ still look like the app.
 ## Hosting
 
 Every push to `main` that changes `web/` publishes the site on GitHub Pages at
-https://paulcpk.github.io/groovekit/ (see `.github/workflows/pages.yml`). For another host or a
-custom domain, build with `SITE_URL` (and `BASE_PATH` if it's served from a folder).
+https://groovekit.org (see `.github/workflows/pages.yml`; `public/CNAME` holds the domain). For
+another host, build with `SITE_URL` (and `BASE_PATH` if it's served from a folder).
