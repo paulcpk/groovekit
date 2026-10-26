@@ -586,9 +586,30 @@ void SampleLibrary::load()
     if (! in)
         return;
 
+    // Read one sample at a time rather than the whole index as a document: a big library's
+    // index is tens of megabytes, and many times that as parsed JSON.
+    std::vector<SampleEntry> loaded;
+
+    const Json::parser_callback_t keepOnlyHeader = [&] (int depth, Json::parse_event_t event, Json& parsed)
+    {
+        if (event == Json::parse_event_t::object_end && depth == 2 && parsed.contains ("path"))
+        {
+            SampleEntry e;
+            e.path = parsed.value ("path", "");
+            e.size = parsed.value ("size", int64_t { 0 });
+            e.modified = parsed.value ("modified", int64_t { 0 });
+            e.features = featuresFromJson (parsed.value ("features", Json::object()));
+            e.classification = classificationFromJson (parsed.value ("classification", Json::object()));
+            loaded.push_back (std::move (e));
+            return false;
+        }
+
+        return true;
+    };
+
     try
     {
-        auto j = Json::parse (in);
+        auto j = Json::parse (in, keepOnlyHeader);
 
         if (j.value ("version", 0) != indexVersion)
             return; // an older index: rebuilt on the next scan
@@ -596,15 +617,12 @@ void SampleLibrary::load()
         for (auto& folder : j.value ("folders", Json::array()))
             folders.emplace_back (folder.get<std::string>());
 
-        for (auto& s : j.value ("samples", Json::array()))
+        autoScan = j.value ("autoScan", true);
+
+        for (auto& e : loaded)
         {
-            SampleEntry e;
-            e.path = s.value ("path", "");
-            e.size = s.value ("size", int64_t { 0 });
-            e.modified = s.value ("modified", int64_t { 0 });
-            e.features = featuresFromJson (s.value ("features", Json::object()));
-            e.classification = classificationFromJson (s.value ("classification", Json::object()));
-            entries[e.path] = std::move (e);
+            auto path = e.path;
+            entries.emplace (std::move (path), std::move (e));
         }
     }
     catch (const std::exception&)
@@ -617,12 +635,6 @@ void SampleLibrary::load()
 
 void SampleLibrary::save() const
 {
-    auto samples = Json::array();
-
-    for (auto& [path, e] : entries)
-        samples.push_back ({ { "path", e.path }, { "size", e.size }, { "modified", e.modified },
-                             { "features", library::toJson (e.features) }, { "classification", classificationToJson (e.classification) } });
-
     auto folderList = Json::array();
 
     for (auto& f : folders)
@@ -633,11 +645,38 @@ void SampleLibrary::save() const
     temp += ".tmp";
 
     {
+        // Written a sample at a time, for the same reason load() reads it that way.
         std::ofstream out (temp, std::ios::trunc);
-        out << Json { { "version", indexVersion }, { "folders", folderList }, { "samples", samples } }.dump();
+        out << "{\"version\":" << indexVersion << ",\"autoScan\":" << (autoScan ? "true" : "false")
+            << ",\"folders\":" << folderList.dump() << ",\"samples\":[";
+
+        bool first = true;
+
+        for (auto& [path, e] : entries)
+        {
+            out << (first ? "" : ",")
+                << Json { { "path", e.path }, { "size", e.size }, { "modified", e.modified },
+                          { "features", library::toJson (e.features) }, { "classification", classificationToJson (e.classification) } }.dump();
+            first = false;
+        }
+
+        out << "]}";
     }
 
     fs::rename (temp, indexFile);
+}
+
+bool SampleLibrary::getAutoScan() const
+{
+    std::lock_guard lock (mutex);
+    return autoScan;
+}
+
+void SampleLibrary::setAutoScan (bool enabled)
+{
+    std::lock_guard lock (mutex);
+    autoScan = enabled;
+    save();
 }
 
 } // namespace gk::library

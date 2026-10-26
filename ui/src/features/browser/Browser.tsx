@@ -6,6 +6,8 @@ import { addSamplerChannel } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
 import { fileName } from "@/lib/model";
 import { previewSample, stopPreview } from "@/features/shell/actions";
+import { inDesktopApp } from "@/engine/client";
+import { pickFolder } from "@/lib/files";
 import { call, engine, useEngine } from "@/state/engine";
 
 interface Sample {
@@ -350,7 +352,12 @@ function LibraryFolders() {
       <div className="mb-1 flex items-center gap-1">
         <span className="flex-1 uppercase tracking-wide text-faint">Library folders</span>
         <IconButton size="sm" title="Rescan" onClick={() => void call("library.scan")}><RefreshCw size={11} className={progress?.running ? "animate-spin" : ""} /></IconButton>
-        <IconButton size="sm" title="Add folder" onClick={() => setAdding(true)}><FolderPlus size={12} /></IconButton>
+        <IconButton size="sm" title="Add folder" onClick={() => {
+          if (!inDesktopApp) return setAdding(true);
+          void pickFolder("Add a sample folder", folders[0]).then((path) => {
+            if (path) void call("library.addFolder", { path }).then(refresh);
+          });
+        }}><FolderPlus size={12} /></IconButton>
       </div>
       {folders.map((f) => (
         <div key={f} className="group flex items-center gap-1" title={f}>

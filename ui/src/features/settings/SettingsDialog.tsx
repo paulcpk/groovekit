@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Button, DragNumber } from "@/components/controls";
 import { Dialog } from "@/components/dialog";
 import { Dropdown, DropdownContent, DropdownItem, DropdownTrigger } from "@/components/menu";
+import { inDesktopApp } from "@/engine/client";
+import { pickFolder } from "@/lib/files";
 import { call, engine, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { ChevronDown } from "lucide-react";
@@ -87,6 +89,8 @@ export function SettingsDialog() {
         )}
       </Section>
 
+      <LibrarySettings />
+
       <Section title="MIDI clock">
         {!midi ? <div className="text-xs text-faint">Loading…</div> : midi.outputs.length === 0 ? <div className="text-xs text-faint">No MIDI outputs.</div> : (
           <div className="flex flex-col gap-1">
@@ -122,5 +126,79 @@ export function SettingsDialog() {
         </div>
       </Section>
     </Dialog>
+  );
+}
+
+interface LibraryStatus {
+  folders: string[];
+  autoScan: boolean;
+  progress?: { running: boolean; filesFound: number; analysed: number; unchanged: number; samples: number };
+}
+
+const home = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
+
+function LibrarySettings() {
+  const connected = useEngine((s) => s.status === "connected");
+  const progress = useEngine((s) => s.libraryProgress);
+  const [status, setStatus] = useState<LibraryStatus>();
+  const [typing, setTyping] = useState(false);
+
+  useEffect(() => {
+    if (connected) engine.call<LibraryStatus>("library.status").then(setStatus, () => {});
+  }, [connected, progress?.running]);
+
+  const addFolder = async () => {
+    if (!inDesktopApp) {
+      setTyping(true);
+      return;
+    }
+    const path = await pickFolder("Add a sample folder", status?.folders[0]);
+    if (path) setStatus(await call<LibraryStatus>("library.addFolder", { path }));
+  };
+
+  const running = progress?.running ?? status?.progress?.running;
+
+  return (
+    <Section title="Sample library">
+      {!status ? <div className="text-xs text-faint">Loading…</div> : (
+        <div className="flex flex-col gap-2 text-xs">
+          <div className="flex flex-col gap-1">
+            {status.folders.length === 0 && <div className="text-faint">No folders yet.</div>}
+            {status.folders.map((f) => (
+              <div key={f} className="flex items-center gap-2 rounded-[4px] bg-bg px-2 py-1" title={f}>
+                <span className="min-w-0 flex-1 truncate text-fg">{home(f)}</span>
+                <Button size="sm" title="Remove from the library (the files stay)"
+                  onClick={() => void call<LibraryStatus>("library.removeFolder", { path: f }).then(setStatus)}>Remove</Button>
+              </div>
+            ))}
+            {typing && (
+              <form className="flex gap-1" onSubmit={(e) => {
+                e.preventDefault();
+                const path = (new FormData(e.currentTarget).get("path") as string).trim();
+                setTyping(false);
+                if (path) void call<LibraryStatus>("library.addFolder", { path }).then(setStatus);
+              }}>
+                <input autoFocus name="path" placeholder="/Users/you/Samples" onKeyDown={(e) => e.stopPropagation()}
+                  className="h-6 min-w-0 flex-1 rounded-[3px] bg-bg px-1.5 text-xs text-fg outline-none ring-1 ring-accent" />
+                <Button size="sm" type="submit">Add</Button>
+              </form>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" className="bg-control text-fg" onClick={() => void addFolder()}>Add folder…</Button>
+            <Button size="sm" className="bg-control text-fg" disabled={running} onClick={() => void call("library.scan")}>Scan now</Button>
+            <span className="text-faint">
+              {running && progress ? `Scanning ${progress.analysed + progress.unchanged} of ${progress.filesFound}…` : `${(status.progress?.samples ?? 0).toLocaleString()} samples`}
+            </span>
+          </div>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={status.autoScan} className="accent-[var(--color-accent)]"
+              onChange={(e) => void call<LibraryStatus>("library.setAutoScan", { enabled: e.target.checked }).then(setStatus)} />
+            <span className="text-fg">Look for new and changed samples when GrooveKit starts</span>
+          </label>
+          <div className="text-2xs text-faint">A scan of a big library takes a while and some memory. With this off, use Scan now after adding samples.</div>
+        </div>
+      )}
+    </Section>
   );
 }

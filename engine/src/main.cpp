@@ -164,8 +164,9 @@ Add --verbose to see engine log messages.
         if (! args.get ("--library"))
             library.addDefaultFolderIfNone();
 
-        // Catch up on files added or changed since last time.
-        library.startScan();
+        // Catch up on files added or changed since last time, unless the user scans by hand.
+        if (library.getAutoScan())
+            library.startScan();
 
         const auto pid = static_cast<int> (getpid());
         const auto registration = engineRegistry() / (std::to_string (pid) + ".json");

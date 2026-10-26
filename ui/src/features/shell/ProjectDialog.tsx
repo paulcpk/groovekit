@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/controls";
 import { Dialog } from "@/components/dialog";
 import { inDesktopApp } from "@/engine/client";
+import { pickFolder } from "@/lib/files";
 import { call, engine, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
@@ -29,12 +30,6 @@ export function saveProject() {
   toast(project ? `Saved · ${project.replace(/^\/Users\/[^/]+/, "~")}` : "Saved");
 }
 
-/** A folder picked with the system's dialog (desktop app only). */
-async function pickFolder(title: string, defaultPath?: string) {
-  const { open } = await import("@tauri-apps/plugin-dialog");
-  const picked = await open({ title, directory: true, defaultPath });
-  return typeof picked === "string" ? picked : undefined;
-}
 
 /** In the desktop app, Open project goes straight to the system's folder picker. */
 export async function browseForProject() {

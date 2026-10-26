@@ -483,8 +483,16 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
         return list;
     };
 
+    auto status = [&] { return Json { { "folders", folders() }, { "progress", progressJson() }, { "autoScan", library->getAutoScan() } }; };
+
     if (method == "folders" || method == "status")
-        return { { "folders", folders() }, { "progress", progressJson() } };
+        return status();
+
+    if (method == "setAutoScan")
+    {
+        library->setAutoScan (readParam<bool> (params, "enabled"));
+        return status();
+    }
 
     if (method == "addFolder")
     {
@@ -493,13 +501,13 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
         if (params.value ("scan", true))
             startLibraryScan();
 
-        return { { "folders", folders() }, { "progress", progressJson() } };
+        return status();
     }
 
     if (method == "removeFolder")
     {
         library->removeFolder (readParam<std::string> (params, "path"));
-        return { { "folders", folders() }, { "progress", progressJson() } };
+        return status();
     }
 
     if (method == "scan")

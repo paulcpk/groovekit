@@ -60,7 +60,8 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `project.open` | `path` | `{ project }`; switches the engine (and every client) to that project folder, which must hold a song.json. Refused if another engine serves it |
 | `project.new` | `path` | `{ project }`; creates a project in a new or empty folder and switches to it |
 | `project.saveAs` | `path` | `{ project }`; copies the project folder (song, history, recordings, plugin states) to a new or empty folder and switches to the copy. Every change is already written to song.json as it's made, so there's no separate save |
-| `library.status` | | `{ folders, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
+| `library.status` | | `{ folders, autoScan, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
+| `library.setAutoScan` | `enabled` | same as status; whether the engine scans for new and changed files when it starts |
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |
 | `library.scan` | | progress; `libraryProgress` notifications follow |
 | `library.search` | `query?`, `category?`, `loop?`, `tempo?`, `key?`, `minDuration?`, `maxDuration?`, `limit?` | `{ results: [{ path, description, category, loop, tempo?, key?, durationSeconds, rootKey? }], librarySize }` |

@@ -50,6 +50,11 @@ public:
     bool addDefaultFolderIfNone();
 
     std::vector<std::filesystem::path> getFolders() const;
+
+    /** Whether the engine looks for new and changed files when it starts (on by default). A
+        scan of a big library takes a while and memory; with this off, scans are started by hand. */
+    bool getAutoScan() const;
+    void setAutoScan (bool);
     void addFolder (const std::filesystem::path&);
     void removeFolder (const std::filesystem::path&);
 
@@ -97,6 +102,7 @@ private:
     mutable std::mutex mutex;
     std::vector<std::filesystem::path> folders;
     std::map<std::string, SampleEntry> entries;
+    bool autoScan = true;
     Progress progress;
     std::thread scanThread;
     std::atomic<bool> cancelScan { false };
