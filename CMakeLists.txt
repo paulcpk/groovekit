@@ -25,6 +25,15 @@ FetchContent_Declare(nlohmann_json
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(nlohmann_json)
 
+FetchContent_Declare(ixwebsocket
+    GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
+    GIT_TAG v12.0.1
+    GIT_SHALLOW TRUE)
+set(USE_TLS OFF CACHE INTERNAL "")
+set(USE_ZLIB OFF CACHE INTERNAL "")
+set(IXWEBSOCKET_INSTALL OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(ixwebsocket)
+
 set(TRACKTION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/engine/external/tracktion_engine")
 add_subdirectory("${TRACKTION_DIR}/modules/juce" juce EXCLUDE_FROM_ALL)
 add_subdirectory("${TRACKTION_DIR}/modules" tracktion EXCLUDE_FROM_ALL)

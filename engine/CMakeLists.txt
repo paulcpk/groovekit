@@ -4,6 +4,8 @@ add_library(gk_engine STATIC)
 target_sources(gk_engine PRIVATE
     src/EngineContext.cpp
     src/analysis/Analysis.cpp
+    src/api/ApiHandler.cpp
+    src/api/ApiServer.cpp
     src/compiler/EditCompiler.cpp
     src/effects/BuiltinEffects.cpp
     src/mixer/FaderPlugin.cpp
@@ -14,6 +16,7 @@ target_sources(gk_engine PRIVATE
     src/sampler/SamplerPlugin.cpp
     src/session/Commands.cpp
     src/session/Session.cpp
+    src/session/Summary.cpp
     src/session/Transaction.cpp)
 
 target_include_directories(gk_engine PUBLIC src)
@@ -40,7 +43,8 @@ target_link_libraries(gk_engine
         juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
-        nlohmann_json::nlohmann_json)
+        nlohmann_json::nlohmann_json
+        ixwebsocket::ixwebsocket)
 
 # Expose the module include paths and definitions without compiling the modules again in dependents.
 target_include_directories(gk_engine INTERFACE $<TARGET_PROPERTY:gk_engine,INCLUDE_DIRECTORIES>)

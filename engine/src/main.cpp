@@ -1,9 +1,13 @@
 #include "EngineContext.h"
 #include "analysis/Analysis.h"
+#include "api/ApiServer.h"
 #include "compiler/EditCompiler.h"
 #include "effects/BuiltinEffects.h"
 #include "render/Render.h"
 
+#include <tracktion_engine/tracktion_engine.h>
+
+#include <csignal>
 #include <iostream>
 
 namespace
@@ -17,6 +21,9 @@ Usage:
       --start <ticks>        default 0
       --end <ticks>          default: end of the last clip
       --tail <seconds>       extra time after the end (default 0)
+  groovekit-engine serve <project-folder> [--port <port>]
+      Opens (or creates) the project and serves the JSON-RPC API on ws://127.0.0.1:<port>
+      (default 7878) until interrupted.
   groovekit-engine validate <song.json>
   groovekit-engine analyze <file.wav>
   groovekit-engine effects
@@ -85,6 +92,34 @@ Add --verbose to see engine log messages.
         return 0;
     }
 
+    std::atomic<bool> stopRequested { false };
+
+    int serve (const Arguments& args)
+    {
+        if (args.positional.size() != 2)
+            throw std::runtime_error ("serve needs a project folder");
+
+        const int port = std::stoi (args.get ("--port").value_or ("7878"));
+
+        gk::EngineContext context;
+        auto session = gk::Session::open (std::filesystem::absolute (args.positional[1]));
+        gk::ApiHandler handler (*session, context);
+        gk::ApiServer server (handler, port);
+        server.start();
+
+        std::signal (SIGINT, [] (int) { stopRequested = true; });
+        std::signal (SIGTERM, [] (int) { stopRequested = true; });
+
+        std::cout << "Serving " << args.positional[1] << " on ws://127.0.0.1:" << port << std::endl;
+
+        // runDispatchLoop() needs an NSApplication on macOS; a console process pumps messages itself.
+        while (! stopRequested)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+
+        server.stop();
+        return 0;
+    }
+
     int render (const Arguments& args)
     {
         if (args.positional.size() != 2 || ! args.get ("-o"))
@@ -129,6 +164,10 @@ int main (int argc, char* argv[])
         if (command == "render")
         {
             result = render (args);
+        }
+        else if (command == "serve")
+        {
+            result = serve (args);
         }
         else if (command == "validate" && args.positional.size() == 2)
         {

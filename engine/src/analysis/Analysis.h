@@ -31,6 +31,9 @@ struct Range
 
 constexpr float silenceDb = -200.0f;
 
+/** A copy of the range (all channels unless the range names one). */
+Audio slice (const Audio&, Range);
+
 /** Sample peak over the range's channels, in dBFS. */
 float peakDb (const Audio&, Range = {});
 

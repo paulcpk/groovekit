@@ -85,6 +85,21 @@ namespace
     }
 }
 
+Audio slice (const Audio& audio, Range range)
+{
+    const auto r = toSamples (audio, range);
+    const auto [firstChannel, endChannel] = toChannels (audio, range);
+
+    Audio result;
+    result.sampleRate = audio.sampleRate;
+    result.buffer.setSize (endChannel - firstChannel, r.getLength());
+
+    for (int ch = firstChannel; ch < endChannel; ++ch)
+        result.buffer.copyFrom (ch - firstChannel, 0, audio.buffer, ch, r.getStart(), r.getLength());
+
+    return result;
+}
+
 float peakDb (const Audio& audio, Range range)
 {
     const auto r = toSamples (audio, range);
