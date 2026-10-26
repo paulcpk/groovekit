@@ -220,7 +220,7 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
       description: `Records audio inputs into clips, e.g. the user's Digitakt II over USB (16 tracks; each can be an audio or a MIDI track, so some outputs are silent).
 - devices: lists audio input devices, inputs and MIDI outputs.
 - setup: selects the input device (e.g. "Digitakt II") and turns on MIDI clock to a MIDI output (e.g. "Elektron Digitakt II"), so the hardware starts and stops with GrooveKit and follows its tempo.
-- start: records the given inputs (or "all": Main and Track 1-16) from fromBar for bars bars, each into its own insert and playlist track (created when missing, named after the input). Silent takes are skipped. Returns at once; the takes become clips when it stops.
+- start: records the given inputs (or "all": Main, Track 1-16 and the Delay, Reverb and Chorus returns; per-track outputs are dry) from fromBar for bars bars, each into its own insert and playlist track (created when missing, named after the input). Silent takes are skipped, and each take's clip gain is set so it plays at about -20 LUFS (hardware outputs arrive quiet). Returns at once; the takes become clips when it stops.
 - stop: stops early.
 - calibrate: once per setup, with the hardware playing clean hits on the given input (a kick track), measures the round trip so takes land on the grid.`,
       inputSchema: {
@@ -248,7 +248,7 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
           }
           case "start": {
             const names: string[] = !args.inputs || args.inputs === "all"
-              ? ["Main", ...Array.from({ length: 16 }, (_, i) => `Track ${i + 1}`)]
+              ? ["Main", ...Array.from({ length: 16 }, (_, i) => `Track ${i + 1}`), "Delay", "Reverb", "Chorus"]
               : args.inputs;
             const slug = (n: string) => "rec-" + n.toLowerCase().replace(/[^a-z0-9]+/g, "");
             const doc = engine.document!;
@@ -264,6 +264,7 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
               fromBar: args.fromBar ?? 1,
               bars: args.bars ?? 8,
               dropSilent: true,
+              normalizeLufs: -20,
             });
           }
           case "stop":

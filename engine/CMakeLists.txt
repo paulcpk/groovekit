@@ -8,6 +8,7 @@ target_sources(gk_engine PRIVATE
     src/api/ApiHandler.cpp
     src/api/ApiServer.cpp
     src/compiler/EditCompiler.cpp
+    src/compiler/EditGraveyard.cpp
     src/effects/BuiltinEffects.cpp
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp

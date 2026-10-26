@@ -21,7 +21,7 @@ public:
     static const char* xmlTypeName;
 
     static constexpr float minDb = -100.0f;
-    static constexpr float maxDb = 12.0f;
+    static constexpr float maxDb = 24.0f;
 
     void setVolumeDb (float);
     void setPan (float);

@@ -210,3 +210,30 @@ TEST_CASE ("Mastering reaches a target loudness with the limiter")
     h.call ("undo");
     CHECK (model::findInsert (h.session.getProject(), "master")->effects.empty());
 }
+
+TEST_CASE ("Mastering converges on quiet material and keeps true peak under the ceiling")
+{
+    Harness h;
+    auto kick = test::fixture ("kick.wav").string();
+    auto bass = test::fixture ("bass_a2.wav").string();
+
+    // Quiet, like raw Digitakt takes: everything 24 dB down.
+    h.call ("execute", { { "commands", Json::array ({
+        Json::parse (R"({ "type": "addChannel", "channel": { "id": "k", "volumeDb": -24, "instrument": { "type": "sampler", "layers": [
+                         { "id": "l", "sample": ")" + kick + R"(", "pitchTracking": false } ] } } })"),
+        Json::parse (R"({ "type": "addChannel", "channel": { "id": "b", "volumeDb": -24, "instrument": { "type": "sampler", "layers": [
+                         { "id": "l", "sample": ")" + bass + R"(", "rootKey": 45, "mode": "gate" } ] } } })"),
+        Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [
+                         { "channel": "k", "start": 0, "length": 240 }, { "channel": "k", "start": 960, "length": 240 },
+                         { "channel": "k", "start": 1920, "length": 240 }, { "channel": "k", "start": 2880, "length": 240 },
+                         { "channel": "b", "start": 480, "length": 400, "key": 45 }, { "channel": "b", "start": 2400, "length": 400, "key": 48 } ] } })"),
+        Json::parse (R"({ "type": "addTrack", "track": { "id": "t" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 15360, "pattern": "p" } })"),
+    }) } });
+
+    auto r = h.call ("master", { { "targetLufs", -9 }, { "ceilingDb", -1 } });
+    REQUIRE (r.contains ("result"));
+    INFO (r.dump());
+    CHECK (r["result"]["reachedTarget"] == true);
+    CHECK (r["result"]["truePeakDb"].get<double>() <= -0.9);
+}

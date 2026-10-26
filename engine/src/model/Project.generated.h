@@ -470,7 +470,7 @@ inline void readValue (Reader& r, const Json& j, Channel& out)
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.optional (j, "color", [&] (const Json& v) { readValue (r, v, out.color.emplace()); });
-    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 12); });
+    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 24); });
     r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
     r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert); r.checkPattern (out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
@@ -1011,7 +1011,7 @@ inline void readValue (Reader& r, const Json& j, Insert& out)
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.optional (j, "color", [&] (const Json& v) { readValue (r, v, out.color.emplace()); });
-    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 12); });
+    r.optional (j, "volumeDb", [&] (const Json& v) { readValue (r, v, out.volumeDb); r.checkMin (out.volumeDb, -100); r.checkMax (out.volumeDb, 24); });
     r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan); r.checkMin (out.pan, -1); r.checkMax (out.pan, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
     r.optional (j, "output", [&] (const Json& v) { readValue (r, v, out.output); r.checkPattern (out.output, "^[A-Za-z0-9_.-]{1,64}$"); });

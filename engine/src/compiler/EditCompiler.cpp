@@ -1,4 +1,5 @@
 #include "EditCompiler.h"
+#include "EditGraveyard.h"
 
 #include "effects/BuiltinEffects.h"
 #include "mixer/FaderPlugin.h"
@@ -573,6 +574,26 @@ namespace
             }
         }
     };
+}
+
+CompiledEdit& CompiledEdit::operator= (CompiledEdit&& other)
+{
+    if (this != &other)
+    {
+        EditGraveyard::getInstance().bury (std::move (edit));
+        edit = std::move (other.edit);
+        insertTracks = std::move (other.insertTracks);
+        channelTracks = std::move (other.channelTracks);
+        plugins = std::move (other.plugins);
+        outputLatencySeconds = other.outputLatencySeconds;
+    }
+
+    return *this;
+}
+
+CompiledEdit::~CompiledEdit()
+{
+    EditGraveyard::getInstance().bury (std::move (edit));
 }
 
 CompiledEdit compileProject (te::Engine& engine, const Project& project, const CompileOptions& options)

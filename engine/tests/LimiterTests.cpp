@@ -1,5 +1,6 @@
 #include "TestHelpers.h"
 
+#include "analysis/Analysis.h"
 #include "mixer/LimiterPlugin.h"
 
 #include <catch2/catch_approx.hpp>
@@ -40,7 +41,7 @@ namespace
         }
     };
 
-    constexpr int lookahead = 240; // 5 ms at 48 kHz
+    constexpr int lookahead = 240 + 12; // 5 ms at 48 kHz plus the true-peak detector
 }
 
 TEST_CASE ("The limiter delays by its lookahead and loses nothing")
@@ -82,7 +83,11 @@ TEST_CASE ("The limiter never exceeds its ceiling")
 
     CHECK (buffer.getMagnitude (0, 0, buffer.getNumSamples()) <= ceiling + 1.0e-6f);
     CHECK (buffer.getMagnitude (1, 0, buffer.getNumSamples()) <= ceiling + 1.0e-6f);
-    CHECK (buffer.getMagnitude (0, 0, buffer.getNumSamples()) > ceiling * 0.99f);
+
+    // Noise peaks between samples, so holding the true peak at the ceiling leaves sample peaks a bit lower.
+    analysis::Audio out { buffer, 48000.0 };
+    CHECK (analysis::truePeakDb (out) <= -1.0f + 0.1f);
+    CHECK (analysis::truePeakDb (out) > -1.5f);
 
     // Between bursts the quiet sine comes back up (12 dB louder than it went in).
     CHECK (buffer.getMagnitude (0, 4800 * 2 - 600, 400) == Approx (0.05f * 3.98f).margin (0.02f));

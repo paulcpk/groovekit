@@ -38,7 +38,7 @@ While playing, `transport` notifications (`{ playing, recording, position, secon
 | `transport.setPosition` | `position` (ticks) | transport state |
 | `transport.setLoop` | `start`, `end` (ticks); omit both to stop looping | transport state |
 | `record.inputs` | | `{ inputs: [name] }`; channels named "X L"/"X R" (e.g. the Digitakt's) are paired into stereo inputs named "X" |
-| `record.start` | `targets: [{ input, track, insert? }]` (insert defaults to master), `fromBar?`, `bars?` (stops by itself), `dropSilent?` | transport state |
+| `record.start` | `targets: [{ input, track, insert? }]` (insert defaults to master), `fromBar?`, `bars?` (stops by itself), `dropSilent?`, `normalizeLufs?` (sets each take's clip gain) | transport state |
 | `record.calibrate` | `input?` (default "Track 1"), `bars?` (2) | `{ alignmentMs, spreadMs, hits, device }`: records clean hits in time with GrooveKit (e.g. a kick on clock-synced hardware) and stores how much later that device's takes are placed |
 | `record.alignment` | `ms?` | `{ alignmentMs }` for the current input device |
 | `midi.devices` | | `{ outputs: [{ name, enabled, clock }], inputs }` |

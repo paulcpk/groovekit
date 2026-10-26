@@ -4,6 +4,7 @@
 #include "analysis/Analysis.h"
 #include "analysis/MixAnalysis.h"
 #include "compiler/EditCompiler.h"
+#include "compiler/EditGraveyard.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
 #include "live/LiveEngine.h"
@@ -499,6 +500,7 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
 
         LiveEngine::RecordOptions options;
         options.dropSilent = params.value ("dropSilent", false);
+        options.normalizeLufs = optionalNumber (params, "normalizeLufs");
 
         if (auto bars = optionalNumber (params, "bars"))
             options.length = static_cast<model::Ticks> (*bars * static_cast<double> (model::ticksPerBar (session.getProject().timeSignature)));
@@ -674,6 +676,8 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params)
 
         auto result = PluginCatalog::toJson (*desc);
         result["parameterCount"] = external->getNumAutomatableParameters();
+        plugin = nullptr;
+        EditGraveyard::getInstance().bury (std::move (edit));
         result["matchingParameters"] = matching;
         result["parameters"] = parameters;
         result["pluginRef"] = { { "format", PluginCatalog::formatName (*desc) }, { "uid", uid }, { "name", desc->name.toStdString() },

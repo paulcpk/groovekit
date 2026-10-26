@@ -11,7 +11,7 @@ using namespace model;
 namespace
 {
     constexpr double tolerance = 0.2;
-    constexpr int maxRenders = 6;
+    constexpr int maxRenders = 8;
 
     BuiltinEffect* findLimiter (Project& project)
     {
@@ -53,6 +53,7 @@ Json masterToLoudness (tracktion::Engine& engine, Session& session, const Master
 
     auto gain = limiter.params.contains ("inputGainDb") ? limiter.params["inputGainDb"] : 0.0;
     float lufs = analysis::silenceDb, truePeak = analysis::silenceDb;
+    std::optional<std::pair<double, double>> previous; // (gain, loudness) of the render before
     int renders = 0;
 
     while (renders < maxRenders)
@@ -75,9 +76,22 @@ Json masterToLoudness (tracktion::Engine& engine, Session& session, const Master
         if (std::abs (difference) <= tolerance)
             break;
 
-        const auto next = std::clamp (gain + difference, -24.0, 24.0);
+        // Once the limiter works hard, each dB of gain adds less than a dB of loudness: step by
+        // the slope measured between the last two renders (secant), not by the raw difference.
+        auto step = difference;
 
-        if (next == gain)
+        if (previous && std::abs (gain - previous->first) > 1.0e-6)
+        {
+            const auto slope = (lufs - previous->second) / (gain - previous->first);
+
+            if (slope > 0.05)
+                step = difference / slope;
+        }
+
+        previous = std::make_pair (gain, static_cast<double> (lufs));
+        const auto next = std::clamp (gain + std::clamp (step, -12.0, 12.0), -36.0, 36.0);
+
+        if (std::abs (next - gain) < 1.0e-3)
             break; // at the end of the range
 
         gain = next;

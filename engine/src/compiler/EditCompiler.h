@@ -20,6 +20,13 @@ namespace gk
 */
 struct CompiledEdit
 {
+    CompiledEdit() = default;
+    CompiledEdit (CompiledEdit&&) = default;
+    CompiledEdit& operator= (CompiledEdit&&);
+
+    /** The Edit goes to the EditGraveyard rather than being deleted on the spot. */
+    ~CompiledEdit();
+
     std::unique_ptr<tracktion::Edit> edit;
 
     std::map<model::Id, tracktion::AudioTrack*> insertTracks;

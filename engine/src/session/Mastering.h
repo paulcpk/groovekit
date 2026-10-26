@@ -21,7 +21,7 @@ struct MasterOptions
 
     Adds a limiter (id "master-limiter") at the end of the master insert if there isn't one,
     then renders, measures and adjusts its input gain until the loudness is within 0.2 LU
-    (at most six renders). The final setting is applied as one undoable change.
+    (at most eight renders). The final setting is applied as one undoable change.
     Returns the gain, the measured loudness and true peak, and how many renders it took.
 */
 model::Json masterToLoudness (tracktion::Engine&, Session&, const MasterOptions&);

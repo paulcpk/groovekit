@@ -388,7 +388,12 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
 
             used.insert (id);
 
-            if (recordOptions.dropSilent && analysis::peakDb (analysis::loadAudio (file)) < silentTakeDb)
+            std::optional<analysis::Audio> audio;
+
+            if (recordOptions.dropSilent || recordOptions.normalizeLufs)
+                audio = analysis::loadAudio (file);
+
+            if (recordOptions.dropSilent && analysis::peakDb (*audio) < silentTakeDb)
                 continue;
 
             // The device's measured round trip moves the take onto the grid.
@@ -406,6 +411,10 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             ac.sample = relative.empty() || relative.string().starts_with ("..") ? file.string() : relative.string();
             ac.insert = r.target.insert;
             ac.offset = position.getOffset().inSeconds();
+
+            if (recordOptions.normalizeLufs)
+                if (const auto lufs = analysis::integratedLufs (*audio); lufs > analysis::silenceDb)
+                    ac.gainDb = std::round (std::clamp (*recordOptions.normalizeLufs - lufs, -24.0, 24.0) * 10.0) / 10.0;
 
             commands.push_back (AddClip { ac });
             ids.push_back (id);

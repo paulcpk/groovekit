@@ -20,6 +20,10 @@ struct LiveRecordOptions
 
     /** False to record without touching the project (e.g. for calibration). */
     bool addClips = true;
+
+    /** Set each take's clip gain so it plays at this integrated loudness (within +-24 dB).
+        Hardware outputs like the Digitakt's per-track ones arrive very quiet. */
+    std::optional<double> normalizeLufs;
 };
 
 /** Real-time playback and recording of a session. Lives on the message thread.

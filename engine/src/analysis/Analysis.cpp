@@ -1,4 +1,5 @@
 #include "Analysis.h"
+#include "TruePeak.h"
 
 #include <juce_dsp/juce_dsp.h>
 
@@ -250,23 +251,7 @@ float integratedLufs (const Audio& audio)
 
 float truePeakDb (const Audio& audio)
 {
-    // 4x oversampling with a windowed-sinc interpolator, per BS.1770-4 Annex 2.
-    constexpr int taps = 12, phases = 4;
-    static const auto kernels = []
-    {
-        std::array<std::array<float, 2 * taps>, phases> k {};
-
-        for (int p = 1; p < phases; ++p)
-            for (int n = -taps + 1; n <= taps; ++n)
-            {
-                const double x = n - static_cast<double> (p) / phases;
-                const double sinc = std::sin (juce::MathConstants<double>::pi * x) / (juce::MathConstants<double>::pi * x);
-                const double window = 0.5 + 0.5 * std::cos (juce::MathConstants<double>::pi * x / (taps + 1));
-                k[static_cast<size_t> (p)][static_cast<size_t> (n + taps - 1)] = static_cast<float> (sinc * window);
-            }
-
-        return k;
-    }();
+    constexpr auto taps = TruePeakInterpolator::taps;
 
     float peak = 0;
 
@@ -286,16 +271,7 @@ float truePeakDb (const Audio& audio)
             if (std::abs (d[i]) < interesting && std::abs (d[i + 1]) < interesting)
                 continue;
 
-            for (int p = 1; p < phases; ++p)
-            {
-                auto& k = kernels[static_cast<size_t> (p)];
-                float sum = 0;
-
-                for (int t = 0; t < 2 * taps; ++t)
-                    sum += d[i - taps + 1 + t] * k[static_cast<size_t> (t)];
-
-                peak = std::max (peak, std::abs (sum));
-            }
+            peak = std::max (peak, TruePeakInterpolator::peakAround (d + i - taps + 1));
         }
     }
 

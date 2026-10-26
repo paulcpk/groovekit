@@ -48,7 +48,7 @@ namespace
             { BuiltinEffectKind::limiter, mixer::LimiterPlugin::xmlTypeName,
               "Lookahead brickwall limiter (5 ms latency): no sample exceeds the ceiling. Put it last on master.",
               {
-                  { "inputGainDb", "dB", -24, 24, 0, "Gain before limiting; raises loudness.", "inputGain" },
+                  { "inputGainDb", "dB", -36, 36, 0, "Gain before limiting; raises loudness.", "inputGain" },
                   { "ceilingDb", "dB", -12, 0, -1, "Maximum output level.", "ceiling" },
                   { "releaseMs", "ms", 1, 1000, 100, "How fast gain recovers after a peak.", "release" },
               } },

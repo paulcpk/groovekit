@@ -10,8 +10,9 @@ namespace gk::mixer
 /** Lookahead brickwall limiter for mastering.
 
     Input gain drives the signal into the ceiling; peaks above it are caught by a gain
-    envelope that starts falling one lookahead period before them, so no sample exceeds
-    the ceiling. Channels are linked. The lookahead is reported as latency.
+    envelope that starts falling one lookahead period before them. The detector measures
+    true peak (4x oversampled), so peaks between samples stay under the ceiling too.
+    Channels are linked. Lookahead plus the detector's 12 samples is reported as latency.
 */
 class LimiterPlugin : public tracktion::Plugin
 {
@@ -30,7 +31,7 @@ public:
     juce::String getSelectableDescription() override    { return getName(); }
     bool takesAudioInput() override                     { return true; }
     bool takesMidiInput() override                      { return false; }
-    double getLatencySeconds() override                 { return lookaheadSeconds; }
+    double getLatencySeconds() override                 { return lookaheadSeconds + detectorDelay / sampleRate; }
     double getTailLength() const override               { return lookaheadSeconds; }
 
     int getNumOutputChannelsGivenInputs (int) override  { return 2; }
@@ -43,9 +44,11 @@ public:
     tracktion::AutomatableParameter::Ptr inputGainParam, ceilingParam, releaseParam;
 
 private:
+    static constexpr int detectorDelay = 12;   // the true-peak interpolator's half width
+
     int lookahead = 240;
     std::vector<float> delayL, delayR, delayGain;
-    int writeIndex = 0;
+    int writeIndex = 0, gainIndex = 0;
     int64_t sampleCount = 0;
     std::deque<std::pair<int64_t, float>> window;   // (sample index, required gain), increasing gains
     float envelope = 1.0f;

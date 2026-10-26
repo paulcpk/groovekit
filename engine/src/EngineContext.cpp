@@ -1,5 +1,7 @@
 #include "EngineContext.h"
 
+#include "compiler/EditGraveyard.h"
+
 #include "mixer/FaderPlugin.h"
 #include "mixer/LimiterPlugin.h"
 #include "sampler/SamplerPlugin.h"
@@ -78,7 +80,11 @@ EngineContext::EngineContext (Options options) : impl (std::make_unique<Impl> (o
     plugins.createBuiltInType<mixer::FaderPlugin>();
     plugins.createBuiltInType<mixer::LimiterPlugin>();
 }
-EngineContext::~EngineContext() = default;
+EngineContext::~EngineContext()
+{
+    // Discarded Edits must go before the Engine they belong to.
+    EditGraveyard::getInstance().flush();
+}
 
 std::filesystem::path EngineContext::getAppDataFolder()
 {
