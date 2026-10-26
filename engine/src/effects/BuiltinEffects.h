@@ -22,6 +22,9 @@ struct ParamInfo
     /** Converts from GrooveKit units to the Tracktion parameter's units. */
     float (*toNative) (float) = nullptr;
 
+    /** For a parameter that picks one of a few options: their names, the value being the index. */
+    std::vector<const char*> choices = {};
+
     bool isAutomatable() const { return tracktionParam != nullptr; }
 };
 
@@ -31,6 +34,9 @@ struct EffectInfo
     const char* tracktionType;
     const char* description;
     std::vector<ParamInfo> params;
+
+    /** Where a new one's mix starts: effects you mix in (reverb, delay) start below 1. */
+    double defaultMix = 1.0;
 
     const ParamInfo* findParam (const std::string& id) const;
 };

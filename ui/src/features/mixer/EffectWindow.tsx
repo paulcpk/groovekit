@@ -2,6 +2,7 @@ import type { BuiltinEffect, Insert } from "@groovekit/schema/project";
 import { Power } from "lucide-react";
 import { Knob } from "@/components/controls";
 import { FloatingWindow } from "@/components/window";
+import { EqEditor } from "@/features/effects/EqEditor";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/menu";
 import { createAutomation } from "@/features/playlist/automation";
 import type { Project } from "@groovekit/schema/project";
@@ -11,6 +12,11 @@ import { insertName } from "@/lib/model";
 import { execute, useEngine } from "@/state/engine";
 import type { OpenWindow } from "@/state/windows";
 import { effectName } from "./Strip";
+
+/** Effects with an editor of their own; the rest get a knob per parameter. */
+const EDITORS: Partial<Record<string, (props: { insert: Insert; effect: BuiltinEffect }) => React.ReactNode>> = {
+  eq: (props) => <EqEditor {...props} />,
+};
 
 /** One of our effects in a window of its own: its controls, with the slot's on switch and mix
     knob in the title bar. */
@@ -23,7 +29,7 @@ export function EffectWindow({ window: w, insert, effect }: { window: OpenWindow
   const mix = useLiveControl((v) => ({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { mix: Math.round(v * 100) / 100 } }), `${name} mix`);
 
   return (
-    <FloatingWindow window={w} width={460} accent="var(--color-accent)"
+    <FloatingWindow window={w} width={EDITORS[effect.kind] ? 680 : 460} accent="var(--color-accent)"
       title={
         <>
           <button type="button" title={effect.bypass ? "Turn on" : "Turn off"} className={effect.bypass ? "text-faint" : "text-accent"}
@@ -43,7 +49,7 @@ export function EffectWindow({ window: w, insert, effect }: { window: OpenWindow
         </div>
       }>
       <div className="p-3">
-        {!info ? <div className="text-xs text-faint">Loading…</div> : (
+        {EDITORS[effect.kind] ? EDITORS[effect.kind]!({ insert, effect }) : !info ? <div className="text-xs text-faint">Loading…</div> : (
           <>
             <div className="mb-3 text-xs text-dim">{info.description}</div>
             <div className="grid grid-cols-4 gap-x-2 gap-y-3">

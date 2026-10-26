@@ -46,3 +46,42 @@ export const xToFreq = (x: number) => 20 * Math.pow(1000, Math.min(1, Math.max(0
 export function formatHz(f: number) {
   return f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`;
 }
+
+export const EQ_BAND_TYPES = ["off", "lowCut", "lowShelf", "peak", "notch", "highShelf", "highCut"] as const;
+export type EqBandType = (typeof EQ_BAND_TYPES)[number];
+
+export const EQ_BAND_LABELS: Record<EqBandType, string> = {
+  off: "Off", lowCut: "Low cut", lowShelf: "Low shelf", peak: "Peak", notch: "Notch", highShelf: "High shelf", highCut: "High cut",
+};
+
+/** One band of the engine's EQ (effects::EqPlugin), with the same RBJ-cookbook coefficients. */
+export function eqBandCoefficients(type: EqBandType, freq: number, gainDb: number, q: number, sampleRate = SAMPLE_RATE): Biquad {
+  const w0 = (2 * Math.PI * Math.min(freq, sampleRate * 0.49)) / sampleRate;
+  const cos = Math.cos(w0), alpha = Math.sin(w0) / (2 * Math.max(0.05, q));
+  const A = Math.pow(10, gainDb / 40), rootA = Math.sqrt(A);
+  let b0 = 1, b1 = 0, b2 = 0, a0 = 1, a1 = 0, a2 = 0;
+
+  switch (type) {
+    case "lowCut": b0 = (1 + cos) / 2; b1 = -(1 + cos); b2 = b0; a0 = 1 + alpha; a1 = -2 * cos; a2 = 1 - alpha; break;
+    case "highCut": b0 = (1 - cos) / 2; b1 = 1 - cos; b2 = b0; a0 = 1 + alpha; a1 = -2 * cos; a2 = 1 - alpha; break;
+    case "peak": b0 = 1 + alpha * A; b1 = -2 * cos; b2 = 1 - alpha * A; a0 = 1 + alpha / A; a1 = -2 * cos; a2 = 1 - alpha / A; break;
+    case "notch": b0 = 1; b1 = -2 * cos; b2 = 1; a0 = 1 + alpha; a1 = -2 * cos; a2 = 1 - alpha; break;
+    case "lowShelf":
+      b0 = A * ((A + 1) - (A - 1) * cos + 2 * rootA * alpha); b1 = 2 * A * ((A - 1) - (A + 1) * cos); b2 = A * ((A + 1) - (A - 1) * cos - 2 * rootA * alpha);
+      a0 = (A + 1) + (A - 1) * cos + 2 * rootA * alpha; a1 = -2 * ((A - 1) + (A + 1) * cos); a2 = (A + 1) + (A - 1) * cos - 2 * rootA * alpha;
+      break;
+    case "highShelf":
+      b0 = A * ((A + 1) + (A - 1) * cos + 2 * rootA * alpha); b1 = -2 * A * ((A - 1) + (A + 1) * cos); b2 = A * ((A + 1) + (A - 1) * cos - 2 * rootA * alpha);
+      a0 = (A + 1) - (A - 1) * cos + 2 * rootA * alpha; a1 = 2 * ((A - 1) - (A + 1) * cos); a2 = (A + 1) - (A - 1) * cos - 2 * rootA * alpha;
+      break;
+    case "off": break;
+  }
+  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+}
+
+/** A band's gain in dB at f: cuts run twice in the engine, for 24 dB/octave. */
+export function eqBandGainDb(type: EqBandType, freq: number, gainDb: number, q: number, f: number) {
+  if (type === "off") return 0;
+  const db = biquadGainDb(eqBandCoefficients(type, freq, gainDb, q), f);
+  return type === "lowCut" || type === "highCut" ? 2 * db : db;
+}

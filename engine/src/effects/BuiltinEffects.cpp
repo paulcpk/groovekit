@@ -1,6 +1,9 @@
 #include "BuiltinEffects.h"
 
+#include "EqPlugin.h"
 #include "mixer/LimiterPlugin.h"
+
+#include <deque>
 
 namespace gk::effects
 {
@@ -14,26 +17,40 @@ namespace
     float scaleWet (float level)      { return level / 3.0f; }  // Tracktion's reverb scales wet by 3 and dry by 2
     float scaleDry (float level)      { return level / 2.0f; }
 
+    /** Keeps generated parameter names alive for the catalogue's const char* ids. */
+    const char* keep (std::string s)
+    {
+        static std::deque<std::string> names;
+        return names.emplace_back (std::move (s)).c_str();
+    }
+
+    EffectInfo eqInfo()
+    {
+        EffectInfo info { BuiltinEffectKind::eq, EqPlugin::xmlTypeName,
+                          "Seven-band parametric EQ. Each band is off, lowCut or highCut (24 dB/octave, Q shapes the knee), "
+                          "lowShelf or highShelf, peak or notch. Bands default to shelves at 80 Hz and 12 kHz with peaks between, all flat.",
+                          {} };
+
+        for (int b = 0; b < EqPlugin::numBands; ++b)
+        {
+            const auto n = "band" + std::to_string (b + 1);
+            const auto& d = EqPlugin::bandDefaults[b];
+            const auto id = [&] (const char* what) { return keep (n + what); };
+
+            info.params.push_back ({ id ("Type"), "", 0, 6, static_cast<double> (d.type), keep ("Band " + std::to_string (b + 1) + " type: an index into the choices."),
+                                     id ("Type"), nullptr, nullptr, EqPlugin::bandTypeNames() });
+            info.params.push_back ({ id ("Freq"), "Hz", 20, 20000, d.freq, "Frequency: the centre of a peak or notch, the corner of a shelf or cut.", id ("Freq") });
+            info.params.push_back ({ id ("GainDb"), "dB", -24, 24, 0, "Gain of a peak or shelf; cuts and notches ignore it.", id ("GainDb") });
+            info.params.push_back ({ id ("Q"), "", 0.1, 18, d.q, "Width of a peak or notch (higher is narrower); slope of a shelf; resonance of a cut.", id ("Q") });
+        }
+
+        return info;
+    }
+
     std::vector<EffectInfo> buildCatalogue()
     {
         return {
-            { BuiltinEffectKind::eq, tracktion::EqualiserPlugin::xmlTypeName,
-              "Four-band EQ: low shelf, two peaking bands, high shelf.",
-              {
-                  // Tracktion calls the shelves "Low-pass" and "High-pass".
-                  { "lowFreq", "Hz", 20, 20000, 80, "Low shelf frequency.", "Low-pass freq" },
-                  { "lowGainDb", "dB", -20, 20, 0, "Low shelf gain.", "Low-pass gain" },
-                  { "lowQ", "", 0.1, 4, 0.5, "Low shelf slope.", "Low-pass Q" },
-                  { "mid1Freq", "Hz", 20, 20000, 3000, "First peak frequency.", "Mid freq 1" },
-                  { "mid1GainDb", "dB", -20, 20, 0, "First peak gain.", "Mid gain 1" },
-                  { "mid1Q", "", 0.1, 4, 0.5, "First peak width; higher is narrower.", "Mid Q 1" },
-                  { "mid2Freq", "Hz", 20, 20000, 5000, "Second peak frequency.", "Mid freq 2" },
-                  { "mid2GainDb", "dB", -20, 20, 0, "Second peak gain.", "Mid gain 2" },
-                  { "mid2Q", "", 0.1, 4, 0.5, "Second peak width; higher is narrower.", "Mid Q 2" },
-                  { "highFreq", "Hz", 20, 20000, 17000, "High shelf frequency.", "High-pass freq" },
-                  { "highGainDb", "dB", -20, 20, 0, "High shelf gain.", "High-pass gain" },
-                  { "highQ", "", 0.1, 4, 0.5, "High shelf slope.", "High-pass Q" },
-              } },
+            eqInfo(),
 
             { BuiltinEffectKind::compressor, tracktion::CompressorPlugin::xmlTypeName,
               "Feed-forward compressor.",
@@ -147,10 +164,18 @@ model::Json catalogueToJson()
         auto params = model::Json::object();
 
         for (auto& p : e.params)
+        {
             params[p.id] = { { "unit", p.unit }, { "min", p.min }, { "max", p.max }, { "default", p.defaultValue },
                              { "automatable", p.isAutomatable() }, { "description", p.description } };
 
+            if (! p.choices.empty())
+                params[p.id]["choices"] = p.choices;
+        }
+
         effects[model::toString (e.kind)] = { { "description", e.description }, { "params", params } };
+
+        if (e.defaultMix < 1.0)
+            effects[model::toString (e.kind)]["defaultMix"] = e.defaultMix;
     }
 
     return effects;

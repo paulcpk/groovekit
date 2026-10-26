@@ -10,6 +10,8 @@ target_sources(gk_engine PRIVATE
     src/compiler/EditCompiler.cpp
     src/compiler/EditGraveyard.cpp
     src/effects/BuiltinEffects.cpp
+    src/effects/EffectPlugin.cpp
+    src/effects/EqPlugin.cpp
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp
     src/library/SampleLibrary.cpp

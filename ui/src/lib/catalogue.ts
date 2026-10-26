@@ -9,6 +9,8 @@ export interface EffectParam {
   default: number;
   automatable: boolean;
   description: string;
+  /** For a parameter that picks one of a few options: their names, the value being the index. */
+  choices?: string[];
 }
 
 export interface EffectInfo {

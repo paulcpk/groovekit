@@ -88,7 +88,7 @@
       },
       {
         "id": "drums", "name": "Drums", "volumeDb": -3,
-        "effects": [{ "type": "builtin", "id": "eq", "kind": "eq", "params": { "lowFreq": 80, "lowGainDb": 3 } }],
+        "effects": [{ "type": "builtin", "id": "eq", "kind": "eq", "params": { "band1Freq": 80, "band1GainDb": 3 } }],
         "sends": [{ "id": "toVerb", "target": "verb", "levelDb": -14 }]
       },
       {

@@ -209,6 +209,13 @@ public:
     /** The key of a plugin in the live Edit, or empty if it isn't one of its instruments or effects. */
     std::string findPluginKey (const tracktion::Plugin&) const;
 
+    /** The latest output of an insert's effect slot (after its mix), mono, oldest first; empty if
+        there's no such effect. For the UI's spectrum and scope. */
+    std::vector<float> readEffectOutput (const std::string& insert, const std::string& effect, int numSamples) const;
+
+    /** The audio device's sample rate. */
+    double getSampleRate() const;
+
     /** Opens or closes a hosted plugin's own window. False if the key isn't a hosted plugin. */
     bool showPluginWindow (const std::string& key, bool show);
 

@@ -116,12 +116,84 @@ namespace
     }
 }
 
+namespace
+{
+    /** The first EQ had four fixed bands; the seven-band one keeps them where they were:
+        low shelf as band 1, the two peaks as bands 3 and 5, the high shelf as band 7. */
+    const std::map<std::string, std::string> oldEqParams {
+        { "lowFreq", "band1Freq" }, { "lowGainDb", "band1GainDb" }, { "lowQ", "band1Q" },
+        { "mid1Freq", "band3Freq" }, { "mid1GainDb", "band3GainDb" }, { "mid1Q", "band3Q" },
+        { "mid2Freq", "band5Freq" }, { "mid2GainDb", "band5GainDb" }, { "mid2Q", "band5Q" },
+        { "highFreq", "band7Freq" }, { "highGainDb", "band7GainDb" }, { "highQ", "band7Q" },
+    };
+
+    bool upgradeEffects (Json& doc)
+    {
+        bool changed = false;
+        std::set<std::pair<std::string, std::string>> eqs;   // insert, effect
+
+        if (doc.contains ("mixer") && doc["mixer"].contains ("inserts"))
+        {
+            for (auto& insert : doc["mixer"]["inserts"])
+            {
+                if (! insert.contains ("effects"))
+                    continue;
+
+                for (auto& effect : insert["effects"])
+                {
+                    if (effect.value ("type", "") != "builtin" || effect.value ("kind", "") != "eq")
+                        continue;
+
+                    eqs.insert ({ insert.value ("id", ""), effect.value ("id", "") });
+
+                    if (! effect.contains ("params"))
+                        continue;
+
+                    auto params = Json::object();
+
+                    for (auto& [key, value] : effect["params"].items())
+                    {
+                        auto it = oldEqParams.find (key);
+                        params[it != oldEqParams.end() ? it->second : key] = value;
+                        changed = changed || it != oldEqParams.end();
+                    }
+
+                    effect["params"] = params;
+                }
+            }
+        }
+
+        if (doc.contains ("playlist") && doc["playlist"].contains ("clips"))
+        {
+            for (auto& clip : doc["playlist"]["clips"])
+            {
+                if (clip.value ("type", "") != "automation" || ! clip.contains ("target"))
+                    continue;
+
+                auto& t = clip["target"];
+
+                if (t.value ("scope", "") == "effect" && eqs.contains ({ t.value ("insert", ""), t.value ("effect", "") }))
+                {
+                    if (auto it = oldEqParams.find (t.value ("param", "")); it != oldEqParams.end())
+                    {
+                        t["param"] = it->second;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        return changed;
+    }
+}
+
 bool migrateProject (Json& doc)
 {
     if (! doc.is_object())
         return false;
 
     bool changed = moveAudioClipsToChannels (doc);
+    changed = upgradeEffects (doc) || changed;
 
     if (doc.value ("schemaVersion", 0) == 1)
     {

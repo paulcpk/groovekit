@@ -163,9 +163,9 @@ TEST_CASE ("Effect params merge and effects can be reordered")
     Session s (Session::createEmptyProject());
 
     run (s, {
-        R"({ "type": "addEffect", "insert": "master", "effect": { "type": "builtin", "id": "eq", "kind": "eq", "params": { "lowGainDb": 3 } } })",
+        R"({ "type": "addEffect", "insert": "master", "effect": { "type": "builtin", "id": "eq", "kind": "eq", "params": { "band1GainDb": 3 } } })",
         R"({ "type": "addEffect", "insert": "master", "effect": { "type": "builtin", "id": "comp", "kind": "compressor" } })",
-        R"({ "type": "updateEffect", "insert": "master", "effect": "eq", "changes": { "params": { "highGainDb": -2 }, "bypass": true } })",
+        R"({ "type": "updateEffect", "insert": "master", "effect": "eq", "changes": { "params": { "band7GainDb": -2 }, "bypass": true } })",
         R"({ "type": "moveEffect", "insert": "master", "effect": "comp", "index": 0 })",
     });
 
@@ -174,7 +174,7 @@ TEST_CASE ("Effect params merge and effects can be reordered")
     CHECK (model::getEffectId (effects[0]) == "comp");
 
     auto& eq = std::get<model::BuiltinEffect> (effects[1]);
-    CHECK (eq.params == std::map<std::string, double> { { "lowGainDb", 3 }, { "highGainDb", -2 } });
+    CHECK (eq.params == std::map<std::string, double> { { "band1GainDb", 3 }, { "band7GainDb", -2 } });
     CHECK (eq.bypass);
 }
 

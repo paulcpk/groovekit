@@ -375,7 +375,7 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
         return callLibrary (method.substr (8), params);
 
     if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio.") || method.starts_with ("midi.") || method.starts_with ("live.")
-        || method.starts_with ("preview."))
+        || method.starts_with ("preview.") || method.starts_with ("mixer."))
         return callLive (method, params, client);
 
     if (method.starts_with ("plugins."))
@@ -603,6 +603,46 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
     throw RpcError (methodNotFound, "unknown method \"library." + method + "\"");
 }
 
+namespace
+{
+    /** Magnitudes in dB (full scale sine = 0) on 160 bins spaced evenly in log frequency from
+        20 Hz to 20 kHz, each the loudest FFT bin within it, Hann windowed. */
+    Json spectrumBins (const std::vector<float>& samples, double sampleRate)
+    {
+        constexpr int order = 12, size = 1 << order, numBins = 160;
+        auto bins = Json::array();
+
+        if (static_cast<int> (samples.size()) < size || sampleRate <= 0)
+            return bins;
+
+        std::vector<float> data (2 * size, 0.0f);
+
+        for (int i = 0; i < size; ++i)
+            data[static_cast<size_t> (i)] = samples[static_cast<size_t> (i)] * 0.5f * (1.0f - std::cos (juce::MathConstants<float>::twoPi * i / (size - 1)));
+
+        juce::dsp::FFT (order).performFrequencyOnlyForwardTransform (data.data(), true);
+
+        // A Hann window halves a sine's amplitude; a full-scale sine reads 0 dB.
+        const auto scale = 4.0f / size;
+
+        for (int b = 0; b < numBins; ++b)
+        {
+            const auto lo = 20.0 * std::pow (1000.0, static_cast<double> (b) / numBins);
+            const auto hi = 20.0 * std::pow (1000.0, static_cast<double> (b + 1) / numBins);
+            auto from = static_cast<int> (std::floor (lo * size / sampleRate));
+            auto to = std::max (from + 1, static_cast<int> (std::ceil (hi * size / sampleRate)));
+            float peak = 0;
+
+            for (int k = std::max (1, from); k < std::min (to, size / 2); ++k)
+                peak = std::max (peak, data[static_cast<size_t> (k)]);
+
+            bins.push_back (std::round (juce::Decibels::gainToDecibels (peak * scale, -120.0f) * 10.0f) / 10.0f);
+        }
+
+        return bins;
+    }
+}
+
 Json ApiHandler::callLive (const std::string& method, const Json& params, Client& client)
 {
     if (live == nullptr)
@@ -628,6 +668,22 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         }
 
         return { { "playing", true } };
+    }
+
+    // What comes out of an effect slot: its spectrum, or the waveform itself.
+    if (method == "mixer.spectrum" || method == "mixer.waveform")
+    {
+        const auto insert = readParam<std::string> (params, "insert");
+        const auto effect = readParam<std::string> (params, "effect");
+
+        if (method == "mixer.waveform")
+        {
+            const auto n = static_cast<int> (optionalNumber (params, "samples").value_or (1024));
+            return { { "samples", live->readEffectOutput (insert, effect, n) } };
+        }
+
+        return { { "bins", spectrumBins (live->readEffectOutput (insert, effect, 4096), live->getSampleRate()) },
+                 { "fromHz", 20 }, { "toHz", 20000 } };
     }
 
     if (method == "preview.stop")

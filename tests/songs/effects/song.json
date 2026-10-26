@@ -29,7 +29,7 @@
       { "id": "lowpass", "effects": [{ "type": "builtin", "id": "f", "kind": "lowpass", "params": { "frequency": 100 } }] },
       { "id": "reverb", "effects": [{ "type": "builtin", "id": "r", "kind": "reverb", "params": { "roomSize": 0.8, "wet": 1, "dry": 0 } }] },
       { "id": "compressor", "effects": [{ "type": "builtin", "id": "c", "kind": "compressor", "params": { "thresholdDb": -24, "ratio": 8, "attackMs": 0.3 } }] },
-      { "id": "eq", "effects": [{ "type": "builtin", "id": "e", "kind": "eq", "params": { "mid1Freq": 1000, "mid1GainDb": -12, "mid1Q": 1 } }] }
+      { "id": "eq", "effects": [{ "type": "builtin", "id": "e", "kind": "eq", "params": { "band3Freq": 1000, "band3GainDb": -12, "band3Q": 1 } }] }
     ]
   }
 }

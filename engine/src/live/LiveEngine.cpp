@@ -547,6 +547,19 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
     return true;
 }
 
+std::vector<float> LiveEngine::readEffectOutput (const std::string& insert, const std::string& effect, int numSamples) const
+{
+    if (auto it = compiled.effectMixes.find (insert + "/" + effect); it != compiled.effectMixes.end())
+        return it->second->readScope (numSamples);
+
+    return {};
+}
+
+double LiveEngine::getSampleRate() const
+{
+    return context.getEngine().getDeviceManager().getSampleRate();
+}
+
 std::string LiveEngine::findPluginKey (const te::Plugin& plugin) const
 {
     for (auto& [key, p] : compiled.plugins)
