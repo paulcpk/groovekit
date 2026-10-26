@@ -10,7 +10,8 @@ namespace gk::recent
     Folders that no longer hold a project are left out. */
 std::vector<std::filesystem::path> load (const std::filesystem::path& file);
 
-/** Moves the folder to the front of the list (at most 20 are kept). */
+/** Moves the folder to the front of the list (at most 20 are kept). Folders in the system's
+    temporary folder aren't listed. */
 void add (const std::filesystem::path& file, const std::filesystem::path& project);
 
 /** True if the folder holds a project (a song.json). */

@@ -285,7 +285,8 @@ TEST_CASE ("The API opens and creates projects through its host")
     REQUIRE (opened.size() == 2);
     CHECK (opened[1] == root / "fresh" / "song");
 
-    recent::add (root / "recent.json", root / "existing");
+    // Written directly: recent::add leaves out projects in the temp folder, where tests run.
+    std::ofstream (root / "recent.json") << Json { { "projects", Json::array ({ (root / "existing").string() }) } }.dump();
     auto recent = h.call ("project.recent")["result"]["projects"];
     REQUIRE (recent.size() == 1);
     CHECK (recent[0]["name"] == "existing");

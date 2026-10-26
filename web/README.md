@@ -28,3 +28,9 @@ to add canonical and Open Graph URLs.
 The tool list in `src/lib/site.ts` mirrors `mcp/src/tools.ts`; update both when a tool changes.
 The pictures are drawn, not screenshots, so they don't go stale when the UI changes, but they should
 still look like the app.
+
+## Hosting
+
+Every push to `main` that changes `web/` publishes the site on GitHub Pages at
+https://paulcpk.github.io/groovekit/ (see `.github/workflows/pages.yml`). For another host or a
+custom domain, build with `SITE_URL` (and `BASE_PATH` if it's served from a folder).

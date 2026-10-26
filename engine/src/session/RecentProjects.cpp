@@ -43,8 +43,16 @@ std::vector<std::filesystem::path> load (const std::filesystem::path& file)
 
 void add (const std::filesystem::path& file, const std::filesystem::path& project)
 {
-    auto projects = load (file);
     const auto dir = std::filesystem::weakly_canonical (project);
+
+    // Throwaway projects (tests, scratch renders) aren't worth reopening.
+    std::error_code ec;
+    const auto temp = std::filesystem::weakly_canonical (std::filesystem::temp_directory_path (ec)).string();
+
+    if (! ec && ! temp.empty() && dir.string().starts_with (temp))
+        return;
+
+    auto projects = load (file);
 
     std::erase_if (projects, [&] (auto& p) { return std::filesystem::weakly_canonical (p) == dir; });
     projects.insert (projects.begin(), dir);
@@ -57,7 +65,6 @@ void add (const std::filesystem::path& file, const std::filesystem::path& projec
     for (auto& p : projects)
         list.push_back (p.string());
 
-    std::error_code ec;
     std::filesystem::create_directories (file.parent_path(), ec);
     std::ofstream (file) << nlohmann::json { { "projects", list } }.dump (2);
 }

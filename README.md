@@ -8,6 +8,8 @@ Status: early development. The engine, command API, MCP server, sample library, 
 
 ## Download
 
+Website: https://paulcpk.github.io/groovekit/
+
 The latest macOS app (Apple silicon): [GrooveKit-macOS.zip](https://github.com/paulcpk/groovekit/releases/latest/download/GrooveKit-macOS.zip). Every version is on the [releases page](https://github.com/paulcpk/groovekit/releases).
 
 Unzip it and move GrooveKit to Applications. The app isn't notarized yet, so macOS asks before opening it the first time: open it once, then choose Open Anyway in System Settings → Privacy & Security.
