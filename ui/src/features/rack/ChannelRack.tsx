@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton, Knob } from "@/components/controls";
 import { ActivityLed } from "@/components/fader";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
-import { SAMPLE_MIME } from "@/features/playlist/geometry";
+import { droppedSample, isSampleDrag } from "@/features/playlist/geometry";
 import { newPattern } from "@/features/playlist/Playlist";
 import { cn } from "@/lib/cn";
 import { useLiveControl } from "@/lib/liveControl";
@@ -19,6 +19,8 @@ interface Paint {
   channel: string;
   on: boolean;
   steps: Set<number>;
+  /** Released and sent: still drawn until the engine's change arrives, so steps don't flick back. */
+  committed?: boolean;
 }
 
 export function ChannelRack() {
@@ -33,9 +35,11 @@ export function ChannelRack() {
   useEffect(() => {
     const up = () => {
       const p = paintRef.current;
-      if (!p || !pattern) return;
-      setPaint(null);
-      void commitPaint(doc, pattern, p);
+      if (!p || p.committed || !pattern) return;
+      const committed = { ...p, committed: true };
+      setPaint(committed);
+      // The engine sends the change before it answers, so the document has it by now.
+      void commitPaint(doc, pattern, p).finally(() => setPaint((current) => (current === committed ? null : current)));
     };
     window.addEventListener("pointerup", up);
     return () => window.removeEventListener("pointerup", up);
@@ -47,12 +51,12 @@ export function ChannelRack() {
     <div className="flex h-full">
       <div
         className="flex min-w-0 flex-1 flex-col"
-        onDragOver={(e) => e.dataTransfer.types.includes(SAMPLE_MIME) && e.preventDefault()}
+        onDragOver={(e) => isSampleDrag(e) && e.preventDefault()}
         onDrop={(e) => {
-          const data = e.dataTransfer.getData(SAMPLE_MIME);
-          if (!data) return;
+          const sample = droppedSample(e);
+          if (!sample) return;
           e.preventDefault();
-          void addSamplerChannel(doc, JSON.parse(data));
+          void addSamplerChannel(doc, sample);
         }}
       >
         <RackToolbar doc={doc} pattern={pattern} />
@@ -67,7 +71,7 @@ export function ChannelRack() {
                 selected={channel.id === selectedChannel}
                 paint={paint?.channel === channel.id ? paint : null}
                 onPaintStart={(step, on) => setPaint({ channel: channel.id, on, steps: new Set([step]) })}
-                onPaintEnter={(step) => setPaint((p) => (p && p.channel === channel.id && !p.steps.has(step) ? { ...p, steps: new Set([...p.steps, step]) } : p))}
+                onPaintEnter={(step) => setPaint((p) => (p && !p.committed && p.channel === channel.id && !p.steps.has(step) ? { ...p, steps: new Set([...p.steps, step]) } : p))}
               />
             ))
           )}
@@ -273,14 +277,16 @@ function ChannelRow({ doc, channel, pattern, steps, selected, paint, onPaintStar
         <div className="flex gap-[3px]">
           {Array.from({ length: steps }, (_, step) => {
             const note = notes.find((n) => n.start >= step * STEP && n.start < (step + 1) * STEP);
-            const on = paint?.steps.has(step) ? paint.on : !!note;
+            const painted = paint?.steps.has(step);
+            const on = painted ? paint!.on : !!note;
+            const velocity = painted ? 100 : note?.velocity;
             const beatGroup = Math.floor(step / 4) % 2 === 0;
             return (
               <button
                 key={step}
                 type="button"
                 className={cn("h-[22px] w-[19px] rounded-[3px]", step % 4 === 0 && step > 0 && "ml-1.5")}
-                style={{ background: on ? color : beatGroup ? "#2c2c32" : "#232328", opacity: on && note?.velocity ? 0.45 + (note.velocity / 127) * 0.55 : 1 }}
+                style={{ background: on ? color : beatGroup ? "#2c2c32" : "#232328", opacity: on && velocity ? 0.45 + (velocity / 127) * 0.55 : 1 }}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
                   (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);

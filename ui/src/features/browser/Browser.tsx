@@ -1,7 +1,7 @@
 import { FolderPlus, Play, RefreshCw, Repeat, Search, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button, Empty, IconButton } from "@/components/controls";
-import { SAMPLE_MIME, type DraggedSample } from "@/features/playlist/geometry";
+import { endSampleDrag, startSampleDrag, type DraggedSample } from "@/features/playlist/geometry";
 import { addSamplerChannel } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
 import { fileName } from "@/lib/model";
@@ -100,10 +100,8 @@ export function Browser() {
           <div
             key={s.path}
             draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData(SAMPLE_MIME, JSON.stringify(dragged(s)));
-              e.dataTransfer.effectAllowed = "copy";
-            }}
+            onDragStart={(e) => startSampleDrag(e, dragged(s))}
+            onDragEnd={endSampleDrag}
             onClick={() => {
               setCursor(i);
               preview(s);

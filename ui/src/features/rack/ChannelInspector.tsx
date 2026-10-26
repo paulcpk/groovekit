@@ -2,7 +2,7 @@ import type { Channel, SamplerInstrument, SamplerLayer } from "@groovekit/schema
 import { Play, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button, DragNumber, IconButton, Knob, ToggleChip } from "@/components/controls";
-import { SAMPLE_MIME } from "@/features/playlist/geometry";
+import { droppedSample, isSampleDrag } from "@/features/playlist/geometry";
 import { cn } from "@/lib/cn";
 import { colorFor, fileName, formatDb, formatPan, noteName, uniqueId } from "@/lib/model";
 import { call, execute, toast, useEngine } from "@/state/engine";
@@ -19,7 +19,7 @@ export function ChannelInspector({ channelId }: { channelId: string }) {
     <div
       className={cn("flex h-full flex-col", over && "bg-accent/5")}
       onDragOver={(e) => {
-        if (channel.instrument.type !== "sampler" || !e.dataTransfer.types.includes(SAMPLE_MIME)) return;
+        if (channel.instrument.type !== "sampler" || !isSampleDrag(e)) return;
         e.preventDefault();
         e.stopPropagation();
         setOver(true);
@@ -27,11 +27,12 @@ export function ChannelInspector({ channelId }: { channelId: string }) {
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
         setOver(false);
-        const data = e.dataTransfer.getData(SAMPLE_MIME);
-        if (!data || channel.instrument.type !== "sampler") return;
+        if (channel.instrument.type !== "sampler") return;
+        const sample = droppedSample(e);
+        if (!sample) return;
         e.preventDefault();
         e.stopPropagation();
-        const { path } = JSON.parse(data);
+        const { path } = sample;
         const id = uniqueId("l1", channel.instrument.layers.map((l) => ({ id: l.id })));
         void execute({ type: "addSamplerLayer", channel: channel.id, layer: { id, sample: path, pitchTracking: channel.instrument.layers[0]?.pitchTracking ?? false } },
           { label: `Add layer ${fileName(path)}` });

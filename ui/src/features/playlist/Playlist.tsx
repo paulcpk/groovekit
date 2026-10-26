@@ -9,7 +9,7 @@ import { getPeaks } from "@/lib/peaks";
 import { execute, reportError, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { ClipView } from "./ClipView";
-import { HEADER_W, RULER_H, SAMPLE_MIME, type DraggedSample, type Geometry } from "./geometry";
+import { HEADER_W, RULER_H, droppedSample, isSampleDrag, type DraggedSample, type Geometry } from "./geometry";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { TrackHeader } from "./TrackHeader";
@@ -176,14 +176,14 @@ export function Playlist() {
                 style={gridStyle}
                 onPointerDown={(e) => beginEmptyDrag(e, i)}
                 onDragOver={(e) => {
-                  if (e.dataTransfer.types.includes(SAMPLE_MIME)) e.preventDefault();
+                  if (isSampleDrag(e)) e.preventDefault();
                 }}
                 onDrop={(e) => {
-                  const data = e.dataTransfer.getData(SAMPLE_MIME);
-                  if (!data) return;
+                  const sample = droppedSample(e);
+                  if (!sample) return;
                   e.preventDefault();
                   const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-                  void dropSample(doc, JSON.parse(data), track.id, floorTo(x / g.pxPerTick, g.snap));
+                  void dropSample(doc, sample, track.id, floorTo(x / g.pxPerTick, g.snap));
                 }}
               >
                 {lanes[i].map(({ clip, start, length, ghost }) => (
