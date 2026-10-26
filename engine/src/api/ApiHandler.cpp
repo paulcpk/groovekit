@@ -837,6 +837,7 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
                  { "current", { { "type", devices.getCurrentAudioDeviceType().toStdString() },
                                 { "output", setup.outputDeviceName.toStdString() }, { "input", setup.inputDeviceName.toStdString() },
                                 { "bluetoothInput", isBluetoothAudioDevice (setup.inputDeviceName) },
+                                { "followSystemOutput", live->getFollowSystemOutput() }, { "systemOutput", defaultAudioDeviceName (false).toStdString() },
                                 { "sampleRate", setup.sampleRate }, { "bufferSize", setup.bufferSize } } } };
     }
 
@@ -852,7 +853,10 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         if (releaseInput)
             setup.inputDeviceName = {};
 
-        if (params.contains ("output"))                             setup.outputDeviceName = readParam<std::string> (params, "output");
+        // An output by name is the one to use from now on; "" goes back to following the system's.
+        const auto output = params.contains ("output") ? std::optional (readParam<std::string> (params, "output")) : std::nullopt;
+
+        if (output && ! output->empty())                            setup.outputDeviceName = *output;
         if (params.contains ("input"))                              setup.inputDeviceName = readParam<std::string> (params, "input");
         if (auto v = optionalNumber (params, "sampleRate"))         setup.sampleRate = *v;
         if (auto v = optionalNumber (params, "bufferSize"))         setup.bufferSize = static_cast<int> (*v);
@@ -864,6 +868,9 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
             throw RpcError (operationFailed, error.toStdString());
 
         live->pairStereoInputs();
+
+        if (output)
+            live->setFollowSystemOutput (output->empty());
 
         return call ("audio.devices", Json::object(), client);
     }

@@ -62,6 +62,73 @@ bool isBluetoothAudioDevice (const juce::String& name)
     return false;
 }
 
+juce::String defaultAudioDeviceName (bool input)
+{
+   #if JUCE_MAC
+    const AudioObjectPropertyAddress address { input ? kAudioHardwarePropertyDefaultInputDevice : kAudioHardwarePropertyDefaultOutputDevice,
+                                               kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    AudioObjectID device = kAudioObjectUnknown;
+    UInt32 size = sizeof (device);
+
+    if (AudioObjectGetPropertyData (kAudioObjectSystemObject, &address, 0, nullptr, &size, &device) != noErr || device == kAudioObjectUnknown)
+        return {};
+
+    const AudioObjectPropertyAddress nameAddress { kAudioDevicePropertyDeviceNameCFString, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    CFStringRef name = nullptr;
+    size = sizeof (name);
+
+    if (AudioObjectGetPropertyData (device, &nameAddress, 0, nullptr, &size, &name) != noErr || name == nullptr)
+        return {};
+
+    const auto result = juce::String::fromCFString (name);
+    CFRelease (name);
+    return result;
+   #else
+    juce::ignoreUnused (input);
+    return {};
+   #endif
+}
+
+struct DefaultOutputWatcher::Impl
+{
+    explicit Impl (std::function<void()> f) : onChange (std::move (f))
+    {
+       #if JUCE_MAC
+        AudioObjectAddPropertyListener (kAudioObjectSystemObject, &address, listener, this);
+       #endif
+    }
+
+    ~Impl()
+    {
+        *alive = false;
+       #if JUCE_MAC
+        AudioObjectRemovePropertyListener (kAudioObjectSystemObject, &address, listener, this);
+       #endif
+    }
+
+   #if JUCE_MAC
+    // Called on a CoreAudio thread.
+    static OSStatus listener (AudioObjectID, UInt32, const AudioObjectPropertyAddress*, void* data)
+    {
+        auto self = static_cast<Impl*> (data);
+        juce::MessageManager::callAsync ([self, alive = self->alive]
+        {
+            if (*alive)
+                self->onChange();
+        });
+        return noErr;
+    }
+
+    const AudioObjectPropertyAddress address { kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+   #endif
+
+    std::function<void()> onChange;
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
+};
+
+DefaultOutputWatcher::DefaultOutputWatcher (std::function<void()> onChange) : impl (std::make_unique<Impl> (std::move (onChange))) {}
+DefaultOutputWatcher::~DefaultOutputWatcher() = default;
+
 bool hasUnchosenBluetoothInput (const juce::AudioDeviceManager& devices)
 {
     const auto input = devices.getAudioDeviceSetup().inputDeviceName;

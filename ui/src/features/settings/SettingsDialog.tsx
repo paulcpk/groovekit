@@ -10,7 +10,11 @@ import { ChevronDown } from "lucide-react";
 
 interface AudioDevices {
   types: { type: string; outputs: string[]; inputs: string[] }[];
-  current: { type: string; output: string; input: string; bluetoothInput?: boolean; sampleRate: number; bufferSize: number } | null;
+  current: {
+    type: string; output: string; input: string; bluetoothInput?: boolean; sampleRate: number; bufferSize: number;
+    /** Playing through macOS's default output (systemOutput), switching when it changes. */
+    followSystemOutput?: boolean; systemOutput?: string;
+  } | null;
 }
 
 interface MidiDevices {
@@ -75,7 +79,13 @@ export function SettingsDialog() {
             <span className="text-dim">Driver</span>
             <Picker value={audio.current?.type ?? ""} options={audio.types.map((t) => t.type)} onPick={(v) => void setDevice({ type: v })} />
             <span className="text-dim">Output</span>
-            <Picker value={audio.current?.output ?? ""} options={type?.outputs ?? []} onPick={(v) => void setDevice({ output: v })} />
+            {(() => {
+              const system = `System default${audio.current?.systemOutput ? ` (${audio.current.systemOutput})` : ""}`;
+              return (
+                <Picker value={audio.current?.followSystemOutput ? system : audio.current?.output ?? ""} options={[system, ...(type?.outputs ?? [])]}
+                  onPick={(v) => void setDevice({ output: v === system ? "" : v })} />
+              );
+            })()}
             <span className="text-dim">Input</span>
             <Picker value={audio.current?.input ?? ""} options={type?.inputs ?? []} onPick={(v) => void setDevice({ input: v })} none />
             {audio.current?.bluetoothInput && (

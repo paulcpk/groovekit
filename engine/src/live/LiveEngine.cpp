@@ -88,6 +88,7 @@ LiveEngine::LiveEngine (EngineContext& c, Session& s, std::filesystem::path file
 
 LiveEngine::~LiveEngine()
 {
+    outputWatcher.reset();
     stopTimer();
     session.removeListener (listenerId);
     context.getEngine().getDeviceManager().deviceManager.removeChangeListener (this);
@@ -120,9 +121,17 @@ void LiveEngine::openDefaultAudioDevice()
     devices.deviceManager.removeAudioCallback (&preview);
     devices.deviceManager.addAudioCallback (&preview);
 
+    useSystemOutput();
     releaseBluetoothMicrophone();
     devices.deviceManager.addChangeListener (this);
     pairStereoInputs();
+
+    // macOS's default output changes when AirPods connect or another output is picked.
+    outputWatcher = std::make_unique<DefaultOutputWatcher> ([this]
+    {
+        useSystemOutput();
+        releaseBluetoothMicrophone();
+    });
 
     if (hasAudioDevice())
         transport().ensureContextAllocated();
@@ -153,6 +162,45 @@ void LiveEngine::changeListenerCallback (juce::ChangeBroadcaster* source)
 
     // E.g. AirPods connected, or a device came back and the system defaults were opened.
     releaseBluetoothMicrophone();
+
+    // A device that went away and nothing to replace it.
+    if (outputWatcher != nullptr && context.getEngine().getDeviceManager().deviceManager.getCurrentAudioDevice() == nullptr)
+        juce::MessageManager::callAsync ([this, alive = std::weak_ptr<bool> (lifetime)]
+        {
+            if (! alive.expired())
+                useSystemOutput();
+        });
+}
+
+void LiveEngine::useSystemOutput()
+{
+    auto& devices = context.getEngine().getDeviceManager().deviceManager;
+    auto setup = devices.getAudioDeviceSetup();
+    const auto systemOutput = defaultAudioDeviceName (false);
+    const bool noDevice = devices.getCurrentAudioDevice() == nullptr;
+
+    if (systemOutput.isEmpty() || (! followSystemOutput && ! noDevice) || (setup.outputDeviceName == systemOutput && ! noDevice))
+        return;
+
+    // Not saved as the chosen setup: the choice is "whatever the system uses".
+    setup.outputDeviceName = systemOutput;
+
+    if (auto error = devices.setAudioDeviceSetup (setup, false); error.isNotEmpty())
+        juce::Logger::writeToLog ("Couldn't switch to " + systemOutput + ": " + error);
+
+    pairStereoInputs();
+
+    if (hasAudioDevice() && compiled.edit != nullptr)
+        transport().ensureContextAllocated();
+}
+
+void LiveEngine::setFollowSystemOutput (bool follow)
+{
+    followSystemOutput = follow;
+    saveSettings();
+
+    if (follow)
+        useSystemOutput();
 }
 
 //==============================================================================
@@ -995,6 +1043,7 @@ void LiveEngine::loadSettings()
             alignmentMs[device] = ms.get<double>();
 
         metronome = j.value ("metronome", false);
+        followSystemOutput = j.value ("followSystemOutput", true);
         countInBars = std::clamp (j.value ("countInBars", 0), 0, 2);
 
     }
@@ -1007,7 +1056,8 @@ void LiveEngine::loadSettings()
 void LiveEngine::saveSettings() const
 {
     std::filesystem::create_directories (settingsFile.parent_path());
-    std::ofstream (settingsFile) << Json { { "alignmentMs", alignmentMs }, { "metronome", metronome }, { "countInBars", countInBars } }.dump (2) << "\n";
+    std::ofstream (settingsFile) << Json { { "alignmentMs", alignmentMs }, { "metronome", metronome }, { "countInBars", countInBars },
+                                    { "followSystemOutput", followSystemOutput } }.dump (2) << "\n";
 }
 
 tracktion::Plugin* LiveEngine::findPlugin (const std::string& key) const

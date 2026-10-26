@@ -37,7 +37,8 @@ export function App() {
             <div className="flex min-w-0 flex-col bg-panel" style={{ width: sidebarWidth }}>
               <Sidebar />
             </div>
-            <Splitter direction="x" onDrag={(d) => setUi({ sidebarWidth: Math.min(520, Math.max(180, sidebarWidth + d)) })} />
+            {/* Each step applies to the current size: the handler lives as long as the drag. */}
+            <Splitter direction="x" onDrag={(d) => setUi((s) => ({ sidebarWidth: Math.min(520, Math.max(180, s.sidebarWidth + d)) }))} />
           </>
         )}
         <div className="flex min-w-0 flex-1 flex-col">
@@ -48,7 +49,11 @@ export function App() {
               </div>
               {bottomOpen && (
                 <>
-                  <Splitter direction="y" onDrag={(d) => setUi({ bottomHeight: Math.min(window.innerHeight - 200, Math.max(140, bottomHeight - d)) })} />
+                  <Splitter direction="y" onDrag={(d) => setUi((s) => {
+                    // The mixer shows at least 420 px, so dragging starts from what's shown.
+                    const shown = s.bottomPanel === "mixer" ? Math.max(s.bottomHeight, 420) : s.bottomHeight;
+                    return { bottomHeight: Math.min(window.innerHeight - 200, Math.max(140, shown - d)) };
+                  })} />
                   <div className="min-h-0 bg-panel" style={{ height: bottomHeight }}>
                     <BottomDock />
                   </div>

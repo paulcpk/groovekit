@@ -56,6 +56,11 @@ public:
         done whenever the device changes. */
     void releaseBluetoothMicrophone();
 
+    /** Plays through macOS's default output, switching when it changes (on unless an output was
+        chosen in the settings). Kept with the recording settings. */
+    void setFollowSystemOutput (bool);
+    bool getFollowSystemOutput() const      { return followSystemOutput; }
+
     //==============================================================================
     void play();
     void stop();
@@ -246,6 +251,13 @@ private:
     std::optional<model::Id> playPattern;
     std::optional<std::pair<model::Ticks, model::Ticks>> songLoop;
     bool metronome = false, clickForCountIn = false;
+    bool followSystemOutput = true;
+    std::shared_ptr<bool> lifetime = std::make_shared<bool> (true);  // for callbacks that may outlive this
+    std::unique_ptr<class DefaultOutputWatcher> outputWatcher;
+
+    /** Switches to the system's default output if following it, and opens one if a device
+        change left none open. */
+    void useSystemOutput();
     int countInBars = 0;
 
     /** Notes from the MIDI inputs, timestamped as they arrive (on MIDI threads). */
