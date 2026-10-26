@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ChevronDown, Circle, Layers, ListMusic, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
 import { Button, DragNumber, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
@@ -7,6 +8,7 @@ import { inDesktopApp } from "@/engine/client";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi, type BottomPanel } from "@/state/ui";
 import { masterSong, redo, renderSong, setTempo, toggleLoop, togglePlay, undo } from "./actions";
+import { browseForProject, openProject, recentProjects, type RecentProject } from "./ProjectDialog";
 import { ProjectName } from "./ProjectName";
 
 export const snaps: { label: string; ticks: number }[] = [
@@ -102,6 +104,34 @@ function PanelToggles() {
   );
 }
 
+function ProjectMenu() {
+  const current = useEngine((s) => s.project);
+  const [recent, setRecent] = useState<RecentProject[]>([]);
+
+  return (
+    <Dropdown onOpenChange={(open) => open && void recentProjects().then(setRecent, () => {})}>
+      <DropdownTrigger asChild>
+        <IconButton size="sm" title="Projects"><ChevronDown size={12} /></IconButton>
+      </DropdownTrigger>
+      <DropdownContent>
+        <DropdownItem onSelect={() => setUi({ projectDialog: "new" })}>New project… <span className="ml-auto text-2xs text-faint">⌘N</span></DropdownItem>
+        <DropdownItem onSelect={() => void browseForProject()}>Open project… <span className="ml-auto text-2xs text-faint">⌘O</span></DropdownItem>
+        {recent.some((p) => p.path !== current) && (
+          <>
+            <DropdownSeparator />
+            <DropdownLabel>Recent</DropdownLabel>
+            {recent.filter((p) => p.path !== current).slice(0, 8).map((p) => (
+              <DropdownItem key={p.path} onSelect={() => void openProject(p.path)}>
+                <span className="truncate" title={p.path}>{p.name}</span>
+              </DropdownItem>
+            ))}
+          </>
+        )}
+      </DropdownContent>
+    </Dropdown>
+  );
+}
+
 function SongMenu() {
   return (
     <Dropdown>
@@ -131,6 +161,7 @@ export function TopBar() {
       <div className="flex items-center gap-2" data-tauri-drag-region>
         <div className="text-[13px] font-semibold tracking-tight text-fg">GrooveKit</div>
         <ProjectName />
+        <ProjectMenu />
       </div>
       <div className="h-5 w-px bg-line" />
       <TransportButtons />

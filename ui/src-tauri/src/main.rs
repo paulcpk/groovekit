@@ -3,7 +3,8 @@
 // The engine is found the way every client finds it (the registrations serving engines write in
 // the app data folder): if one already serves the project (say, started by the MCP server for
 // Claude), the app joins it, and both see each other's changes. Otherwise the app starts its own,
-// bundled as a sidecar, which quits when the app does.
+// bundled as a sidecar, which quits when the app does. The app opens the project opened last;
+// opening another one switches the engine over (project.open), so the app stays with that engine.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -24,16 +25,47 @@ struct EngineInfo {
 #[derive(Default)]
 struct Engine {
     child: Mutex<Option<Child>>,
+    /// The engine the app uses (its own or one it joined), whatever project that has open now.
+    pid: Mutex<Option<i32>>,
+}
+
+#[derive(Deserialize)]
+struct Recent {
+    projects: Vec<String>,
 }
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default())
 }
 
+fn app_data() -> PathBuf {
+    home().join("Library/Application Support/GrooveKit")
+}
+
+/// GROOVEKIT_PROJECT, else the project opened last, else the scratch project.
 fn project_folder() -> PathBuf {
-    std::env::var("GROOVEKIT_PROJECT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home().join("Music").join("GrooveKit").join("Scratch"))
+    if let Ok(path) = std::env::var("GROOVEKIT_PROJECT") {
+        return PathBuf::from(path);
+    }
+
+    let recent = std::fs::read_to_string(app_data().join("recent.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Recent>(&text).ok())
+        .and_then(|r| r.projects.into_iter().map(PathBuf::from).find(|p| p.join("song.json").is_file()));
+
+    recent.unwrap_or_else(|| home().join("Music").join("GrooveKit").join("Scratch"))
+}
+
+fn registrations() -> Vec<EngineInfo> {
+    let Ok(entries) = std::fs::read_dir(app_data().join("engines")) else {
+        return Vec::new();
+    };
+
+    entries
+        .flatten()
+        .filter_map(|entry| serde_json::from_str::<EngineInfo>(&std::fs::read_to_string(entry.path()).ok()?).ok())
+        .filter(|info| unsafe { libc::kill(info.pid, 0) } == 0)
+        .collect()
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -45,13 +77,11 @@ fn same_path(a: &Path, b: &Path) -> bool {
 
 /// The live engine serving a project, if there is one.
 fn serving_engine(project: &Path) -> Option<EngineInfo> {
-    let registry = home().join("Library/Application Support/GrooveKit/engines");
+    registrations().into_iter().find(|info| same_path(Path::new(&info.project), project))
+}
 
-    std::fs::read_dir(registry).ok()?.flatten().find_map(|entry| {
-        let info: EngineInfo = serde_json::from_str(&std::fs::read_to_string(entry.path()).ok()?).ok()?;
-        let alive = unsafe { libc::kill(info.pid, 0) } == 0;
-        (alive && same_path(Path::new(&info.project), project)).then_some(info)
-    })
+fn engine_with_pid(pid: i32) -> Option<EngineInfo> {
+    registrations().into_iter().find(|info| info.pid == pid)
 }
 
 /// The bundled engine next to the app's executable, or the repository's debug build in development.
@@ -74,9 +104,15 @@ fn free_port() -> std::io::Result<u16> {
 
 /// The URL of the engine for the project, starting one if needed.
 fn ensure_engine(state: &Engine) -> Result<String, String> {
+    // The engine the app was using, on whichever project it switched to.
+    if let Some(info) = state.pid.lock().map_err(|e| e.to_string())?.and_then(engine_with_pid) {
+        return Ok(info.url);
+    }
+
     let project = project_folder();
 
     if let Some(info) = serving_engine(&project) {
+        *state.pid.lock().map_err(|e| e.to_string())? = Some(info.pid);
         return Ok(info.url);
     }
 
@@ -104,10 +140,9 @@ fn ensure_engine(state: &Engine) -> Result<String, String> {
     let started = Instant::now();
 
     while started.elapsed() < Duration::from_secs(90) {
-        if let Some(info) = serving_engine(&project) {
-            if info.pid == pid {
-                return Ok(info.url);
-            }
+        if let Some(info) = engine_with_pid(pid) {
+            *state.pid.lock().map_err(|e| e.to_string())? = Some(pid);
+            return Ok(info.url);
         }
 
         std::thread::sleep(Duration::from_millis(150));
@@ -127,6 +162,7 @@ async fn engine_url(state: tauri::State<'_, Arc<Engine>>) -> Result<String, Stri
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(Engine::default()))
         .invoke_handler(tauri::generate_handler![engine_url])
         .build(tauri::generate_context!())

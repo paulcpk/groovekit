@@ -6,6 +6,7 @@ import type { Command, PatchOp } from "@groovekit/schema/protocol";
 import { create } from "zustand";
 import { EngineClient, type Status } from "@/engine/client";
 import { applyPatch, parsePointer } from "@/engine/patch";
+import { setUi } from "./ui";
 
 export interface Transport {
   playing: boolean;
@@ -91,9 +92,19 @@ function touchedIds(before: Project | undefined, after: Project, ops: PatchOp[])
 
 function onNotification(method: string, params: any) {
   switch (method) {
-    case "snapshot":
-      set({ doc: params.document, head: params.head ?? null });
+    case "snapshot": {
+      // Another project was opened (by this UI or a client sharing the engine).
+      const previous = get().project;
+      const switched = params.project !== undefined && previous !== undefined && params.project !== previous;
+
+      set({ doc: params.document, head: params.head ?? null, ...(params.project ? { project: params.project } : {}) });
+
+      if (switched) {
+        set({ changes: [], touchedAt: {}, levels: { inserts: {}, channels: {} }, transport: { playing: false, recording: false, position: 0, seconds: 0 } });
+        setUi({ selectedPattern: params.document.patterns?.[0]?.id, selectedChannel: undefined, selectedInsert: undefined, selectedClips: [], loop: undefined, looping: false });
+      }
       break;
+    }
 
     case "hello":
       set({ project: params.project });

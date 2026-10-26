@@ -5,7 +5,7 @@ export function ProjectName() {
   const name = useEngine((s) => s.doc?.name);
   const folder = useEngine((s) => s.project);
   const [editing, setEditing] = useState(false);
-  const shown = name ?? folder?.split("/").pop() ?? "Untitled";
+  const shown = name || folder?.split("/").pop() || "Untitled";
 
   if (editing) {
     return (

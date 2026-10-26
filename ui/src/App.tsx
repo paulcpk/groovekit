@@ -8,6 +8,7 @@ import { TopBar } from "@/features/shell/TopBar";
 import { Splitter } from "@/features/shell/Splitter";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { RecordDialog } from "@/features/record/RecordDialog";
+import { ProjectDialog } from "@/features/shell/ProjectDialog";
 import { useShortcuts } from "@/features/shell/shortcuts";
 import { useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -61,6 +62,7 @@ export function App() {
       <Toasts />
       <SettingsDialog />
       <RecordDialog />
+      <ProjectDialog />
     </div>
   );
 }

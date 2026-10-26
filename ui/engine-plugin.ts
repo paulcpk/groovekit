@@ -1,6 +1,7 @@
 // Dev server endpoint that finds the GrooveKit engine for the UI: the one serving the project
 // (found through the registration every serving engine writes), or a new one started here and
-// stopped with the dev server. The desktop shell does the same natively.
+// stopped with the dev server. Once found, that engine stays the UI's whichever project it
+// switches to. The desktop shell does the same natively.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "node:fs";
@@ -17,8 +18,8 @@ interface EngineInfo {
   project: string;
 }
 
-/** The live engine serving a project, if there is one. */
-function servingEngine(project: string): EngineInfo | undefined {
+/** The live engine that matches, if there is one. */
+function findEngine(matches: (info: EngineInfo) => boolean): EngineInfo | undefined {
   let files: string[] = [];
   try {
     files = readdirSync(registry);
@@ -30,12 +31,16 @@ function servingEngine(project: string): EngineInfo | undefined {
     try {
       const info = JSON.parse(readFileSync(join(registry, file), "utf8")) as EngineInfo;
       process.kill(info.pid, 0);
-      if (realpathSync(info.project) === realpathSync(project)) return info;
+      if (matches(info)) return info;
     } catch {
       // Gone, unreadable or another project.
     }
   }
   return undefined;
+}
+
+function servingEngine(project: string) {
+  return findEngine((info) => realpathSync(info.project) === realpathSync(project));
 }
 
 function freePort(): Promise<number> {
@@ -55,10 +60,17 @@ export function enginePlugin(): Plugin {
   const project = resolve(process.env.GROOVEKIT_PROJECT ?? join(homedir(), "Music", "GrooveKit", "Scratch"));
   let child: ChildProcess | undefined;
   let starting: Promise<EngineInfo> | undefined;
+  let enginePid: number | undefined;
 
   async function ensureEngine(): Promise<EngineInfo> {
+    const current = enginePid !== undefined ? findEngine((info) => info.pid === enginePid) : undefined;
+    if (current) return current;
+
     const running = servingEngine(project);
-    if (running) return running;
+    if (running) {
+      enginePid = running.pid;
+      return running;
+    }
     if (starting) return starting;
 
     if (!existsSync(enginePath)) throw new Error(`No engine at ${enginePath}; build it with cmake --build build/dev`);
@@ -71,9 +83,10 @@ export function enginePlugin(): Plugin {
 
       const started = Date.now();
       const poll = setInterval(() => {
-        const info = servingEngine(project);
-        if (info && info.pid === child?.pid) {
+        const info = findEngine((i) => i.pid === child?.pid);
+        if (info) {
           clearInterval(poll);
+          enginePid = info.pid;
           ok(info);
         } else if (!child || Date.now() - started > 60000) {
           clearInterval(poll);
