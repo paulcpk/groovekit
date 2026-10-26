@@ -97,4 +97,4 @@ Songs are JSON files described by [schema/project.schema.json](schema/project.sc
 
 AGPLv3. GrooveKit builds on [JUCE 8](https://juce.com) (AGPLv3), [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) (GPLv3), [Rubber Band](https://breakfastquay.com/rubberband/) (GPLv2+) and [IXWebSocket](https://github.com/machinezone/IXWebSocket) (BSD).
 
-Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports and feature requests are welcome as [issues](https://github.com/paulcpk/groovekit/issues/new/choose); pull requests aren't accepted. See [CONTRIBUTING.md](CONTRIBUTING.md).

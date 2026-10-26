@@ -15,6 +15,7 @@ export const LINKS = {
   issues: "https://github.com/paulcpk/groovekit/issues",
   readme: "https://github.com/paulcpk/groovekit#readme",
   contributing: "https://github.com/paulcpk/groovekit/blob/main/CONTRIBUTING.md",
+  newIssue: "https://github.com/paulcpk/groovekit/issues/new/choose",
   license: "https://github.com/paulcpk/groovekit/blob/main/LICENSE",
   protocol: "https://github.com/paulcpk/groovekit/blob/main/docs/protocol.md",
   architecture: "https://github.com/paulcpk/groovekit/blob/main/docs/architecture.md",

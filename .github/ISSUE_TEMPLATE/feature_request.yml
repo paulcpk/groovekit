@@ -1,0 +1,42 @@
+name: Feature request
+description: An idea for GrooveKit or its agent tools
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the idea! Please search existing issues first, and add to one if it's already there.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What you're trying to do
+      description: The music or workflow you're working on, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How you'd like it to work
+      description: Step by step, as detailed as you can. Sketches and screenshots are welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Channel rack and patterns
+        - Piano roll
+        - Playlist and arrangement
+        - Mixer and effects
+        - Sample browser and library
+        - Recording and hardware
+        - Agent (Claude / MCP tools)
+        - Projects, export and import
+        - Website and docs
+        - Other
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Examples from other tools (described in your own words), links, files.

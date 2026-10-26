@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in GrooveKit doesn't work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! The more detail, the faster this gets fixed. Please search existing issues first.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, step by step, from opening GrooveKit.
+      placeholder: |
+        1. Open a new project
+        2. Drag a loop from the browser into the playlist
+        3. Press Space
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GrooveKit version
+      description: The release you downloaded (e.g. 0.2.0) or the commit you built.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: macOS version and Mac
+      placeholder: macOS 15.1, MacBook Air M2
+    validations:
+      required: true
+  - type: textarea
+    id: audio
+    attributes:
+      label: Audio setup
+      description: "If sound, recording or MIDI is involved: output and input devices, buffer size, sample rate, hardware (e.g. Digitakt II)."
+  - type: textarea
+    id: agent
+    attributes:
+      label: Agent (Claude) involvement
+      description: If Claude was involved, what you asked and what it did (see the Agent tab).
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots, recordings, files
+      description: Drag in screenshots or a screen recording. For problems with a song, attach its project's song.json (zipped).
