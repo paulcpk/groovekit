@@ -316,8 +316,7 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
       </ContextMenu>
 
       <button type="button" title="Mute" onClick={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}
-        className={cn("gk-press h-3 w-3 shrink-0 rounded-full border", channel.mute ? "border-faint bg-transparent" : "border-ok bg-ok/80")}
-        style={channel.mute ? undefined : { boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 6px rgb(111 208 140 / 0.55)" }} />
+        className={cn("h-3 w-3 shrink-0 rounded-full border", channel.mute ? "border-faint bg-transparent" : "border-ok bg-ok/80")} />
       <ToggleChip on={!!channel.solo} label="S" tone="dim" title={channel.solo ? "Unsolo" : "Solo: only soloed channels play"}
         className={cn("h-4 min-w-4 px-0.5 text-[9px]", channel.solo && "bg-accent text-black")}
         onClick={() => update({ solo: !channel.solo }, channel.solo ? "Unsolo channel" : "Solo channel")} />

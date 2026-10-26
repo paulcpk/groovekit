@@ -55,7 +55,7 @@ function PlayMode() {
     <div className="flex h-6 items-center rounded-[4px] bg-bg p-0.5 text-2xs font-semibold tracking-wide" title="Play the selected pattern on a loop, or the song">
       {(["pattern", "song"] as const).map((m) => (
         <button key={m} type="button" onClick={() => void setPlayMode(m)}
-          className={cn("gk-press h-5 rounded-[3px] px-1.5", mode === m ? (m === "pattern" ? "gk-lit text-black" : "gk-key bg-hover text-fg") : "text-faint hover:text-fg")}>
+          className={cn("h-5 rounded-[3px] px-1.5", mode === m ? (m === "pattern" ? "bg-accent text-black" : "bg-hover text-fg") : "text-faint hover:text-fg")}>
           {m === "pattern" ? "PAT" : "SONG"}
         </button>
       ))}

@@ -223,7 +223,7 @@ function Composer({ value, onChange, onSend, onStop, running, disabled }: {
           <IconButton size="sm" title="Stop" onClick={onStop} className="bg-control text-fg"><Square size={10} fill="currentColor" /></IconButton>
         ) : (
           <IconButton size="sm" title="Send (Enter)" disabled={disabled || !value.trim()} onClick={onSend}
-            active={!!value.trim()} tone="agent">
+            className={cn(value.trim() && "bg-agent text-black hover:bg-agent")}>
             <ArrowUp size={12} />
           </IconButton>
         )}
