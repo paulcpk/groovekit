@@ -146,6 +146,22 @@ SampleLibrary::~SampleLibrary()
         scanThread.join();
 }
 
+fs::path SampleLibrary::getDefaultFolder()
+{
+    auto music = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    return fs::path (music.getFullPathName().toStdString()) / "Samples";
+}
+
+bool SampleLibrary::addDefaultFolderIfNone()
+{
+    if (! getFolders().empty())
+        return false;
+
+    fs::create_directories (getDefaultFolder());
+    addFolder (getDefaultFolder());
+    return true;
+}
+
 fs::path SampleLibrary::getDefaultIndexFile()
 {
     if (auto env = std::getenv ("GROOVEKIT_LIBRARY_INDEX"))
@@ -263,40 +279,64 @@ void SampleLibrary::scan (ProgressCallback callback)
 
     report (true);
 
-    for (auto& file : files)
+    // Analysis is independent per file: spread it over the cores, saving now and then so an
+    // interrupted first scan of a big library isn't lost.
+    std::atomic<size_t> next { 0 };
+    std::atomic<int> sinceSave { 0 };
+    constexpr int saveEvery = 2000;
+
+    auto work = [&]
     {
-        if (cancelScan)
-            break;
-
-        std::error_code ec;
-        const auto size = static_cast<int64_t> (fs::file_size (file, ec));
-        const auto modified = modifiedTime (file);
-
+        for (size_t i; ! cancelScan && (i = next++) < files.size();)
         {
-            std::lock_guard lock (mutex);
+            auto& file = files[i];
+            std::error_code ec;
+            const auto size = static_cast<int64_t> (fs::file_size (file, ec));
+            const auto modified = modifiedTime (file);
 
-            if (auto it = entries.find (key (file)); it != entries.end() && it->second.size == size && it->second.modified == modified)
             {
-                ++progress.unchanged;
-                continue;
+                std::lock_guard lock (mutex);
+
+                if (auto it = entries.find (key (file)); it != entries.end() && it->second.size == size && it->second.modified == modified)
+                {
+                    ++progress.unchanged;
+                    continue;
+                }
             }
-        }
 
-        try
-        {
-            auto entry = analyseFile (file);
-            std::lock_guard lock (mutex);
-            entries[entry.path] = std::move (entry);
-            ++progress.analysed;
-        }
-        catch (const std::exception&)
-        {
-            std::lock_guard lock (mutex);
-            ++progress.failed;
-        }
+            try
+            {
+                auto entry = analyseFile (file);
+                std::lock_guard lock (mutex);
+                entries[entry.path] = std::move (entry);
+                ++progress.analysed;
 
-        report (false);
-    }
+                if (++sinceSave >= saveEvery)
+                {
+                    sinceSave = 0;
+                    save();
+                }
+            }
+            catch (const std::exception&)
+            {
+                std::lock_guard lock (mutex);
+                ++progress.failed;
+            }
+
+            report (false);
+        }
+    };
+
+    const auto threads = std::max (1u, std::min (8u, std::thread::hardware_concurrency()));
+    std::vector<std::thread> workers;
+
+    for (unsigned t = 1; t < threads; ++t)
+        workers.emplace_back (work);
+
+    work();
+
+    for (auto& w : workers)
+        w.join();
 
     {
         std::lock_guard lock (mutex);

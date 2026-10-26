@@ -68,6 +68,7 @@ The UI and the agent are peers: both talk to the engine through the same command
 
 - FL-style explorer in the sidebar. The engine indexes library folders; the UI shows the tree; clicking sends a preview command.
 - The agent can use the same index to pick sounds.
+- Default library folder: `~/Music/Samples` (created if missing) until the user picks folders. The index lives in `~/Library/Application Support/GrooveKit/library.json`; scans run on several threads, only analyse new or changed files and run in the background whenever the engine starts.
 
 ## History and branches
 

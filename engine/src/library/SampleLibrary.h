@@ -32,7 +32,7 @@ struct SampleQuery
 
 /** An index of the user's sample folders with sound features, kept in a JSON file.
 
-    Scans run on a background thread and only analyse new or changed files.
+    Scans run on background threads and only analyse new or changed files.
     All public methods are thread-safe.
 */
 class SampleLibrary
@@ -42,6 +42,12 @@ public:
     ~SampleLibrary();
 
     static std::filesystem::path getDefaultIndexFile();
+
+    /** ~/Music/Samples, which GrooveKit uses until the user picks folders. */
+    static std::filesystem::path getDefaultFolder();
+
+    /** Adds (and creates) the default folder when no folders are set. Returns true if it did. */
+    bool addDefaultFolderIfNone();
 
     std::vector<std::filesystem::path> getFolders() const;
     void addFolder (const std::filesystem::path&);

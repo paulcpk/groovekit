@@ -27,7 +27,8 @@ Usage:
   groovekit-engine serve <project-folder> [--port <port>] [--library <index.json>] [--no-audio 1]
       Opens (or creates) the project and serves the JSON-RPC API on ws://127.0.0.1:<port>
       (default 7878) until interrupted. The sample library index defaults to
-      ~/Library/Application Support/GrooveKit/library.json.
+      ~/Library/Application Support/GrooveKit/library.json; with no folders set, ~/Music/Samples
+      is added. Library folders are rescanned in the background on start.
   groovekit-engine validate <song.json>
   groovekit-engine analyze <file.wav>
   groovekit-engine effects
@@ -109,6 +110,13 @@ Add --verbose to see engine log messages.
         auto session = gk::Session::open (std::filesystem::absolute (args.positional[1]));
         gk::PluginCatalog plugins (context.getEngine(), gk::PluginCatalog::getDefaultListFile());
         gk::library::SampleLibrary library (args.get ("--library").value_or (gk::library::SampleLibrary::getDefaultIndexFile().string()));
+
+        // With the user's own index, start with ~/Music/Samples until they pick folders.
+        if (! args.get ("--library"))
+            library.addDefaultFolderIfNone();
+
+        // Catch up on files added or changed since last time.
+        library.startScan();
         gk::LiveEngine live (context, *session);
 
         if (! args.get ("--no-audio"))
