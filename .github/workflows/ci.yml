@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   schema:
-    name: Schema and codegen
+    name: Schema, MCP and UI
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +24,8 @@ jobs:
       - name: Generated code is up to date
         run: pnpm codegen:check
       - run: pnpm test
+      - name: UI builds
+        run: pnpm --filter @groovekit/ui build
 
   engine:
     name: Engine (ASan + UBSan)
