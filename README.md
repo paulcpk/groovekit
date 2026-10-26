@@ -3,7 +3,7 @@
 An agent-first DAW: FL Studio's workflow, a clean minimal look, and AI agents as first-class producers.
 The human is the director; the agent does arrangement, mixing, automation and mastering.
 
-Status: early development (v0, headless engine). See [docs/architecture.md](docs/architecture.md) and [docs/roadmap.md](docs/roadmap.md).
+Status: early development. The headless engine, command API, MCP server, sample library, analysis, mastering, live playback/recording and plugin hosting work; the UI comes next (v1). See [docs/architecture.md](docs/architecture.md) and [docs/roadmap.md](docs/roadmap.md).
 
 ## Building (macOS)
 

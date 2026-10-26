@@ -21,11 +21,31 @@ namespace
 
         const bool outOfProcess;
     };
+
+    /** Tracktion's settings, in a chosen folder instead of ~/Library/GrooveKit. */
+    struct FolderPropertyStorage : tracktion::PropertyStorage
+    {
+        explicit FolderPropertyStorage (std::filesystem::path f) : PropertyStorage ("GrooveKit"), folder (std::move (f)) {}
+
+        juce::File getAppPrefsFolder() override     { return juce::File (folder.string()); }
+        juce::File getAppCacheFolder() override     { return juce::File ((folder / "cache").string()); }
+
+        const std::filesystem::path folder;
+    };
+
+    std::unique_ptr<tracktion::PropertyStorage> createStorage (const EngineContext::Options& o)
+    {
+        if (o.settingsFolder.empty())
+            return std::make_unique<tracktion::PropertyStorage> ("GrooveKit");
+
+        std::filesystem::create_directories (o.settingsFolder);
+        return std::make_unique<FolderPropertyStorage> (o.settingsFolder);
+    }
 }
 
 struct EngineContext::Impl
 {
-    explicit Impl (Options o) : engine ("GrooveKit", nullptr, std::make_unique<HeadlessBehaviour> (o.outOfProcessPluginScanning)) {}
+    explicit Impl (Options o) : engine (createStorage (o), nullptr, std::make_unique<HeadlessBehaviour> (o.outOfProcessPluginScanning)) {}
 
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     tracktion::Engine engine;

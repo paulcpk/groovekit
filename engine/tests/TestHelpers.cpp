@@ -37,7 +37,7 @@ void atShutdown (std::function<void()> action)
 EngineContext& getEngineContext()
 {
     if (context == nullptr)
-        context = std::make_unique<EngineContext>();
+        context = std::make_unique<EngineContext> (EngineContext::Options { .settingsFolder = tempDir() / "settings" });
 
     return *context;
 }

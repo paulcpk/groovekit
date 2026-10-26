@@ -33,6 +33,9 @@ LiveEngine::~LiveEngine()
 void LiveEngine::openDefaultAudioDevice()
 {
     context.getEngine().getDeviceManager().initialise();
+
+    if (hasAudioDevice())
+        transport().ensureContextAllocated();
 }
 
 //==============================================================================
@@ -77,7 +80,11 @@ void LiveEngine::rebuild()
     compiled = std::move (next);
 
     auto& tc = transport();
-    tc.ensureContextAllocated();
+
+    // A playback context needs a running device (Tracktion divides by its sample rate).
+    if (hasAudioDevice())
+        tc.ensureContextAllocated();
+
     tc.setPosition (position);
 
     if (loop)
@@ -104,8 +111,23 @@ void LiveEngine::handleAsyncUpdate()
 }
 
 //==============================================================================
+bool LiveEngine::hasAudioDevice() const
+{
+    auto& devices = context.getEngine().getDeviceManager();
+    return devices.isHostedAudioDeviceInterfaceInUse() || devices.deviceManager.getCurrentAudioDevice() != nullptr;
+}
+
+void LiveEngine::requireAudioDevice()
+{
+    if (! hasAudioDevice())
+        throw std::runtime_error ("No audio device is open");
+
+    transport().ensureContextAllocated();
+}
+
 void LiveEngine::play()
 {
+    requireAudioDevice();
     transport().play (false);
     notifyTransport (true);
 }
@@ -169,6 +191,7 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets)
         throw std::runtime_error ("Already recording");
 
     updateNow();
+    requireAudioDevice();
 
     auto& project = session.getProject();
     auto& edit = *compiled.edit;

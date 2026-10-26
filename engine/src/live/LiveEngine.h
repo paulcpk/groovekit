@@ -94,6 +94,8 @@ private:
     TransportState lastNotified;
 
     void rebuild();
+    bool hasAudioDevice() const;
+    void requireAudioDevice();
     tracktion::TransportControl& transport() const;
     tracktion::TimePosition toTime (model::Ticks) const;
     model::Ticks toTicks (tracktion::TimePosition) const;

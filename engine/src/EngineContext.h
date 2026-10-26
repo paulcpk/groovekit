@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <memory>
 
 namespace tracktion { inline namespace engine { class Engine; } }
@@ -16,6 +17,9 @@ public:
         /** Scan plugins in a child copy of this executable, which must then call
             runPluginScanChildIfRequested() first thing in main(). */
         bool outOfProcessPluginScanning = false;
+
+        /** Where Tracktion keeps its settings (devices, caches); empty for ~/Library/GrooveKit. */
+        std::filesystem::path settingsFolder;
     };
 
     EngineContext();

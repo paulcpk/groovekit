@@ -2,7 +2,9 @@
 
 Build order for the coding agent. Each milestone should be usable and tested before moving on. See [architecture.md](architecture.md) for decisions.
 
-## v0 — Headless engine
+Status (2026-10-26): v0 done; v0.5 done except the Digitakt-specific items marked open.
+
+## v0 — Headless engine (done)
 
 - C++ engine with JUCE + Tracktion, no UI.
 - GrooveKit JSON project model (JSON Schema): channels, patterns (notes), playlist, mixer with sends. Audio and automation clips are in the schema from the start.
@@ -15,14 +17,16 @@ Done when: a hand-written JSON song renders to a correct WAV.
 
 ## v0.5 — Agent and Digitakt loop
 
-- Command system with a persistent history log and undo.
-- WebSocket API with a shared schema and generated C++/TypeScript types.
-- MCP server exposing commands as tools; Claude Code drives a song end to end.
-- Analysis tools: LUFS, spectrum, masking, true peak.
-- Sample library index with analysis, so the agent can build a full song from the library without the Digitakt.
-- VST3/AU hosting, including the Digitakt Overbridge plugin. Keep the multichannel audio-device path open as well.
-- Audio recording of Digitakt tracks into clips.
-- Basic mastering chain.
+- [x] Command system with a persistent history log and undo.
+- [x] WebSocket API with a shared schema and generated C++/TypeScript types.
+- [x] MCP server exposing commands as tools. Open: a real session where Claude Code drives a song end to end.
+- [x] Analysis tools: LUFS, true peak, loudness range, spectrum, stereo, masking between stems.
+- [x] Sample library index with analysis, so the agent can build a full song from the library without the Digitakt.
+- [x] Time-stretching of audio clips to the project tempo.
+- [x] VST3/AU hosting with out-of-process scanning, plugin state and parameters; the Overbridge plugin loads.
+- [ ] Multi-output routing of instrument plugins (Overbridge per-track outputs into separate inserts).
+- [x] Live playback and audio recording into clips (generic inputs). Open: verify with the Digitakt over USB.
+- [x] Basic mastering chain (EQ, compressor, lookahead limiter, loudness targeting).
 
 Done when: record Digitakt grooves, ask Claude for an arrangement, and get a mastered bounce.
 

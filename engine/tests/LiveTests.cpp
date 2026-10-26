@@ -183,7 +183,7 @@ TEST_CASE ("Recording an input adds the take to the project")
     auto it = std::find_if (clips.begin(), clips.end(), [&] (auto& clip) { return model::getClipId (clip) == ids[0]; });
     REQUIRE (it != clips.end());
 
-    auto& take = std::get<model::AudioClip> (*it);
+    const auto take = std::get<model::AudioClip> (*it); // a copy: undo below rebuilds the project
     CHECK (take.track == "takes");
     INFO ("sample: " << take.sample);
     CHECK (take.sample.starts_with ("recordings/"));
