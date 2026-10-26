@@ -4,7 +4,7 @@ import { uniqueId } from "@/lib/model";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { redo, setPosition, stop, togglePlay, toggleLoop, undo } from "./actions";
-import { browseForProject } from "./ProjectDialog";
+import { browseForProject, saveProject } from "./ProjectDialog";
 
 let clipboard: Clip[] = [];
 let lastSpace = 0;
@@ -86,6 +86,10 @@ export function useShortcuts() {
       } else if (e.key === "F8" || (mod && e.key.toLowerCase() === "b")) {
         e.preventDefault();
         setUi({ sidebarOpen: !useUi.getState().sidebarOpen });
+      } else if (mod && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (e.shiftKey) setUi({ projectDialog: "saveAs" });
+        else saveProject();
       } else if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
         setUi({ projectDialog: "new" });

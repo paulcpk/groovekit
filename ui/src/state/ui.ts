@@ -28,7 +28,7 @@ export interface UiState {
   followPlayhead: boolean;
   settingsOpen: boolean;
   recordOpen: boolean;
-  projectDialog?: "new" | "open";
+  projectDialog?: "new" | "open" | "saveAs";
   /** The loop region in ticks, and whether the transport loops it. */
   loop?: { start: number; end: number };
   looping: boolean;

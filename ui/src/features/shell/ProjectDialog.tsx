@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/controls";
 import { Dialog } from "@/components/dialog";
 import { inDesktopApp } from "@/engine/client";
-import { call, engine, useEngine } from "@/state/engine";
+import { call, engine, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
 export interface RecentProject {
@@ -21,6 +21,12 @@ export function recentProjects() {
 /** Opens a project folder; the engine switches every client over to it. */
 export function openProject(path: string) {
   return call("project.open", { path }).then(() => setUi({ projectDialog: undefined }));
+}
+
+/** Every change is written to the project folder as it's made; Save says so. */
+export function saveProject() {
+  const project = useEngine.getState().project;
+  toast(project ? `Saved · ${project.replace(/^\/Users\/[^/]+/, "~")}` : "Saved");
 }
 
 /** A folder picked with the system's dialog (desktop app only). */
@@ -59,15 +65,18 @@ export function ProjectDialog() {
   const close = () => setUi({ projectDialog: undefined });
 
   return (
-    <Dialog open={mode !== undefined} onOpenChange={(o) => !o && close()} title={mode === "new" ? "New project" : "Open project"} className="w-[480px]">
-      {mode === "new" ? <NewProject /> : mode === "open" ? <OpenProject /> : null}
+    <Dialog open={mode !== undefined} onOpenChange={(o) => !o && close()} title={{ new: "New project", open: "Open project", saveAs: "Save project as" }[mode ?? "new"]}
+      className="w-[480px]">
+      {mode === "new" ? <NewProject /> : mode === "saveAs" ? <NewProject saveAs /> : mode === "open" ? <OpenProject /> : null}
     </Dialog>
   );
 }
 
-function NewProject() {
+/** Creates a project, or with saveAs, copies this one (recordings and all) and opens the copy. */
+function NewProject({ saveAs = false }: { saveAs?: boolean }) {
   const project = useEngine((s) => s.project);
-  const [name, setName] = useState("Untitled");
+  const songName = useEngine((s) => s.doc?.name);
+  const [name, setName] = useState(saveAs ? `${songName || project?.split("/").pop() || "Untitled"} copy` : "Untitled");
   const [location, setLocation] = useState(project ? parentOf(project) : "");
   const [busy, setBusy] = useState(false);
 
@@ -75,7 +84,7 @@ function NewProject() {
     const folder = name.trim();
     if (!folder || !location.trim()) return;
     setBusy(true);
-    call("project.new", { path: `${location.trim().replace(/\/$/, "")}/${folder}` })
+    call(saveAs ? "project.saveAs" : "project.new", { path: `${location.trim().replace(/\/$/, "")}/${folder}` })
       .then(() => setUi({ projectDialog: undefined }), () => {})
       .finally(() => setBusy(false));
   };
@@ -96,10 +105,13 @@ function NewProject() {
           </Button>
         )}
       </label>
-      <div className="text-2xs text-faint">A folder named after the project is created there. It holds the song, its history and recordings.</div>
+      <div className="text-2xs text-faint">
+        {saveAs ? "The project folder, with its recordings and history, is copied to a new folder of this name, and the copy is opened."
+          : "A folder named after the project is created there. It holds the song, its history and recordings."}
+      </div>
       <div className="flex justify-end gap-2">
         <Button size="sm" onClick={() => setUi({ projectDialog: undefined })}>Cancel</Button>
-        <Button size="sm" type="submit" active tone="accent" disabled={busy || !name.trim()}>Create</Button>
+        <Button size="sm" type="submit" active tone="accent" disabled={busy || !name.trim()}>{saveAs ? "Save" : "Create"}</Button>
       </div>
     </form>
   );

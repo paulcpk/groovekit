@@ -8,7 +8,7 @@ import { inDesktopApp } from "@/engine/client";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi, type BottomPanel } from "@/state/ui";
 import { masterSong, redo, renderSong, setPlayMode, setTempo, stop, toggleLoop, togglePlay, undo } from "./actions";
-import { browseForProject, openProject, recentProjects, type RecentProject } from "./ProjectDialog";
+import { browseForProject, openProject, recentProjects, saveProject, type RecentProject } from "./ProjectDialog";
 import { ProjectName } from "./ProjectName";
 
 export const snaps: { label: string; ticks: number }[] = [
@@ -141,6 +141,9 @@ function ProjectMenu() {
       <DropdownContent>
         <DropdownItem onSelect={() => setUi({ projectDialog: "new" })}>New project… <span className="ml-auto text-2xs text-faint">⌘N</span></DropdownItem>
         <DropdownItem onSelect={() => void browseForProject()}>Open project… <span className="ml-auto text-2xs text-faint">⌘O</span></DropdownItem>
+        <DropdownSeparator />
+        <DropdownItem onSelect={saveProject}>Save <span className="ml-auto text-2xs text-faint">⌘S</span></DropdownItem>
+        <DropdownItem onSelect={() => setUi({ projectDialog: "saveAs" })}>Save as… <span className="ml-auto text-2xs text-faint">⇧⌘S</span></DropdownItem>
         {recent.some((p) => p.path !== current) && (
           <>
             <DropdownSeparator />

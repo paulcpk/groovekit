@@ -59,6 +59,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `project.recent` | | `{ projects: [{ path, name, modified }], current }`: project folders opened lately, most recent first (`modified` in ms since 1970) |
 | `project.open` | `path` | `{ project }`; switches the engine (and every client) to that project folder, which must hold a song.json. Refused if another engine serves it |
 | `project.new` | `path` | `{ project }`; creates a project in a new or empty folder and switches to it |
+| `project.saveAs` | `path` | `{ project }`; copies the project folder (song, history, recordings, plugin states) to a new or empty folder and switches to the copy. Every change is already written to song.json as it's made, so there's no separate save |
 | `library.status` | | `{ folders, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |
 | `library.scan` | | progress; `libraryProgress` notifications follow |

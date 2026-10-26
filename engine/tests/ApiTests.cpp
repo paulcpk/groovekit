@@ -289,3 +289,33 @@ TEST_CASE ("The API opens and creates projects through its host")
     REQUIRE (recent.size() == 1);
     CHECK (recent[0]["name"] == "existing");
 }
+
+TEST_CASE ("Save as copies the project folder and opens the copy")
+{
+    const auto root = test::tempDir() / "api-save-as";
+    std::filesystem::remove_all (root);
+    auto session = Session::open (root / "original");
+    std::filesystem::create_directories (root / "original" / "recordings");
+    std::ofstream (root / "original" / "recordings" / "take.wav") << "x";
+
+    ApiHandler handler (*session, test::getEngineContext());
+    std::vector<std::filesystem::path> opened;
+    handler.onOpenProject = [&] (const std::filesystem::path& dir) { opened.push_back (dir); };
+
+    ApiHandler::Client client;
+    Json response;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+    auto call = [&] (const std::string& method, Json params)
+    {
+        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        return response;
+    };
+
+    CHECK (call ("project.saveAs", { { "path", (root / "copy").string() } })["result"]["project"] == (root / "copy").string());
+    CHECK (std::filesystem::is_regular_file (root / "copy" / "song.json"));
+    CHECK (std::filesystem::is_regular_file (root / "copy" / "recordings" / "take.wav"));
+    REQUIRE (opened.size() == 1);
+    CHECK (opened[0] == root / "copy");
+
+    CHECK_THAT (call ("project.saveAs", { { "path", (root / "copy").string() } })["error"]["message"].get<std::string>(), ContainsSubstring ("choose a new folder"));
+}

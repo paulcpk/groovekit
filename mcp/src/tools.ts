@@ -227,10 +227,11 @@ export function registerTools(server: McpServer, engine: EngineClient, groups = 
 - current: its folder and the recently opened ones.
 - open: opens another project folder.
 - new: creates a project in a new, empty folder and opens it.
-Opening or creating one switches the user's window too, so only do it when the user asks.`,
+- saveAs: copies this project to a new, empty folder and opens the copy. (Every change is saved as it's made; there's no separate save.)
+Opening, creating or saving as switches the user's window too, so only do it when the user asks.`,
       inputSchema: {
-        action: z.enum(["current", "open", "new"]),
-        path: z.string().optional().describe("For open and new: the project folder (absolute)"),
+        action: z.enum(["current", "open", "new", "saveAs"]),
+        path: z.string().optional().describe("For open, new and saveAs: the project folder (absolute)"),
       },
     },
     ({ action, path }) =>

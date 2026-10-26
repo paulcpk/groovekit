@@ -781,7 +781,7 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
         return result;
     }
 
-    if (method != "project.open" && method != "project.new")
+    if (method != "project.open" && method != "project.new" && method != "project.saveAs")
         throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 
     if (! onOpenProject)
@@ -798,7 +798,8 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
     else
     {
         if (recent::isProject (dir))
-            throw RpcError (invalidParams, dir.string() + " is already a project; open it instead");
+            throw RpcError (invalidParams, dir.string() + (method == "project.new" ? " is already a project; open it instead"
+                                                                                   : " is already a project; choose a new folder"));
 
         if (std::filesystem::exists (dir, ec) && ! std::filesystem::is_empty (dir, ec))
             throw RpcError (invalidParams, dir.string() + " isn't empty; choose a new folder for the project");
@@ -806,6 +807,21 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
         // A file system that's out of reach shows up here rather than after the switch.
         if (! std::filesystem::create_directories (dir, ec) && ec)
             throw RpcError (operationFailed, "Can't create " + dir.string() + ": " + ec.message());
+
+        // Save as: the whole folder (song, history, recordings, plugin states) goes along, so
+        // paths relative to the project still work; then the copy is opened.
+        if (method == "project.saveAs")
+        {
+            const auto current = session.getProjectDir();
+
+            if (! current)
+                throw RpcError (operationFailed, "this session has no project folder to copy");
+
+            std::filesystem::copy (*current, dir, std::filesystem::copy_options::recursive | std::filesystem::copy_options::skip_existing, ec);
+
+            if (ec)
+                throw RpcError (operationFailed, "Can't copy the project to " + dir.string() + ": " + ec.message());
+        }
     }
 
     if (auto current = session.getProjectDir(); current && std::filesystem::weakly_canonical (*current) == std::filesystem::weakly_canonical (dir))
