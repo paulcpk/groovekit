@@ -521,9 +521,10 @@ void LiveEngine::loadSettings()
 
     try
     {
-        auto j = Json::parse (in);
+        const auto j = Json::parse (in);
+        const auto devices = j.value ("alignmentMs", Json::object()); // a copy: items() mustn't outlive it
 
-        for (auto& [device, ms] : j.value ("alignmentMs", Json::object()).items())
+        for (auto& [device, ms] : devices.items())
             alignmentMs[device] = ms.get<double>();
     }
     catch (const std::exception&)

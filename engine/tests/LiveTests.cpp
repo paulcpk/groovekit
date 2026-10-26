@@ -205,3 +205,20 @@ TEST_CASE ("Recording an input adds the take to the project")
     CHECK (session->getProject().playlist.clips.size() == 1);
     CHECK (std::filesystem::exists (*session->getProjectDir() / take.sample));
 }
+
+TEST_CASE ("Recording alignment is stored per input device")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-alignment");
+    const auto file = test::tempDir() / "alignment.json";
+    std::filesystem::remove (file);
+
+    {
+        LiveEngine live (test::getEngineContext(), *session, file);
+        CHECK (live.getAlignmentMs() == 0);
+        live.setAlignmentMs (37.5);
+    }
+
+    LiveEngine live (test::getEngineContext(), *session, file);
+    CHECK (live.getAlignmentMs() == 37.5);
+}
