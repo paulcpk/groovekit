@@ -6,7 +6,7 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
-namespace gk::mixer { class FaderPlugin; }
+namespace gk::mixer { class FaderPlugin; class EffectMixBlend; }
 namespace gk::sampler { class AudioChannelPlugin; }
 
 namespace gk
@@ -15,7 +15,8 @@ namespace gk
 /** A Tracktion Edit built from a project, with the mapping back to model ids.
 
     Mapping:
-    - each mixer insert becomes an audio track holding its effects, sends and fader;
+    - each mixer insert becomes an audio track holding its effects (each between a tap and a
+      blend that mix the dry signal back in), sends and fader;
       non-master inserts output into their target insert's track, master goes to the device
     - each channel becomes a hidden track with its instrument and fader, feeding its insert
     - each pattern clip becomes one MIDI clip per channel that has notes in the pattern,
@@ -56,6 +57,9 @@ struct CompiledEdit
 
     /** Instruments as "channel:<id>" and effects as "effect:<insert>/<effect>". */
     std::map<std::string, tracktion::Plugin*> plugins;
+
+    /** The mix stage after each effect, as "<insert>/<effect>". */
+    std::map<std::string, mixer::EffectMixBlend*> effectMixes;
 
     /** Sends as "<insert>/<send>". */
     std::map<std::string, tracktion::AuxSendPlugin*> sends;

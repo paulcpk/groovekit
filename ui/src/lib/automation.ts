@@ -29,6 +29,8 @@ export function targetRange(target: AutomationTarget, doc: Project | undefined, 
   if (target.scope === "channel" || target.scope === "insert") return { min: -60, max: 12, unit: "dB", default: 0 };
   if (target.scope === "send") return { min: -60, max: 12, unit: "dB", default: 0 };
 
+  if (target.param === "mix") return { min: 0, max: 1, unit: "", default: 1 };
+
   const insert = doc?.mixer.inserts.find((i) => i.id === target.insert);
   const effect = insert?.effects?.find((e) => e.id === target.effect);
   if (effect?.type === "builtin") {
@@ -39,7 +41,7 @@ export function targetRange(target: AutomationTarget, doc: Project | undefined, 
 }
 
 export function targetLabel(target: AutomationTarget, doc: Project | undefined) {
-  const param = target.param === "volume" ? "Volume" : target.param === "pan" ? "Pan" : target.param === "level" ? "Level" : target.param;
+  const param = target.param === "volume" ? "Volume" : target.param === "pan" ? "Pan" : target.param === "level" ? "Level" : target.param === "mix" ? "Mix" : target.param;
 
   if (target.scope === "channel") {
     const ch = doc?.channels.find((c) => c.id === target.channel);

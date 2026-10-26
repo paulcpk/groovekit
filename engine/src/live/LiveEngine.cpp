@@ -4,6 +4,7 @@
 #include "live/AudioDevices.h"
 #include "compiler/EditGraveyard.h"
 #include "live/MidiClockPlugin.h"
+#include "mixer/EffectMix.h"
 #include "mixer/FaderPlugin.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
@@ -495,6 +496,18 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             const auto it = compiled.sends.find (insert.id + "/" + insert.sends[*j].id);
             if (it == compiled.sends.end()) return false;
             actions.push_back ([aux = it->second, v = insert.sends[*j].levelDb] { aux->setGainDb (static_cast<float> (v)); });
+            continue;
+        }
+
+        // /mixer/inserts/<i>/effects/<j>/mix
+        if (keys.size() == 6 && keys[3] == "effects" && keys[5] == "mix")
+        {
+            const auto j = index (keys[4]);
+            if (! j || *j >= insert.effects.size()) return false;
+            const auto& effect = insert.effects[*j];
+            const auto it = compiled.effectMixes.find (insert.id + "/" + getEffectId (effect));
+            if (it == compiled.effectMixes.end()) return false;
+            actions.push_back ([blend = it->second, v = std::visit ([] (auto& e) { return e.mix; }, effect)] { blend->setMix (static_cast<float> (v)); });
             continue;
         }
 

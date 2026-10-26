@@ -253,6 +253,8 @@ export interface BuiltinEffect {
   id: Id;
   kind: BuiltinEffectKind;
   bypass?: boolean;
+  /** How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter "mix". */
+  mix?: number;
   /** Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults. */
   params?: Record<string, number>;
 }
@@ -262,6 +264,8 @@ export interface PluginEffect {
   id: Id;
   plugin: PluginRef;
   bypass?: boolean;
+  /** How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter "mix". */
+  mix?: number;
 }
 
 export type Effect = BuiltinEffect | PluginEffect;

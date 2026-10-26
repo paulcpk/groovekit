@@ -1,0 +1,11 @@
+{
+  "durationSeconds": 2.0,
+  "peakDb": -6.02,
+  "rmsDb": -16.02,
+  "onsets": [0, 0.5, 1.0, 1.5],
+  "segments": [
+    { "start": 0, "end": 0.1, "peakDb": -6.02, "rmsDb": -9.03 },
+    { "start": 0.1, "end": 0.5, "silent": true },
+    { "start": 0, "end": 2, "channel": 1, "peakDb": -6.02 }
+  ]
+}

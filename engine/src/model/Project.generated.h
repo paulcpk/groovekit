@@ -1031,6 +1031,8 @@ struct BuiltinEffect
     Id id;
     BuiltinEffectKind kind;
     bool bypass = false;
+    /** How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter "mix". */
+    double mix = 1;
     /** Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults. */
     std::map<std::string, double> params;
 
@@ -1039,12 +1041,13 @@ struct BuiltinEffect
 
 inline void readValue (Reader& r, const Json& j, BuiltinEffect& out)
 {
-    r.expectObject (j, { "type", "id", "kind", "bypass", "params" });
+    r.expectObject (j, { "type", "id", "kind", "bypass", "mix", "params" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "builtin"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "kind", [&] (const Json& v) { readValue (r, v, out.kind); });
     r.optional (j, "bypass", [&] (const Json& v) { readValue (r, v, out.bypass); });
+    r.optional (j, "mix", [&] (const Json& v) { readValue (r, v, out.mix); r.checkMin (out.mix, 0); r.checkMax (out.mix, 1); });
     r.optional (j, "params", [&] (const Json& v) { readValue (r, v, out.params); });
 }
 
@@ -1055,6 +1058,7 @@ inline Json toJson (const BuiltinEffect& v)
     j["id"] = toJson (v.id);
     j["kind"] = toJson (v.kind);
     j["bypass"] = toJson (v.bypass);
+    j["mix"] = toJson (v.mix);
     j["params"] = toJson (v.params);
     return j;
 }
@@ -1064,18 +1068,21 @@ struct PluginEffect
     Id id;
     PluginRef plugin;
     bool bypass = false;
+    /** How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter "mix". */
+    double mix = 1;
 
     bool operator== (const PluginEffect&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, PluginEffect& out)
 {
-    r.expectObject (j, { "type", "id", "plugin", "bypass" });
+    r.expectObject (j, { "type", "id", "plugin", "bypass", "mix" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "plugin"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "plugin", [&] (const Json& v) { readValue (r, v, out.plugin); });
     r.optional (j, "bypass", [&] (const Json& v) { readValue (r, v, out.bypass); });
+    r.optional (j, "mix", [&] (const Json& v) { readValue (r, v, out.mix); r.checkMin (out.mix, 0); r.checkMax (out.mix, 1); });
 }
 
 inline Json toJson (const PluginEffect& v)
@@ -1085,6 +1092,7 @@ inline Json toJson (const PluginEffect& v)
     j["id"] = toJson (v.id);
     j["plugin"] = toJson (v.plugin);
     j["bypass"] = toJson (v.bypass);
+    j["mix"] = toJson (v.mix);
     return j;
 }
 

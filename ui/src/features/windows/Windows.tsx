@@ -1,3 +1,4 @@
+import { EffectWindow } from "@/features/mixer/EffectWindow";
 import { AudioWindow } from "@/features/sampler/AudioWindow";
 import { SamplerWindow } from "@/features/sampler/SamplerWindow";
 import { useEngine } from "@/state/engine";
@@ -17,7 +18,9 @@ export function Windows() {
       if (channel?.instrument.type === "audio") return <AudioWindow key={w.key} window={w} channel={channel} audio={channel.instrument} />;
       return null;
     }
-    return null;
+    const insert = doc?.mixer.inserts.find((i) => i.id === spec.insert);
+    const effect = insert?.effects?.find((e) => e.id === spec.effect);
+    return insert && effect?.type === "builtin" ? <EffectWindow key={w.key} window={w} insert={insert} effect={effect} /> : null;
   });
 
   useEffect(() => {

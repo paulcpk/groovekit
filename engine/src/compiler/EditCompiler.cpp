@@ -2,6 +2,7 @@
 #include "EditGraveyard.h"
 
 #include "effects/BuiltinEffects.h"
+#include "mixer/EffectMix.h"
 #include "mixer/FaderPlugin.h"
 #include "render/Stretch.h"
 #include "sampler/AudioChannelPlugin.h"
@@ -186,22 +187,30 @@ namespace
 
                 for (auto& effect : insert.effects)
                 {
+                    auto& tap = addPlugin<mixer::EffectMixTap> (track);
+                    te::Plugin::Ptr plugin;
+                    const auto id = getEffectId (effect);
+
                     if (auto builtin = std::get_if<BuiltinEffect> (&effect))
                     {
-                        auto plugin = effects::createEffect (*edit, *builtin);
+                        plugin = effects::createEffect (*edit, *builtin);
                         track.pluginList.insertPlugin (plugin, -1, nullptr);
-                        effectPlugins[insert.id][builtin->id] = { plugin.get(), builtin->kind };
-                        result.plugins["effect:" + insert.id + "/" + builtin->id] = plugin.get();
+                        effectPlugins[insert.id][id] = { plugin.get(), builtin->kind };
                     }
                     else
                     {
                         auto& pe = std::get<PluginEffect> (effect);
-                        auto plugin = createHostedPlugin (pe.plugin, "Insert \"" + insert.id + "\"");
+                        plugin = createHostedPlugin (pe.plugin, "Insert \"" + insert.id + "\"");
                         track.pluginList.insertPlugin (plugin, -1, nullptr);
                         plugin->setEnabled (! pe.bypass);
-                        effectPlugins[insert.id][pe.id] = { plugin.get(), {} };
-                        result.plugins["effect:" + insert.id + "/" + pe.id] = plugin.get();
+                        effectPlugins[insert.id][id] = { plugin.get(), {} };
                     }
+
+                    auto& blend = addPlugin<mixer::EffectMixBlend> (track);
+                    blend.setup (tap, *plugin);
+                    blend.setMix (static_cast<float> (std::visit ([] (auto& e) { return e.mix; }, effect)));
+                    result.plugins["effect:" + insert.id + "/" + id] = plugin.get();
+                    result.effectMixes[insert.id + "/" + id] = &blend;
                 }
 
                 auto addSends = [&] (bool preFader)
@@ -455,6 +464,10 @@ namespace
 
                 case AutomationTargetScope::effect:
                 {
+                    if (target.param == "mix")
+                        return { { result.effectMixes.at (*target.insert + "/" + *target.effect)->mixParam },
+                                 [] (double v) { return static_cast<float> (v); }, 0, 1 };
+
                     auto [plugin, kind] = effectPlugins.at (*target.insert).at (*target.effect);
 
                     if (! kind)
@@ -671,6 +684,7 @@ CompiledEdit& CompiledEdit::operator= (CompiledEdit&& other)
         clips = std::move (other.clips);
         plugins = std::move (other.plugins);
         sends = std::move (other.sends);
+        effectMixes = std::move (other.effectMixes);
         outputLatencySeconds = other.outputLatencySeconds;
     }
 

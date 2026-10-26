@@ -14,6 +14,8 @@ export interface EffectParam {
 export interface EffectInfo {
   description: string;
   params: Record<string, EffectParam>;
+  /** The mix a new one starts at (reverbs and delays are usually mixed in, not 100% wet). */
+  defaultMix?: number;
 }
 
 export type Catalogue = Record<string, EffectInfo>;

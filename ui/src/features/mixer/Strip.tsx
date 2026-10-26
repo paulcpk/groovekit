@@ -1,24 +1,23 @@
 import type { Effect, Insert, Project } from "@groovekit/schema/project";
-import { ChevronDown, Plus, Power, X } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-import { IconButton, Knob, ToggleChip } from "@/components/controls";
+import { Knob, ToggleChip } from "@/components/controls";
 import { Fader, Meter } from "@/components/fader";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownSub, DropdownTrigger } from "@/components/menu";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownTrigger } from "@/components/menu";
 import { createAutomation } from "@/features/playlist/automation";
-import { PluginList } from "@/features/rack/PluginPicker";
 import { effectNames } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
-import { colorFor, formatDb, formatPan, insertName, palette, uniqueId } from "@/lib/model";
+import { colorFor, formatDb, formatPan, insertName, palette } from "@/lib/model";
 import { useLiveControl } from "@/lib/liveControl";
 import { useHeight } from "@/lib/useHeight";
-import { call, execute, useEngine } from "@/state/engine";
+import { execute, useEngine } from "@/state/engine";
 
 export function effectName(effect: Effect) {
   return effect.type === "builtin" ? effectNames[effect.kind] ?? effect.kind : effect.plugin.name;
 }
 
-export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
-  doc: Project; insert: Insert; index: number; openEffect?: string; onOpenEffect: (id: string | null) => void;
+export function Strip({ doc, insert, index, selected, onSelect }: {
+  doc: Project; insert: Insert; index: number; selected: boolean; onSelect: () => void;
 }) {
   const levels = useEngine((s) => s.levels.inserts[insert.id]) ?? [0, 0];
   const touched = useEngine((s) => s.touchedAt[insert.id]);
@@ -34,49 +33,24 @@ export function Strip({ doc, insert, index, openEffect, onOpenEffect }: {
   const faderH = Math.max(20, faderAreaHeight - 4);
 
   return (
-    <div className={cn("relative flex h-full w-[92px] shrink-0 flex-col bg-panel", insert.mute && "opacity-70")}>
+    <div className={cn("relative flex h-full w-[92px] shrink-0 flex-col bg-panel", selected && "bg-raised", insert.mute && "opacity-70")}
+      onPointerDownCapture={onSelect}>
+      {selected && <span className="pointer-events-none absolute inset-0 z-10 ring-1 ring-accent/70 ring-inset" />}
       <StripName insert={insert} index={index} color={color} />
 
-      <div className="h-[34%] shrink-0 overflow-y-auto">
-      <div className="flex flex-col gap-px px-1.5 pt-1.5">
-        {(insert.effects ?? []).map((effect, i) => (
-          <ContextMenu key={effect.id}>
-            <ContextMenuTrigger asChild>
-              <div
-                className={cn(
-                  "flex h-[20px] cursor-pointer items-center gap-1 rounded-[3px] px-1 text-2xs",
-                  openEffect === effect.id ? "bg-accent/25 text-fg" : "bg-control text-dim hover:text-fg",
-                )}
-                onClick={() => onOpenEffect(openEffect === effect.id ? null : effect.id)}
-                onDoubleClick={() => effect.type === "plugin" && void call("plugins.openEditor", { insert: insert.id, effect: effect.id })}
-                title={effect.type === "plugin" ? "Double-click to open the plugin's window" : undefined}
-              >
-                <button
-                  type="button" title={effect.bypass ? "Turn on" : "Bypass"}
-                  className={effect.bypass ? "text-faint" : "text-accent"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void execute({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { bypass: !effect.bypass } }, { label: effect.bypass ? "Turn effect on" : "Bypass effect" });
-                  }}
-                ><Power size={9} /></button>
-                <span className={cn("truncate", effect.bypass && "line-through")}>{effectName(effect)}</span>
-              </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem onSelect={() => onOpenEffect(effect.id)}>Edit</ContextMenuItem>
-              <ContextMenuItem disabled={i === 0} onSelect={() => void execute({ type: "moveEffect", insert: insert.id, effect: effect.id, index: i - 1 }, { label: "Move effect" })}>Move up</ContextMenuItem>
-              <ContextMenuItem disabled={i === (insert.effects?.length ?? 0) - 1} onSelect={() => void execute({ type: "moveEffect", insert: insert.id, effect: effect.id, index: i + 1 }, { label: "Move effect" })}>Move down</ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem danger onSelect={() => void execute({ type: "removeEffect", insert: insert.id, effect: effect.id }, { label: `Remove ${effectName(effect)}` })}>Remove</ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
+      {/* What's in the insert, at a glance; the chain is edited in the panel beside the strips. */}
+      <div className="flex h-[96px] shrink-0 flex-col gap-px overflow-hidden px-1.5 pt-1.5 pb-1">
+        {(insert.effects ?? []).slice(0, 4).map((effect) => (
+          <div key={effect.id} className="flex h-[15px] items-center gap-1 text-[9px] leading-none">
+            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", effect.bypass ? "bg-faint/50" : "bg-accent")} />
+            <span className={cn("truncate", effect.bypass ? "text-faint line-through" : "text-dim")}>{effectName(effect)}</span>
+          </div>
         ))}
-        <AddEffect insert={insert} onAdded={onOpenEffect} />
+        {(insert.effects?.length ?? 0) > 4 && <div className="text-[9px] text-faint">+{insert.effects!.length - 4} more</div>}
+        {(insert.sends?.length ?? 0) > 0 && (
+          <div className="truncate text-[9px] text-[#58b7d6]">→ {insert.sends!.length} send{insert.sends!.length === 1 ? "" : "s"}</div>
+        )}
       </div>
-
-      <Sends doc={doc} insert={insert} />
-      </div>
-
       {master ? <div className="h-[20px] shrink-0" /> : <OutputPicker doc={doc} insert={insert} />}
 
       <div className="flex shrink-0 justify-center py-1.5">
@@ -184,87 +158,6 @@ function StripName({ insert, index, color }: { insert: Insert; index: number; co
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  );
-}
-
-function AddEffect({ insert, onAdded }: { insert: Insert; onAdded: (id: string) => void }) {
-  const add = (effect: Effect, name: string) =>
-    void execute({ type: "addEffect", insert: insert.id, effect }, { label: `Add ${name}` }).then(() => onAdded(effect.id));
-  const id = (base: string) => uniqueId(base, insert.effects ?? []);
-
-  return (
-    <Dropdown>
-      <DropdownTrigger asChild>
-        <button type="button" className="flex h-[20px] items-center gap-1 rounded-[3px] border border-dashed border-line px-1 text-2xs text-faint hover:border-faint hover:text-dim">
-          <Plus size={9} /> Effect
-        </button>
-      </DropdownTrigger>
-      <DropdownContent>
-        <DropdownLabel>Built in</DropdownLabel>
-        {Object.entries(effectNames).map(([kind, name]) => (
-          <DropdownItem key={kind} onSelect={() => add({ type: "builtin", id: id(kind), kind: kind as never }, name)}>{name}</DropdownItem>
-        ))}
-        <DropdownSeparator />
-        <DropdownSub label="Plugins">
-          <PluginList instrument={false} onPick={(p) => add({ type: "plugin", id: id(p.name), plugin: { format: p.format, uid: p.uid, name: p.name, manufacturer: p.manufacturer } }, p.name)} />
-        </DropdownSub>
-      </DropdownContent>
-    </Dropdown>
-  );
-}
-
-function Sends({ doc, insert }: { doc: Project; insert: Insert }) {
-  const targets = doc.mixer.inserts.filter((i) => i.id !== insert.id && !(insert.sends ?? []).some((s) => s.target === i.id));
-
-  return (
-    <div className="mt-1.5 flex flex-col gap-1 border-t border-line px-1.5 pt-1.5">
-      {(insert.sends ?? []).map((send) => {
-        const index = doc.mixer.inserts.findIndex((i) => i.id === send.target);
-        return (
-          <ContextMenu key={send.id}>
-            <ContextMenuTrigger asChild>
-              <div className="flex items-center gap-1">
-                <SendKnob insertId={insert.id} sendId={send.id} levelDb={send.levelDb ?? 0} title={`Send to ${insertName(doc.mixer.inserts[index], index)}`} />
-                <span className="flex-1 truncate text-2xs text-dim">→ {insertName(doc.mixer.inserts[index], index)}</span>
-                <IconButton size="sm" className="h-4 w-4" title="Remove send"
-                  onClick={() => void execute({ type: "removeSend", insert: insert.id, send: send.id }, { label: "Remove send" })}><X size={9} /></IconButton>
-              </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem onSelect={() => void execute({ type: "updateSend", insert: insert.id, send: send.id, changes: { preFader: !send.preFader } }, { label: "Send position" })}>
-                {send.preFader ? "Post-fader" : "Pre-fader"}
-              </ContextMenuItem>
-              <ContextMenuItem onSelect={() => void createAutomation(doc, { scope: "send", insert: insert.id, send: send.id, param: "level" }, send.levelDb ?? 0)}>Create automation clip</ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-        );
-      })}
-      {targets.length > 0 && (
-        <Dropdown>
-          <DropdownTrigger asChild>
-            <button type="button" className="flex h-[18px] items-center gap-1 text-2xs text-faint hover:text-dim"><Plus size={9} /> Send</button>
-          </DropdownTrigger>
-          <DropdownContent>
-            {targets.map((t) => {
-              const i = doc.mixer.inserts.indexOf(t);
-              return (
-                <DropdownItem key={t.id} onSelect={() => void execute({ type: "addSend", insert: insert.id, send: { id: uniqueId(`to-${t.id}`, insert.sends ?? []), target: t.id, levelDb: -12 } }, { label: `Send to ${insertName(t, i)}` })}>
-                  {insertName(t, i)}
-                </DropdownItem>
-              );
-            })}
-          </DropdownContent>
-        </Dropdown>
-      )}
-    </div>
-  );
-}
-
-function SendKnob({ insertId, sendId, levelDb, title }: { insertId: string; sendId: string; levelDb: number; title: string }) {
-  const level = useLiveControl((v) => ({ type: "updateSend", insert: insertId, send: sendId, changes: { levelDb: Math.round(v * 10) / 10 } }), "Send level");
-  return (
-    <Knob size={18} value={levelDb} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`} title={title}
-      color="#58b7d6" onChange={level.onChange} onCommit={level.onCommit} />
   );
 }
 

@@ -385,6 +385,7 @@
         "id": { "$ref": "#/$defs/Id" },
         "kind": { "type": "string", "enum": ["eq", "compressor", "limiter", "reverb", "delay", "phaser", "chorus", "lowpass", "highpass"] },
         "bypass": { "type": "boolean", "default": false },
+        "mix": { "description": "How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter \"mix\".", "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
         "params": {
           "description": "Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults.",
           "type": "object",
@@ -402,7 +403,8 @@
         "type": { "const": "plugin" },
         "id": { "$ref": "#/$defs/Id" },
         "plugin": { "$ref": "#/$defs/PluginRef" },
-        "bypass": { "type": "boolean", "default": false }
+        "bypass": { "type": "boolean", "default": false },
+        "mix": { "description": "How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter \"mix\".", "type": "number", "minimum": 0, "maximum": 1, "default": 1 }
       }
     }
   }
