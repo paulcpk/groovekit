@@ -59,6 +59,8 @@ jobs:
 
       - name: Test
         run: ctest --preset asan
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       - name: Upload renders on failure
         if: failure()
