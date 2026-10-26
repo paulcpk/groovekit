@@ -12,9 +12,28 @@ Website: https://groovekit.org
 
 The latest macOS app (Apple silicon): [GrooveKit-macOS.zip](https://github.com/paulcpk/groovekit/releases/latest/download/GrooveKit-macOS.zip). Every version is on the [releases page](https://github.com/paulcpk/groovekit/releases).
 
-Unzip it and move GrooveKit to Applications. The app isn't notarized yet, so macOS asks before opening it the first time: open it once, then choose Open Anyway in System Settings → Privacy & Security.
+Unzip it and move GrooveKit to Applications. Until releases are notarized, macOS says it "could not verify" GrooveKit the first time: click Done, then in System Settings → Privacy & Security click Open Anyway next to "GrooveKit was blocked" and confirm. (Or run `xattr -dr com.apple.quarantine /Applications/GrooveKit.app` once.)
 
 To publish a release, push a version tag: `git tag v0.2.0 && git push origin v0.2.0`. The release workflow builds the app and attaches the zip.
+
+## Signing releases
+
+Releases are signed with a Developer ID and notarized by Apple when these repository secrets are set
+(Settings → Secrets and variables → Actions); without them they're signed ad hoc and macOS warns
+on first launch.
+
+1. Join the Apple Developer Program, and in Xcode → Settings → Accounts → Manage Certificates
+   create a **Developer ID Application** certificate. Export it from Keychain Access as a .p12
+   with a password.
+2. `APPLE_CERTIFICATE`: the .p12 as base64 (`base64 -i certificate.p12 | pbcopy`).
+3. `APPLE_CERTIFICATE_PASSWORD`: the .p12's password.
+4. `APPLE_SIGNING_IDENTITY`: the certificate's name, e.g. `Developer ID Application: Your Name (TEAMID1234)`
+   (`security find-identity -v -p codesigning` lists it).
+5. In App Store Connect → Users and Access → Integrations → App Store Connect API, create a key
+   with the Developer role, then set `APPLE_API_ISSUER` (the issuer ID), `APPLE_API_KEY` (the key ID)
+   and `APPLE_API_PRIVATE_KEY` (the contents of the downloaded `AuthKey_….p8`).
+
+The next version tag then builds a release that opens without a warning.
 
 ## Building (macOS)
 

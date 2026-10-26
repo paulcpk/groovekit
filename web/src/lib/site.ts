@@ -182,7 +182,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "macOS says it can’t open GrooveKit. What now?",
-    a: "The app isn’t notarized yet, so macOS asks before the first launch. Open it once, then go to System Settings → Privacy & Security and choose Open Anyway. After that it opens normally.",
+    a: "The app isn’t notarized by Apple yet, so the first time macOS says it couldn’t verify GrooveKit. Click Done (not Move to Trash), open System Settings → Privacy & Security, scroll down to “GrooveKit was blocked” and click Open Anyway, then confirm with your password. After that it opens normally. Or in Terminal: xattr -dr com.apple.quarantine /Applications/GrooveKit.app",
   },
   {
     q: "How do I connect Claude?",

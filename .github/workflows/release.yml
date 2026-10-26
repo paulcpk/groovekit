@@ -15,6 +15,15 @@ jobs:
   macos:
     name: macOS app
     runs-on: macos-15
+    # With these secrets (see "Signing releases" in the README) the app is signed with a Developer ID
+    # and notarized, so it opens without a warning; without them it's signed ad hoc.
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,15 +55,29 @@ jobs:
 
       - name: Build the app
         working-directory: ui
-        run: pnpm exec tauri build --bundles app --config "{\"version\":\"${GITHUB_REF_NAME#v}\"}"
+        run: |
+          # Tauri signs and notarizes when these are set; empty ones would make it try and fail.
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/AuthKey.p8"
+            export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          else
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY
+          fi
+          unset APPLE_API_PRIVATE_KEY
+          pnpm exec tauri build --bundles app --config "{\"version\":\"${GITHUB_REF_NAME#v}\"}"
 
       # Without a Developer ID the app is signed ad hoc, so macOS asks once before opening it
       # (see "Download" in the README) rather than calling it damaged.
-      - name: Sign ad hoc and zip
-        run: |
-          app=ui/src-tauri/target/release/bundle/macos/GrooveKit.app
-          codesign --force --deep --sign - "$app"
-          ditto -c -k --keepParent "$app" GrooveKit-macOS.zip
+      - name: Sign ad hoc
+        if: env.APPLE_SIGNING_IDENTITY == ''
+        run: codesign --force --deep --sign - ui/src-tauri/target/release/bundle/macos/GrooveKit.app
+
+      - name: Check Gatekeeper accepts it
+        if: env.APPLE_SIGNING_IDENTITY != ''
+        run: spctl --assess --type execute --verbose ui/src-tauri/target/release/bundle/macos/GrooveKit.app
+
+      - name: Zip
+        run: ditto -c -k --keepParent ui/src-tauri/target/release/bundle/macos/GrooveKit.app GrooveKit-macOS.zip
 
       - name: Publish the release
         env:
