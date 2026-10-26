@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "name": "Sends",
+  "tempo": 120,
+  "channels": [
+    {
+      "id": "a", "insert": "silenced",
+      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] }
+    },
+    {
+      "id": "b", "insert": "dry",
+      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] }
+    }
+  ],
+  "patterns": [
+    {
+      "id": "p",
+      "notes": [
+        { "channel": "a", "start": 0, "length": 240, "velocity": 127 },
+        { "channel": "b", "start": 960, "length": 240, "velocity": 127 }
+      ]
+    }
+  ],
+  "playlist": {
+    "tracks": [{ "id": "t" }],
+    "clips": [{ "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 1920, "pattern": "p" }]
+  },
+  "mixer": {
+    "inserts": [
+      { "id": "master" },
+      { "id": "fx" },
+      { "id": "silenced", "volumeDb": -100, "sends": [{ "id": "s", "target": "fx", "levelDb": -6, "preFader": true }] },
+      { "id": "dry", "sends": [{ "id": "s", "target": "fx", "levelDb": -6 }] }
+    ]
+  }
+}

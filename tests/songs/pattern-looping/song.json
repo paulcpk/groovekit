@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "name": "Pattern looping",
+  "tempo": 120,
+  "channels": [
+    {
+      "id": "beep",
+      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] }
+    }
+  ],
+  "patterns": [
+    { "id": "one", "length": 960, "notes": [{ "channel": "beep", "start": 0, "length": 240, "velocity": 127 }] }
+  ],
+  "playlist": {
+    "tracks": [{ "id": "t" }],
+    "clips": [
+      { "type": "pattern", "id": "loop", "track": "t", "start": 0, "length": 3840, "pattern": "one" },
+      { "type": "pattern", "id": "offset", "track": "t", "start": 3840, "length": 1920, "pattern": "one", "offset": 480 }
+    ]
+  },
+  "mixer": { "inserts": [{ "id": "master" }] }
+}

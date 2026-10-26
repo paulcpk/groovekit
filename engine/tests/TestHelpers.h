@@ -1,0 +1,48 @@
+#pragma once
+
+#include "EngineContext.h"
+
+#include <juce_core/juce_core.h>
+
+#include <filesystem>
+#include <unistd.h>
+
+namespace gk::test
+{
+
+/** The repository root, from GK_REPO_ROOT (set by CTest) or the current directory. */
+inline std::filesystem::path repoRoot()
+{
+    if (auto env = std::getenv ("GK_REPO_ROOT"))
+        return env;
+
+    return std::filesystem::current_path();
+}
+
+inline std::filesystem::path fixture (const std::string& name)
+{
+    return repoRoot() / "tests" / "fixtures" / "samples" / name;
+}
+
+/** A per-process scratch folder for rendered files. */
+inline std::filesystem::path tempDir()
+{
+    static const auto dir = []
+    {
+        auto d = std::filesystem::temp_directory_path() / ("groovekit-tests-" + std::to_string (getpid()));
+        std::filesystem::create_directories (d);
+        return d;
+    }();
+
+    return dir;
+}
+
+/** One engine shared by every test in the process. */
+EngineContext& getEngineContext();
+
+inline tracktion::Engine& getEngine()
+{
+    return getEngineContext().getEngine();
+}
+
+} // namespace gk::test

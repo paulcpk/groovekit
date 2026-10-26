@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "name": "Audio clip",
+  "tempo": 120,
+  "channels": [],
+  "patterns": [],
+  "playlist": {
+    "tracks": [{ "id": "t" }],
+    "clips": [
+      {
+        "type": "audio", "id": "a", "track": "t", "start": 960, "length": 960,
+        "sample": "../../fixtures/samples/stereo_beep.wav", "offset": 0.25, "gainDb": -6
+      }
+    ]
+  },
+  "mixer": { "inserts": [{ "id": "master" }] }
+}

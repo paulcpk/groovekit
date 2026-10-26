@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "name": "Effects",
+  "tempo": 120,
+  "channels": [
+    { "id": "lowpass", "insert": "lowpass", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
+    { "id": "reverb", "insert": "reverb", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
+    { "id": "compressor", "insert": "compressor", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } },
+    { "id": "eq", "insert": "eq", "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/beep.wav", "pitchTracking": false }] } }
+  ],
+  "patterns": [
+    {
+      "id": "p",
+      "notes": [
+        { "channel": "lowpass", "start": 0, "length": 240, "velocity": 127 },
+        { "channel": "reverb", "start": 960, "length": 240, "velocity": 127 },
+        { "channel": "compressor", "start": 1920, "length": 240, "velocity": 127 },
+        { "channel": "eq", "start": 2880, "length": 240, "velocity": 127 }
+      ]
+    }
+  ],
+  "playlist": {
+    "tracks": [{ "id": "t" }],
+    "clips": [{ "type": "pattern", "id": "c", "track": "t", "start": 0, "length": 3840, "pattern": "p" }]
+  },
+  "mixer": {
+    "inserts": [
+      { "id": "master" },
+      { "id": "lowpass", "effects": [{ "type": "builtin", "id": "f", "kind": "lowpass", "params": { "frequency": 100 } }] },
+      { "id": "reverb", "effects": [{ "type": "builtin", "id": "r", "kind": "reverb", "params": { "roomSize": 0.8, "wet": 1, "dry": 0 } }] },
+      { "id": "compressor", "effects": [{ "type": "builtin", "id": "c", "kind": "compressor", "params": { "thresholdDb": -24, "ratio": 8, "attackMs": 0.3 } }] },
+      { "id": "eq", "effects": [{ "type": "builtin", "id": "e", "kind": "eq", "params": { "mid1Freq": 1000, "mid1GainDb": -12, "mid1Q": 1 } }] }
+    ]
+  }
+}

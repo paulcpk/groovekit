@@ -1,5 +1,9 @@
 add_executable(gk_tests
-    ModelTests.cpp)
+    AnalysisTests.cpp
+    ModelTests.cpp
+    RenderTests.cpp
+    SamplerTests.cpp
+    TestHelpers.cpp)
 
 target_link_libraries(gk_tests PRIVATE gk_engine Catch2::Catch2WithMain)
 
