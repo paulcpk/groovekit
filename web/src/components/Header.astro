@@ -13,7 +13,7 @@ import Logo from "./Logo.astro";
     <nav class="hidden items-center gap-0.5 lg:flex" aria-label="Sections">
       {NAV.map(([id, label]) => (
         <a
-          href={`#${id}`}
+          href={`${base}/#${id}`}
           class="rounded-md px-3 py-1.5 text-sm font-medium text-dim transition-colors hover:text-fg"
         >
           {label}

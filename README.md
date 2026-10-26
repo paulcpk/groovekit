@@ -93,8 +93,14 @@ Songs are JSON files described by [schema/project.schema.json](schema/project.sc
 - `ui/` — the app: React UI and the Tauri desktop shell
 - `tests/` — render test songs and the fixture samples they use
 
+## Privacy
+
+GrooveKit runs on your Mac and sends nothing anywhere by itself: no account, analytics, telemetry or update checks, and the engine only accepts connections from your own computer.
+
+The agent is the exception, when you use it. The agent panel in the app sends your messages, and what the agent reads of the song to carry them out (track and sample names, notes, mix settings, sample file paths, analysis results), to Anthropic's API with your own key; the key and the conversation are stored on your Mac. With Claude Code or another MCP client, the same goes to whichever AI provider that client uses. See [groovekit.org/privacy](https://groovekit.org/privacy/).
+
 ## License
 
-AGPLv3. GrooveKit builds on [JUCE 8](https://juce.com) (AGPLv3), [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) (GPLv3), [Rubber Band](https://breakfastquay.com/rubberband/) (GPLv2+) and [IXWebSocket](https://github.com/machinezone/IXWebSocket) (BSD).
+AGPLv3 (Settings → About → Licenses in the app lists the third-party software it includes). GrooveKit builds on [JUCE 8](https://juce.com) (AGPLv3), [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) (GPLv3), [Rubber Band](https://breakfastquay.com/rubberband/) (GPLv2+) and [IXWebSocket](https://github.com/machinezone/IXWebSocket) (BSD).
 
 Bug reports and feature requests are welcome as [issues](https://github.com/paulcpk/groovekit/issues/new/choose); pull requests aren't accepted. See [CONTRIBUTING.md](CONTRIBUTING.md).

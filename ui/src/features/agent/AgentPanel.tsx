@@ -240,7 +240,8 @@ function KeySetup() {
       <div className="flex items-center gap-2 text-sm text-fg"><KeyRound size={14} className="text-agent" /> Connect Claude</div>
       <p className="leading-relaxed text-dim">
         The agent uses Claude with your own Anthropic API key. Create one in the Anthropic Console under API keys; use is billed to your
-        Anthropic account. The key stays on this Mac.
+        Anthropic account. The key stays on this Mac. What you ask, and what the agent reads of the song to do it (names, notes, mix
+        settings, sample file paths), is sent to Anthropic.
       </p>
       <form className="flex flex-col gap-2" onSubmit={(e) => {
         e.preventDefault();

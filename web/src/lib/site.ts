@@ -23,6 +23,9 @@ export const LINKS = {
   mcp: "https://modelcontextprotocol.io",
 };
 
+/** Who's behind GrooveKit, in the footer and on the privacy page. */
+export const CONTACT = { name: "Paul Csapak", email: "hello@paulcpk.com" };
+
 export const NAV: [id: string, label: string][] = [
   ["agent", "How it works"],
   ["tools", "Agent tools"],
@@ -200,6 +203,10 @@ export const FAQ: { q: string; a: string }[] = [
   {
     q: "Where do the sounds come from?",
     a: "From your own sample folders. GrooveKit indexes them in the background (tens of thousands of files are fine), describes each sound, and gives both you and the agent the same search. Your VST3 and AU plugins work too.",
+  },
+  {
+    q: "What data leaves my Mac?",
+    a: "None, unless you use the agent. GrooveKit has no account, analytics or telemetry, and your songs and samples stay on your Mac. When you chat with the agent in the app, your messages and what it reads of the song (names, notes, mix settings, sample file paths) go to Anthropic with your API key; with Claude Code or another MCP client, to that client’s AI provider. The privacy page, linked in the footer, has the details.",
   },
   {
     q: "Does it cost anything?",

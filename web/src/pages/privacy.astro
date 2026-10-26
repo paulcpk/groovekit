@@ -1,0 +1,87 @@
+---
+import Base from "../layouts/Base.astro";
+import { CONTACT, LINKS, NAME } from "../lib/site";
+
+const link = "font-medium text-fg underline decoration-accent underline-offset-4";
+---
+
+<Base title={`Privacy · ${NAME}`} description="What the GrooveKit website and app do with your data.">
+  <article class="container-site max-w-3xl py-24 sm:py-32">
+    <p class="eyebrow">Privacy</p>
+    <h1 class="title mt-4">Your music stays on your Mac.</h1>
+    <p class="mt-5 text-sm text-faint">Last updated 26 October 2026</p>
+
+    <div class="mt-12 space-y-10 leading-relaxed text-dim [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-fg [&_li]:mt-2 [&_ul]:list-disc [&_ul]:pl-5">
+      <section>
+        <h2>Who is responsible</h2>
+        <p>
+          {CONTACT.name}, <a href={`mailto:${CONTACT.email}`} class={link}>{CONTACT.email}</a>. GrooveKit is a free,
+          non-commercial open-source project.
+        </p>
+      </section>
+
+      <section>
+        <h2>This website</h2>
+        <p>
+          groovekit.org is a static site hosted on GitHub Pages. It sets no cookies, has no analytics or tracking, and
+          loads nothing from other servers; even the font comes from this site. To deliver the pages and keep the
+          service secure, GitHub, Inc. (USA) as the host receives your IP address and the usual request data. See the{" "}
+          <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" class={link}>GitHub Privacy Statement</a>.
+        </p>
+      </section>
+
+      <section>
+        <h2>Downloads, source code and issues</h2>
+        <p>
+          The app is downloaded from GitHub releases, and the source code and issues are on GitHub too, under
+          GitHub’s terms. What you write in an issue is public.
+        </p>
+      </section>
+
+      <section>
+        <h2>The app</h2>
+        <p>
+          GrooveKit runs on your Mac. There’s no account, and it sends no analytics, telemetry or usage data
+          anywhere, and doesn’t check for updates. Your songs, samples, recordings and settings stay on your Mac, and
+          the engine accepts connections only from your own computer. Plugins you load are their makers’ software
+          and follow their policies.
+        </p>
+      </section>
+
+      <section>
+        <h2>The agent</h2>
+        <p>
+          Only when you use the agent does data leave your Mac, and then it goes to the AI provider you chose, not to
+          the GrooveKit project:
+        </p>
+        <ul>
+          <li>
+            <span class="text-fg">The agent panel in the app</span> sends your messages, and what the agent reads of
+            the song to carry them out (track and sample names, notes, mix settings, sample file paths, analysis
+            results), to Anthropic’s API with your own API key, under Anthropic’s terms and{" "}
+            <a href="https://www.anthropic.com/legal/privacy" class={link}>privacy policy</a>. Your key and the
+            conversation are stored on your Mac.
+          </li>
+          <li>
+            <span class="text-fg">Claude Code or another MCP client</span> sends the same kinds of data to whichever
+            AI provider that client uses, under its terms.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Your rights</h2>
+        <p>
+          You can ask for access to, correction or deletion of your personal data, and complain to a data protection
+          authority. The GrooveKit project itself collects no personal data, so there’s usually nothing to hand over;
+          for the website’s server logs, GitHub is the one to ask. Questions go to{" "}
+          <a href={`mailto:${CONTACT.email}`} class={link}>{CONTACT.email}</a>.
+        </p>
+        <p class="mt-4">
+          The source code of the website and the app is on{" "}
+          <a href={LINKS.github} class={link}>GitHub</a>, so you can check all of this.
+        </p>
+      </section>
+    </div>
+  </article>
+</Base>

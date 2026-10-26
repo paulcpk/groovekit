@@ -1,5 +1,6 @@
 ---
-import { LINKS } from "../lib/site";
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { CONTACT, LINKS } from "../lib/site";
 import Logo from "./Logo.astro";
 
 const columns: { title: string; links: [string, string][] }[] = [
@@ -25,13 +26,14 @@ const columns: { title: string; links: [string, string][] }[] = [
     links: [
       ["Report an issue", LINKS.issues],
       ["License (AGPLv3)", LINKS.license],
+      ["Privacy", `${base}/privacy/`],
     ],
   },
 ];
 ---
 
 <footer class="border-t border-line">
-  <div class="container-site grid grid-cols-1 gap-12 py-14 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+  <div class="container-site grid grid-cols-1 gap-12 py-14 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
     <div class="max-w-xs">
       <Logo />
       <p class="mt-4 text-sm leading-relaxed text-dim">
@@ -52,6 +54,15 @@ const columns: { title: string; links: [string, string][] }[] = [
         </ul>
       </div>
     ))}
+    <div>
+      <h2 class="text-sm font-semibold">Contact</h2>
+      <ul class="mt-4 space-y-2.5 text-sm text-dim">
+        <li>{CONTACT.name}</li>
+        <li>
+          <a href={`mailto:${CONTACT.email}`} class="transition-colors hover:text-fg">{CONTACT.email}</a>
+        </li>
+      </ul>
+    </div>
   </div>
   <div class="border-t border-line">
     <div class="container-site flex flex-col gap-2 py-6 text-xs text-faint sm:flex-row sm:items-center sm:justify-between">

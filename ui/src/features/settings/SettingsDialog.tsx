@@ -154,6 +154,8 @@ export function SettingsDialog() {
           <Button size="sm" className="bg-control text-fg" disabled={plugins?.running} onClick={() => void call("plugins.scan").then(setPlugins)}>Scan for plugins</Button>
         </div>
       </Section>
+
+      <About />
     </Dialog>
   );
 }
@@ -255,8 +257,45 @@ function AgentSettings() {
             <Button size="sm" type="submit" disabled={!draft.trim()}>Save</Button>
           </form>
         )}
-        <div className="text-2xs text-faint">The agent in the sidebar uses Claude with this key; use is billed to your Anthropic account.</div>
+        <div className="text-2xs text-faint">
+          The agent in the sidebar uses Claude with this key; use is billed to your Anthropic account. What you ask, and what the agent
+          reads of the song to do it (names, notes, mix settings, sample file paths), is sent to Anthropic.
+        </div>
       </div>
+    </Section>
+  );
+}
+
+const SOURCE = "https://github.com/paulcpk/groovekit";
+
+/** The version, the license and the notices of the software GrooveKit includes. */
+function About() {
+  const [version, setVersion] = useState("");
+  const [notices, setNotices] = useState<string>();
+
+  useEffect(() => {
+    if (inDesktopApp) void import("@tauri-apps/api/app").then((m) => m.getVersion()).then(setVersion, () => {});
+  }, []);
+
+  const showNotices = async () => {
+    const response = await fetch("/licenses.txt").catch(() => undefined);
+    // The notices are written by the build (notices-plugin.ts), so the dev server has none.
+    setNotices(response?.ok ? await response.text() : "The license notices are added when the app is built.");
+  };
+
+  return (
+    <Section title="About">
+      <div className="flex flex-col gap-2 text-xs">
+        <div className="text-fg">GrooveKit{version && ` ${version}`}</div>
+        <div className="text-dim">
+          Free software under the GNU Affero General Public License v3, with no warranty. Source code:{" "}
+          <span className="text-fg select-text">{SOURCE}</span>
+        </div>
+        <div><Button size="sm" className="bg-control text-fg" onClick={() => void showNotices()}>Licenses</Button></div>
+      </div>
+      <Dialog open={notices !== undefined} onOpenChange={(o) => !o && setNotices(undefined)} title="Licenses" className="w-[760px]">
+        <pre className="font-mono text-[10px] leading-snug whitespace-pre-wrap text-dim">{notices}</pre>
+      </Dialog>
     </Section>
   );
 }
