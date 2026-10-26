@@ -6,7 +6,7 @@ import { z } from "zod";
 import { EngineClient, ticksPerBar } from "./engine.ts";
 import { commandReference, typeDefinitions } from "./reference.ts";
 
-export const instructions = `GrooveKit is a DAW with FL Studio semantics that you operate through these tools. The human directs; you arrange, mix and master.
+export const instructions = `GrooveKit is a music production app (a DAW) that you operate through these tools. The human directs; you arrange, mix and master.
 
 Model: channels (instruments: the built-in sampler with one or more sample layers) feed mixer inserts; patterns hold notes for any channels; the playlist has free tracks holding pattern, audio and automation clips. Inserts chain effects, sends and a fader, and feed other inserts or master.
 

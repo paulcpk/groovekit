@@ -71,7 +71,7 @@ export function songEnd(doc: Project | undefined) {
 }
 
 //==============================================================================
-// Muted clip colours in the Ableton manner: readable text on top, calm in large areas.
+// Muted clip colours: readable text on top, calm in large areas.
 export const palette = [
   "#e8915a", "#e3b448", "#b8c35c", "#7cc47c", "#5ec4a9", "#58b7d6",
   "#6f9de8", "#8f86e3", "#b57ad8", "#d673b3", "#df6f7f", "#a6a39b",

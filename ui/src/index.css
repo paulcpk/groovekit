@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Dark only, in the spirit of Ableton: flat greys, small type, colour reserved for content
+/* Dark only: flat greys, small type, colour reserved for content
    (clips, channels) and state (playing, recording, agent changes). */
 @theme {
   --color-bg: #111113;

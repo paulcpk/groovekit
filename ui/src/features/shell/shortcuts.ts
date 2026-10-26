@@ -28,7 +28,7 @@ function typing(e: KeyboardEvent) {
   return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 }
 
-/** Global keys, FL Studio style where FL has a habit: F5-F9 for views, Space to play. */
+/** Global keys: F5-F9 for the views, Space to play, the usual editing keys. */
 export function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
