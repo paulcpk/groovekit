@@ -1,0 +1,11 @@
+{
+  "name": "groovekit",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "codegen": "pnpm --filter @groovekit/schema codegen",
+    "codegen:check": "pnpm --filter @groovekit/schema codegen:check",
+    "test": "pnpm -r test"
+  }
+}

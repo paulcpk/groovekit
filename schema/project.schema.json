@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://groovekit.dev/schema/project.schema.json",
+  "title": "Project",
+  "description": "A GrooveKit project (song.json). Times are integer ticks at 960 PPQ unless a field says otherwise.",
+  "type": "object",
+  "required": ["schemaVersion", "tempo", "channels", "patterns", "playlist", "mixer"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "name": { "type": "string", "default": "" },
+    "tempo": { "description": "Beats per minute.", "type": "number", "minimum": 20, "maximum": 999 },
+    "timeSignature": { "$ref": "#/$defs/TimeSignature" },
+    "channels": { "type": "array", "items": { "$ref": "#/$defs/Channel" } },
+    "patterns": { "type": "array", "items": { "$ref": "#/$defs/Pattern" } },
+    "playlist": { "$ref": "#/$defs/Playlist" },
+    "mixer": { "$ref": "#/$defs/Mixer" }
+  },
+  "$defs": {
+    "Id": {
+      "description": "Stable identifier, unique within its collection.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+    },
+    "Ticks": { "description": "Position in ticks (960 per quarter note).", "type": "integer", "minimum": 0 },
+    "TickLength": { "description": "Duration in ticks (960 per quarter note).", "type": "integer", "minimum": 1 },
+    "Pan": { "description": "-1 is hard left, 0 centre, 1 hard right.", "type": "number", "minimum": -1, "maximum": 1 },
+    "Key": { "description": "MIDI note number; 60 is C4.", "type": "integer", "minimum": 0, "maximum": 127 },
+
+    "TimeSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 1, "maximum": 32, "default": 4 },
+        "denominator": { "type": "integer", "enum": [1, 2, 4, 8, 16], "default": 4 }
+      }
+    },
+
+    "Channel": {
+      "description": "A channel-rack entry: one instrument whose output feeds a mixer insert.",
+      "type": "object",
+      "required": ["id", "instrument"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string", "default": "" },
+        "color": { "type": "string" },
+        "volumeDb": { "type": "number", "maximum": 12, "default": 0 },
+        "pan": { "$ref": "#/$defs/Pan", "default": 0 },
+        "mute": { "type": "boolean", "default": false },
+        "insert": { "description": "Mixer insert this channel feeds.", "$ref": "#/$defs/Id", "default": "master" },
+        "instrument": { "$ref": "#/$defs/Instrument" }
+      }
+    },
+
+    "Instrument": {
+      "oneOf": [{ "$ref": "#/$defs/SamplerInstrument" }, { "$ref": "#/$defs/PluginInstrument" }],
+      "discriminator": { "propertyName": "type" }
+    },
+
+    "SamplerInstrument": {
+      "description": "Built-in polyphonic sampler. Every layer whose key and velocity range match a note plays it.",
+      "type": "object",
+      "required": ["type", "layers"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "sampler" },
+        "polyphony": { "description": "Maximum simultaneous voices; the oldest voice is stolen.", "type": "integer", "minimum": 1, "maximum": 256, "default": 32 },
+        "layers": { "type": "array", "items": { "$ref": "#/$defs/SamplerLayer" } }
+      }
+    },
+
+    "SamplerLayer": {
+      "type": "object",
+      "required": ["id", "sample"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "sample": { "description": "Audio file path, absolute or relative to the project folder.", "type": "string", "minLength": 1 },
+        "rootKey": { "description": "Key at which the sample plays at its original pitch.", "$ref": "#/$defs/Key", "default": 60 },
+        "keyRange": { "$ref": "#/$defs/KeyRange" },
+        "velocityRange": { "$ref": "#/$defs/VelocityRange" },
+        "pitchTracking": { "description": "If false, every key plays the sample at root pitch (drums).", "type": "boolean", "default": true },
+        "transpose": { "description": "Semitones.", "type": "integer", "minimum": -48, "maximum": 48, "default": 0 },
+        "fineTune": { "description": "Cents.", "type": "number", "minimum": -100, "maximum": 100, "default": 0 },
+        "gainDb": { "type": "number", "maximum": 24, "default": 0 },
+        "pan": { "$ref": "#/$defs/Pan", "default": 0 },
+        "mode": {
+          "description": "oneShot plays to the end of the sample and ignores note-off; gate releases on note-off.",
+          "type": "string",
+          "enum": ["oneShot", "gate"],
+          "default": "oneShot"
+        },
+        "envelope": { "$ref": "#/$defs/Envelope" }
+      }
+    },
+
+    "KeyRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "low": { "$ref": "#/$defs/Key", "default": 0 },
+        "high": { "$ref": "#/$defs/Key", "default": 127 }
+      }
+    },
+
+    "VelocityRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "low": { "type": "integer", "minimum": 1, "maximum": 127, "default": 1 },
+        "high": { "type": "integer", "minimum": 1, "maximum": 127, "default": 127 }
+      }
+    },
+
+    "Envelope": {
+      "description": "Amplitude envelope. Times in seconds, sustain as linear gain.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attack": { "type": "number", "minimum": 0, "maximum": 30, "default": 0 },
+        "decay": { "type": "number", "minimum": 0, "maximum": 30, "default": 0 },
+        "sustain": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+        "release": { "type": "number", "minimum": 0, "maximum": 30, "default": 0.01 }
+      }
+    },
+
+    "PluginInstrument": {
+      "type": "object",
+      "required": ["type", "plugin"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "plugin" },
+        "plugin": { "$ref": "#/$defs/PluginRef" }
+      }
+    },
+
+    "PluginRef": {
+      "description": "A hosted VST3 or AU plugin.",
+      "type": "object",
+      "required": ["format", "uid", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "format": { "type": "string", "enum": ["VST3", "AU"] },
+        "uid": { "description": "JUCE plugin identifier string.", "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "manufacturer": { "type": "string" },
+        "state": { "description": "Path of the saved state blob, relative to the project folder.", "type": "string" }
+      }
+    },
+
+    "Pattern": {
+      "description": "Notes for any number of channels. A pattern clip plays all of them.",
+      "type": "object",
+      "required": ["id", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string", "default": "" },
+        "color": { "type": "string" },
+        "length": { "description": "Loop length. If absent, the end of the last note rounded up to a whole bar.", "$ref": "#/$defs/TickLength" },
+        "notes": { "type": "array", "items": { "$ref": "#/$defs/Note" } }
+      }
+    },
+
+    "Note": {
+      "type": "object",
+      "required": ["channel", "start", "length"],
+      "additionalProperties": false,
+      "properties": {
+        "channel": { "$ref": "#/$defs/Id" },
+        "start": { "$ref": "#/$defs/Ticks" },
+        "length": { "$ref": "#/$defs/TickLength" },
+        "key": { "$ref": "#/$defs/Key", "default": 60 },
+        "velocity": { "type": "integer", "minimum": 1, "maximum": 127, "default": 100 }
+      }
+    },
+
+    "Playlist": {
+      "type": "object",
+      "required": ["tracks", "clips"],
+      "additionalProperties": false,
+      "properties": {
+        "tracks": { "type": "array", "items": { "$ref": "#/$defs/PlaylistTrack" } },
+        "clips": { "type": "array", "items": { "$ref": "#/$defs/Clip" } }
+      }
+    },
+
+    "PlaylistTrack": {
+      "description": "A free lane; any clip can go on any track.",
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string", "default": "" },
+        "color": { "type": "string" },
+        "mute": { "type": "boolean", "default": false }
+      }
+    },
+
+    "Clip": {
+      "oneOf": [{ "$ref": "#/$defs/PatternClip" }, { "$ref": "#/$defs/AudioClip" }, { "$ref": "#/$defs/AutomationClip" }],
+      "discriminator": { "propertyName": "type" }
+    },
+
+    "PatternClip": {
+      "description": "Plays a pattern, repeating it every pattern length until the clip ends.",
+      "type": "object",
+      "required": ["type", "id", "track", "start", "length", "pattern"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "pattern" },
+        "id": { "$ref": "#/$defs/Id" },
+        "track": { "$ref": "#/$defs/Id" },
+        "start": { "$ref": "#/$defs/Ticks" },
+        "length": { "$ref": "#/$defs/TickLength" },
+        "mute": { "type": "boolean", "default": false },
+        "pattern": { "$ref": "#/$defs/Id" },
+        "offset": { "description": "Ticks into the pattern where the clip starts playing.", "$ref": "#/$defs/Ticks", "default": 0 }
+      }
+    },
+
+    "AudioClip": {
+      "type": "object",
+      "required": ["type", "id", "track", "start", "length", "sample"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "audio" },
+        "id": { "$ref": "#/$defs/Id" },
+        "track": { "$ref": "#/$defs/Id" },
+        "start": { "$ref": "#/$defs/Ticks" },
+        "length": { "$ref": "#/$defs/TickLength" },
+        "mute": { "type": "boolean", "default": false },
+        "sample": { "description": "Audio file path, absolute or relative to the project folder.", "type": "string", "minLength": 1 },
+        "insert": { "description": "Mixer insert this clip plays into.", "$ref": "#/$defs/Id", "default": "master" },
+        "offset": { "description": "Seconds into the file where playback starts.", "type": "number", "minimum": 0, "default": 0 },
+        "gainDb": { "type": "number", "maximum": 24, "default": 0 },
+        "pan": { "$ref": "#/$defs/Pan", "default": 0 },
+        "fadeIn": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 },
+        "fadeOut": { "description": "Seconds.", "type": "number", "minimum": 0, "default": 0 },
+        "sourceTempo": { "description": "Tempo the file was recorded at. Reserved for time-stretching; not applied yet.", "type": "number", "minimum": 20, "maximum": 999 }
+      }
+    },
+
+    "AutomationClip": {
+      "description": "Drives one parameter. Outside every clip for a target, the parameter holds its static value; after a clip ends it holds the clip's last value.",
+      "type": "object",
+      "required": ["type", "id", "track", "start", "length", "target", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "automation" },
+        "id": { "$ref": "#/$defs/Id" },
+        "track": { "$ref": "#/$defs/Id" },
+        "start": { "$ref": "#/$defs/Ticks" },
+        "length": { "$ref": "#/$defs/TickLength" },
+        "mute": { "type": "boolean", "default": false },
+        "target": { "$ref": "#/$defs/AutomationTarget" },
+        "points": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/AutomationPoint" } }
+      }
+    },
+
+    "AutomationTarget": {
+      "description": "What an automation clip drives. channel/insert: param is volume or pan. effect: param is the effect's parameter id. send: param is level.",
+      "type": "object",
+      "required": ["scope", "param"],
+      "additionalProperties": false,
+      "properties": {
+        "scope": { "type": "string", "enum": ["channel", "insert", "effect", "send"] },
+        "channel": { "$ref": "#/$defs/Id" },
+        "insert": { "$ref": "#/$defs/Id" },
+        "effect": { "$ref": "#/$defs/Id" },
+        "send": { "$ref": "#/$defs/Id" },
+        "param": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "AutomationPoint": {
+      "type": "object",
+      "required": ["time", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "time": { "description": "Ticks from the clip start.", "$ref": "#/$defs/Ticks" },
+        "value": { "description": "In the parameter's own units (dB for volume and send level, -1..1 for pan).", "type": "number" },
+        "curve": { "description": "Shape of the segment to the next point: 0 linear, negative ease-in, positive ease-out.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 }
+      }
+    },
+
+    "Mixer": {
+      "description": "Mixer inserts. The insert with id \"master\" is required and is the final output.",
+      "type": "object",
+      "required": ["inserts"],
+      "additionalProperties": false,
+      "properties": {
+        "inserts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Insert" } }
+      }
+    },
+
+    "Insert": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string", "default": "" },
+        "color": { "type": "string" },
+        "volumeDb": { "type": "number", "maximum": 12, "default": 0 },
+        "pan": { "$ref": "#/$defs/Pan", "default": 0 },
+        "mute": { "type": "boolean", "default": false },
+        "output": { "description": "Insert this one feeds. Ignored on master.", "$ref": "#/$defs/Id", "default": "master" },
+        "effects": { "type": "array", "items": { "$ref": "#/$defs/Effect" }, "default": [] },
+        "sends": { "type": "array", "items": { "$ref": "#/$defs/Send" }, "default": [] }
+      }
+    },
+
+    "Send": {
+      "type": "object",
+      "required": ["id", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "target": { "$ref": "#/$defs/Id" },
+        "levelDb": { "type": "number", "maximum": 12, "default": 0 },
+        "preFader": { "type": "boolean", "default": false }
+      }
+    },
+
+    "Effect": {
+      "oneOf": [{ "$ref": "#/$defs/BuiltinEffect" }, { "$ref": "#/$defs/PluginEffect" }],
+      "discriminator": { "propertyName": "type" }
+    },
+
+    "BuiltinEffect": {
+      "type": "object",
+      "required": ["type", "id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "builtin" },
+        "id": { "$ref": "#/$defs/Id" },
+        "kind": { "type": "string", "enum": ["eq", "compressor", "reverb", "delay", "phaser", "chorus", "filter"] },
+        "bypass": { "type": "boolean", "default": false },
+        "params": {
+          "description": "Parameter id to value, in the parameter's own units. Unlisted parameters keep their defaults.",
+          "type": "object",
+          "additionalProperties": { "type": "number" },
+          "default": {}
+        }
+      }
+    },
+
+    "PluginEffect": {
+      "type": "object",
+      "required": ["type", "id", "plugin"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "plugin" },
+        "id": { "$ref": "#/$defs/Id" },
+        "plugin": { "$ref": "#/$defs/PluginRef" },
+        "bypass": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}
