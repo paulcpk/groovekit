@@ -9,6 +9,7 @@ import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { newPattern } from "@/features/playlist/Playlist";
 import { cn } from "@/lib/cn";
 import { useLiveControl } from "@/lib/liveControl";
+import { useLivePosition } from "@/lib/playhead";
 import { colorFor, formatDb, formatPan, insertName, palette, patternLength, STEP, ticksPerBar, uniqueId } from "@/lib/model";
 import { call, execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -48,8 +49,11 @@ export function ChannelRack() {
 
   const steps = pattern ? Math.round(patternLength(pattern, doc) / STEP) : 16;
   // The step playing now, when this pattern plays in pattern mode.
-  const playingStep = useEngine((s) => (s.transport.playing && s.transport.mode === "pattern" && s.transport.pattern === pattern?.id
-    ? Math.floor(s.transport.position / STEP) : -1));
+  const [playingStep, setPlayingStep] = useState(-1);
+  useLivePosition(({ ticks, playing }) => {
+    const t = useEngine.getState().transport;
+    setPlayingStep(playing && t.mode === "pattern" && t.pattern === pattern?.id ? Math.floor(ticks / STEP) : -1);
+  }, [pattern?.id]);
 
   return (
     <div className="flex h-full">

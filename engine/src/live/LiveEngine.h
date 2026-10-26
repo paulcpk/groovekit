@@ -176,6 +176,8 @@ public:
         std::optional<model::Id> pattern;   // in pattern mode
         bool metronome = false;
         int countInBars = 0;
+        double time = 0;                // ms since 1970 when the position was read, so clients can move on from it
+        double outputLatencyMs = 0;     // from rendering to hearing it: the buffer and the device (Bluetooth: a lot)
     };
 
     TransportState getTransportState() const;

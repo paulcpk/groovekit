@@ -19,6 +19,9 @@ export interface Transport {
   pattern?: string;
   metronome?: boolean;
   countInBars?: number;
+  /** When the engine read the position (ms since 1970), and how long until it's heard. */
+  time?: number;
+  outputLatencyMs?: number;
 }
 
 export interface Levels {
@@ -136,9 +139,13 @@ function onNotification(method: string, params: any) {
       set({ transport: params });
       break;
 
-    case "levels":
-      set({ levels: params });
+    case "levels": {
+      // Levels are measured as audio is rendered; show them when it's heard.
+      const delay = get().transport.outputLatencyMs ?? 0;
+      if (delay > 5) setTimeout(() => set({ levels: params }), delay);
+      else set({ levels: params });
       break;
+    }
 
     case "libraryProgress":
       set({ libraryProgress: params });

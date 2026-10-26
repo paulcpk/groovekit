@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Circle, KeyboardMusic, Layers, ListMusic, Metronome, Pause, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
 import { Button, DragNumber, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { cn } from "@/lib/cn";
+import { useLivePosition } from "@/lib/playhead";
 import { formatPosition, formatTime } from "@/lib/model";
 import { inDesktopApp } from "@/engine/client";
 import { execute, useEngine } from "@/state/engine";
@@ -22,12 +23,20 @@ export const snaps: { label: string; ticks: number }[] = [
 ];
 
 function Position() {
-  const doc = useEngine((s) => s.doc);
-  const t = useEngine((s) => s.transport);
+  const bars = useRef<HTMLSpanElement>(null);
+  const time = useRef<HTMLSpanElement>(null);
+
+  // Written every frame while playing, without re-rendering.
+  useLivePosition(({ ticks, seconds }) => {
+    const doc = useEngine.getState().doc;
+    if (bars.current) bars.current.textContent = formatPosition(ticks, doc);
+    if (time.current) time.current.textContent = formatTime(seconds);
+  });
+
   return (
     <div className="flex h-7 items-center gap-2 rounded-[4px] bg-bg px-2.5 font-mono text-sm tabular">
-      <span className="min-w-[56px] text-fg">{formatPosition(t.position, doc)}</span>
-      <span className="text-faint">{formatTime(t.seconds)}</span>
+      <span ref={bars} className="min-w-[56px] text-fg" />
+      <span ref={time} className="text-faint" />
     </div>
   );
 }

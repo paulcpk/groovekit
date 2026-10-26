@@ -1096,6 +1096,21 @@ LiveEngine::TransportState LiveEngine::getTransportState() const
     s.recording = s.recording || noteRecording.has_value();
     s.metronome = metronome;
     s.countInBars = countInBars;
+    s.time = static_cast<double> (juce::Time::currentTimeMillis());
+
+    // While playing, the audio thread's own position (updated every block) rather than the
+    // transport's copy, which Tracktion refreshes on a timer: clients move on from it by s.time.
+    if (s.playing)
+        if (auto context = compiled.edit->getCurrentPlaybackContext())
+        {
+            const auto audible = context->getAudibleTimelineTime();
+            s.position = toTicks (audible);
+            s.seconds = audible.inSeconds();
+        }
+
+    if (auto device = context.getEngine().getDeviceManager().deviceManager.getCurrentAudioDevice(); device != nullptr && device->getCurrentSampleRate() > 0)
+        s.outputLatencyMs = (device->getOutputLatencyInSamples() + device->getCurrentBufferSizeSamples()) * 1000.0 / device->getCurrentSampleRate();
+
     return s;
 }
 

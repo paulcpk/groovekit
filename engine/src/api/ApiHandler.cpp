@@ -29,7 +29,8 @@ namespace
     model::Json transportJson (const LiveEngine::TransportState& t)
     {
         model::Json j { { "playing", t.playing }, { "recording", t.recording }, { "position", t.position }, { "seconds", t.seconds },
-                        { "mode", t.pattern ? "pattern" : "song" }, { "metronome", t.metronome }, { "countInBars", t.countInBars } };
+                        { "mode", t.pattern ? "pattern" : "song" }, { "metronome", t.metronome }, { "countInBars", t.countInBars },
+                        { "time", t.time }, { "outputLatencyMs", std::round (t.outputLatencyMs * 10) / 10 } };
 
         if (t.pattern)
             j["pattern"] = *t.pattern;

@@ -6,6 +6,7 @@ import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTri
 import { newPattern } from "@/features/playlist/Playlist";
 import { stepKey } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
+import { useLivePosition } from "@/lib/playhead";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
 import { colorFor, noteName, patternLength, snapTicks, STEP, ticksPerBar, ticksPerBeat } from "@/lib/model";
 import { auditionNote } from "@/features/shell/actions";
@@ -34,9 +35,15 @@ export function PianoRoll() {
 
 /** Where pattern mode is playing this pattern. */
 function PatternPlayhead({ pattern, px }: { pattern: string; px: number }) {
-  const position = useEngine((s) => (s.transport.playing && s.transport.mode === "pattern" && s.transport.pattern === pattern ? s.transport.position : undefined));
-  if (position === undefined) return null;
-  return <div className="pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-fg/80" style={{ left: position * px }} />;
+  const line = useRef<HTMLDivElement>(null);
+  useLivePosition(({ ticks, playing }) => {
+    const t = useEngine.getState().transport;
+    const shown = playing && t.mode === "pattern" && t.pattern === pattern;
+    if (!line.current) return;
+    line.current.style.display = shown ? "" : "none";
+    line.current.style.transform = `translateX(${ticks * px}px)`;
+  }, [pattern, px]);
+  return <div ref={line} className="pointer-events-none absolute top-0 bottom-0 left-0 z-10 w-px bg-fg/80 will-change-transform" style={{ display: "none" }} />;
 }
 
 function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; channelId: string }) {
