@@ -8,6 +8,7 @@
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
 #include "effects/BuiltinEffects.h"
+#include "sampler/SamplerPlugin.h"
 
 #include <fstream>
 
@@ -405,6 +406,21 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             const auto it = compiled.channelFaders.find (channel.id);
             if (it == compiled.channelFaders.end()) return false;
             actions.push_back ([fader = it->second, v = channel.volumeDb, p = channel.pan] { fader->setVolumeDb (static_cast<float> (v)); fader->setPan (static_cast<float> (p)); });
+            continue;
+        }
+
+        // /channels/<i>/instrument/...: a sampler takes its new settings while it plays.
+        if (keys.size() >= 4 && keys[0] == "channels" && keys[2] == "instrument")
+        {
+            const auto i = index (keys[1]);
+            if (! i || *i >= project.channels.size()) return false;
+            const auto& channel = project.channels[*i];
+            auto sampler = std::get_if<SamplerInstrument> (&channel.instrument);
+            const auto it = compiled.plugins.find ("channel:" + channel.id);
+            auto plugin = it != compiled.plugins.end() ? dynamic_cast<sampler::SamplerPlugin*> (it->second) : nullptr;
+            if (sampler == nullptr || plugin == nullptr) return false;
+            const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+            actions.push_back ([plugin, instrument = *sampler, projectDir] { plugin->setInstrument (instrument, projectDir); });
             continue;
         }
 

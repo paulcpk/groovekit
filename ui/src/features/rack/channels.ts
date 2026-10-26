@@ -1,7 +1,8 @@
 import type { Channel, Project, SamplerInstrument } from "@groovekit/schema/project";
 import { baseName, uniqueId } from "@/lib/model";
-import { execute } from "@/state/engine";
 import { setUi } from "@/state/ui";
+import { call, execute } from "@/state/engine";
+import { openWindow, toggleWindow } from "@/state/windows";
 import type { DraggedSample } from "@/features/playlist/geometry";
 
 const drumCategories = ["kick", "snare", "clap", "hat", "hihat", "perc", "percussion", "cymbal", "tom", "rim", "shaker", "drum", "fx"];
@@ -32,11 +33,28 @@ export async function addEmptySampler(doc: Project) {
   setUi({ selectedChannel: id });
 }
 
-/** Gives a channel its own mixer insert, as FL's "route to free insert". */
+/** Gives a channel a mixer insert of its own. */
 export async function routeToNewInsert(doc: Project, channel: Channel) {
   const id = uniqueId(channel.id, doc.mixer.inserts);
   await execute([
     { type: "addInsert", insert: { id, name: channel.name ?? channel.id } },
     { type: "updateChannel", channel: channel.id, changes: { insert: id } },
   ], { label: `Route ${channel.name ?? channel.id} to a new insert` });
+}
+
+/** Selects a channel and opens its sampler window, or the plugin's own window. */
+export function openChannel(channel: Channel, toggle = false) {
+  setUi({ selectedChannel: channel.id });
+  if (channel.instrument.type === "plugin") void call("plugins.openEditor", { channel: channel.id });
+  else (toggle ? toggleWindow : openWindow)({ kind: "channel", channel: channel.id });
+}
+
+/** A sample dropped on a sampler channel replaces its first layer's sample, keeping its settings. */
+export async function replaceSample(channel: Channel, path: string) {
+  if (channel.instrument.type !== "sampler") return;
+  const layer = channel.instrument.layers[0];
+  await execute(layer
+    ? { type: "updateSamplerLayer", channel: channel.id, layer: layer.id, changes: { sample: path, start: 0, end: null } }
+    : { type: "addSamplerLayer", channel: channel.id, layer: { id: "l1", sample: path } },
+    { label: `Replace sample with ${baseName(path)}` });
 }

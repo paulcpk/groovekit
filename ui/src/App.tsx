@@ -14,6 +14,7 @@ import { ExportDialog } from "@/features/shell/ExportDialog";
 import { useLiveChannel, useTypingKeyboard } from "@/features/shell/liveInput";
 import { useAgentConversation } from "@/features/agent/AgentPanel";
 import { useShortcuts } from "@/features/shell/shortcuts";
+import { Windows } from "@/features/windows/Windows";
 import { useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
@@ -71,6 +72,7 @@ export function App() {
         </div>
       </div>
       <StatusBar />
+      <Windows />
       <Toasts />
       <SettingsDialog />
       <RecordDialog />

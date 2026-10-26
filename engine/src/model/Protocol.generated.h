@@ -218,6 +218,33 @@ inline Json toJson (const RemoveChannel& v)
     return j;
 }
 
+/** Changes a sampler channel's own settings (polyphony, filter); layers have their own commands. */
+struct UpdateSampler
+{
+    Id channel;
+    Changes changes;
+
+    bool operator== (const UpdateSampler&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, UpdateSampler& out)
+{
+    r.expectObject (j, { "type", "channel", "changes" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "updateSampler"); });
+    r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "changes", [&] (const Json& v) { readValue (r, v, out.changes); });
+}
+
+inline Json toJson (const UpdateSampler& v)
+{
+    auto j = Json::object();
+    j["type"] = "updateSampler";
+    j["channel"] = toJson (v.channel);
+    j["changes"] = toJson (v.changes);
+    return j;
+}
+
 struct AddSamplerLayer
 {
     Id channel;
@@ -968,7 +995,7 @@ inline Json toJson (const Patch& v)
     return j;
 }
 
-using Command = std::variant<SetTempo, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, AddTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
+using Command = std::variant<SetTempo, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateSampler, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, AddTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
 
 inline void readValue (Reader& r, const Json& j, Command& out)
 {
@@ -985,6 +1012,7 @@ inline void readValue (Reader& r, const Json& j, Command& out)
     if (tag == "addChannel") { readValue (r, j, out.emplace<AddChannel>()); return; }
     if (tag == "updateChannel") { readValue (r, j, out.emplace<UpdateChannel>()); return; }
     if (tag == "removeChannel") { readValue (r, j, out.emplace<RemoveChannel>()); return; }
+    if (tag == "updateSampler") { readValue (r, j, out.emplace<UpdateSampler>()); return; }
     if (tag == "addSamplerLayer") { readValue (r, j, out.emplace<AddSamplerLayer>()); return; }
     if (tag == "updateSamplerLayer") { readValue (r, j, out.emplace<UpdateSamplerLayer>()); return; }
     if (tag == "removeSamplerLayer") { readValue (r, j, out.emplace<RemoveSamplerLayer>()); return; }

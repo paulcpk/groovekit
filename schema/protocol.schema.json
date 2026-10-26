@@ -12,6 +12,7 @@
         { "$ref": "#/$defs/AddChannel" },
         { "$ref": "#/$defs/UpdateChannel" },
         { "$ref": "#/$defs/RemoveChannel" },
+        { "$ref": "#/$defs/UpdateSampler" },
         { "$ref": "#/$defs/AddSamplerLayer" },
         { "$ref": "#/$defs/UpdateSamplerLayer" },
         { "$ref": "#/$defs/RemoveSamplerLayer" },
@@ -136,6 +137,18 @@
         "channel": { "$ref": "project.schema.json#/$defs/Id" },
         "layer": { "$ref": "project.schema.json#/$defs/SamplerLayer" },
         "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "UpdateSampler": {
+      "description": "Changes a sampler channel's own settings (polyphony, filter); layers have their own commands.",
+      "type": "object",
+      "required": ["type", "channel", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateSampler" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
       }
     },
 

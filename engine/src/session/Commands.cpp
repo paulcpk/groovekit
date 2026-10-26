@@ -207,6 +207,16 @@ namespace
             e.tx.remove (path);
         }
 
+        void operator() (const UpdateSampler& c)
+        {
+            auto base = e.channelPath (c.channel) + "/instrument";
+
+            if (e.at (base).value ("type", "") != "sampler")
+                throw CommandError ("channel \"" + c.channel + "\" isn't a sampler");
+
+            e.applyChanges (base, c.changes, { "type", "layers" });
+        }
+
         void operator() (const AddSamplerLayer& c)
         {
             auto base = e.channelPath (c.channel) + "/instrument";
@@ -446,6 +456,7 @@ std::string describeCommand (const Command& command)
         else if constexpr (std::is_same_v<T, AddChannel>)       return "Add channel " + c.channel.id;
         else if constexpr (std::is_same_v<T, UpdateChannel>)    return "Update channel " + c.channel;
         else if constexpr (std::is_same_v<T, RemoveChannel>)    return "Remove channel " + c.channel;
+        else if constexpr (std::is_same_v<T, UpdateSampler>)    return "Update sampler " + c.channel;
         else if constexpr (std::is_same_v<T, AddSamplerLayer>)  return "Add layer " + c.layer.id + " to " + c.channel;
         else if constexpr (std::is_same_v<T, UpdateSamplerLayer>) return "Update layer " + c.layer + " of " + c.channel;
         else if constexpr (std::is_same_v<T, RemoveSamplerLayer>) return "Remove layer " + c.layer + " from " + c.channel;

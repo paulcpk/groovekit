@@ -49,6 +49,13 @@ export interface RemoveChannel {
   channel: Id;
 }
 
+/** Changes a sampler channel's own settings (polyphony, filter); layers have their own commands. */
+export interface UpdateSampler {
+  type: "updateSampler";
+  channel: Id;
+  changes: Changes;
+}
+
 export interface AddSamplerLayer {
   type: "addSamplerLayer";
   channel: Id;
@@ -230,7 +237,7 @@ export interface Patch {
   ops: PatchOp[];
 }
 
-export type Command = SetTempo | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | AddTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
+export type Command = SetTempo | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | UpdateSampler | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | AddTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
 
 /** One applied change. Entries form a tree: undo moves to the parent, new changes after an undo start a branch. */
 export interface HistoryEntry {

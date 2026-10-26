@@ -31,11 +31,13 @@ void SamplerEngine::prepare (double newSampleRate, int)
     const juce::ScopedLock sl (configLock);
     sampleRate = newSampleRate;
     stealFadeSamples = std::max (1, juce::roundToInt (stealFadeSeconds * sampleRate));
+    edgeFadeSamples = std::max (1, juce::roundToInt (0.001 * sampleRate));
 
     for (auto& v : voices)
     {
         v.active = false;
         v.envelope.setSampleRate (sampleRate);
+        v.filterEnvelope.setSampleRate (sampleRate);
     }
 }
 
@@ -45,8 +47,27 @@ void SamplerEngine::setConfig (std::shared_ptr<const Config> newConfig)
         const juce::ScopedLock sl (configLock);
         std::swap (config, newConfig);
 
+        // newConfig now holds the previous one.
+        const bool sameSamples = newConfig != nullptr && config != nullptr && newConfig->layers.size() == config->layers.size()
+            && std::equal (config->layers.begin(), config->layers.end(), newConfig->layers.begin(),
+                           [] (const Layer& a, const Layer& b) { return a.sample == b.sample && a.start == b.start && a.endFrame() == b.endFrame() && a.reverse == b.reverse; });
+
         for (auto& v : voices)
-            v.active = false;
+        {
+            if (! v.active)
+                continue;
+
+            if (! sameSamples)
+            {
+                v.active = false;
+                continue;
+            }
+
+            v.layer = &config->layers[v.layerIndex];
+            v.envelope.setParameters (v.layer->envelope);
+            v.filterEnvelope.setParameters (config->filter.envelope);
+            v.samplesToCoefficients = 0;
+        }
     }
 
     // The previous config is released here, off the audio thread.
@@ -100,15 +121,20 @@ void SamplerEngine::noteOn (int note, int velocity)
     for (auto& layer : config->layers)
         if (note >= layer.keyLow && note <= layer.keyHigh
              && velocity >= layer.velocityLow && velocity <= layer.velocityHigh
-             && layer.sample != nullptr && layer.sample->audio.getNumSamples() > 0)
+             && layer.sample != nullptr && layer.endFrame() > layer.start)
             startVoice (layer, note, velocity);
 }
 
 void SamplerEngine::noteOff (int note)
 {
     for (auto& v : voices)
+    {
         if (v.active && v.note == note && ! v.layer->oneShot)
+        {
             v.envelope.noteOff();
+            v.filterEnvelope.noteOff();
+        }
+    }
 }
 
 void SamplerEngine::startVoice (const Layer& layer, int note, int velocity)
@@ -125,6 +151,7 @@ void SamplerEngine::startVoice (const Layer& layer, int note, int velocity)
     const auto velocityGain = static_cast<float> (velocity) / 127.0f;
 
     v->layer = &layer;
+    v->layerIndex = static_cast<size_t> (&layer - config->layers.data());
     v->note = note;
     v->age = nextAge++;
     v->position = 0;
@@ -135,6 +162,19 @@ void SamplerEngine::startVoice (const Layer& layer, int note, int velocity)
     v->envelope.setParameters (layer.envelope);
     v->envelope.reset();
     v->envelope.noteOn();
+    v->filterEnvelope.setParameters (config->filter.envelope);
+    v->filterEnvelope.reset();
+    v->filterEnvelope.noteOn();
+    std::fill (&v->filterState[0][0], &v->filterState[0][0] + 4, 0.0f);
+    v->samplesToCoefficients = 0;
+
+    // Where the played part cuts into the file (rather than starting or ending with it), a 1 ms
+    // fade keeps the cut from clicking.
+    const auto fileLength = layer.sample->audio.getNumSamples();
+    const bool cutAtStart = layer.reverse ? layer.endFrame() < fileLength : layer.start > 0;
+    const bool cutAtEnd = layer.reverse ? layer.start > 0 : layer.endFrame() < fileLength;
+    v->fadeInSamples = cutAtStart ? edgeFadeSamples : 0;
+    v->fadeOutSamples = cutAtEnd ? edgeFadeSamples : 0;
     v->active = true;
 }
 
@@ -177,12 +217,49 @@ void SamplerEngine::renderVoices (juce::AudioBuffer<float>& buffer, int startSam
             renderVoice (v, left, right, numSamples);
 }
 
+void SamplerEngine::updateFilter (Voice& v, float envelopeLevel)
+{
+    const auto& f = config->filter;
+    const auto cutoff = juce::jlimit (16.0f, static_cast<float> (sampleRate * 0.45),
+                                      f.cutoff * std::exp2 (f.envelopeAmount * envelopeLevel));
+    const auto g = std::tan (juce::MathConstants<float>::pi * cutoff / static_cast<float> (sampleRate));
+
+    v.k = 1.0f / Filter::qFor (f.resonance);
+    v.a1 = 1.0f / (1.0f + g * (g + v.k));
+    v.a2 = g * v.a1;
+    v.a3 = g * v.a2;
+}
+
 void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSamples)
 {
-    auto& audio = v.layer->sample->audio;
-    const auto length = audio.getNumSamples();
+    const auto& layer = *v.layer;
+    auto& audio = layer.sample->audio;
+    const auto fileLength = audio.getNumSamples();
+    const auto end = layer.endFrame();
+    const auto length = end - layer.start;
     const auto* srcL = audio.getReadPointer (0);
     const auto* srcR = audio.getReadPointer (audio.getNumChannels() > 1 ? 1 : 0);
+    const auto filterType = config->filter.type;
+
+    // The TPT state-variable filter (Zavalishin), with coefficients refreshed every 16 samples.
+    auto filter = [&v, filterType] (float in, float* state)
+    {
+        const auto v3 = in - state[1];
+        const auto v1 = v.a1 * state[0] + v.a2 * v3;
+        const auto v2 = state[1] + v.a2 * state[0] + v.a3 * v3;
+        state[0] = 2.0f * v1 - state[0];
+        state[1] = 2.0f * v2 - state[1];
+
+        switch (filterType)
+        {
+            case Filter::Type::lowpass:   return v2;
+            case Filter::Type::highpass:  return in - v.k * v1 - v2;
+            case Filter::Type::bandpass:  return v.k * v1;
+            case Filter::Type::off:       break;
+        }
+
+        return in;
+    };
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -193,6 +270,7 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
         }
 
         auto gain = v.envelope.getNextSample();
+        const auto filterLevel = v.filterEnvelope.getNextSample();
 
         if (v.isStolen())
         {
@@ -205,8 +283,30 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
             }
         }
 
-        left[i] += interpolate (srcL, length, v.position) * v.gainL * gain;
-        right[i] += interpolate (srcR, length, v.position) * v.gainR * gain;
+        if (v.fadeInSamples > 0 && v.position < edgeFadeSamples)
+            gain *= static_cast<float> (v.position) / static_cast<float> (edgeFadeSamples);
+
+        if (v.fadeOutSamples > 0 && length - v.position < edgeFadeSamples)
+            gain *= static_cast<float> ((length - v.position) / edgeFadeSamples);
+
+        const auto at = layer.reverse ? end - 1 - v.position : layer.start + v.position;
+        auto l = interpolate (srcL, fileLength, at) * v.gainL * gain;
+        auto r = interpolate (srcR, fileLength, at) * v.gainR * gain;
+
+        if (filterType != Filter::Type::off)
+        {
+            if (--v.samplesToCoefficients <= 0)
+            {
+                updateFilter (v, filterLevel);
+                v.samplesToCoefficients = 16;
+            }
+
+            l = filter (l, v.filterState[0]);
+            r = filter (r, v.filterState[1]);
+        }
+
+        left[i] += l;
+        right[i] += r;
         v.position += v.increment;
     }
 }

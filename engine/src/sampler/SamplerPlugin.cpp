@@ -14,6 +14,17 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
     auto config = std::make_shared<Config>();
     config->polyphony = instrument.polyphony;
 
+    auto& f = instrument.filter;
+    config->filter.type = f.type == model::SamplerFilterType::lowpass  ? Filter::Type::lowpass
+                        : f.type == model::SamplerFilterType::highpass ? Filter::Type::highpass
+                        : f.type == model::SamplerFilterType::bandpass ? Filter::Type::bandpass
+                                                                       : Filter::Type::off;
+    config->filter.cutoff = static_cast<float> (f.cutoff);
+    config->filter.resonance = static_cast<float> (f.resonance);
+    config->filter.envelopeAmount = static_cast<float> (f.envelopeAmount);
+    config->filter.envelope = { static_cast<float> (f.envelope.attack), static_cast<float> (f.envelope.decay),
+                                static_cast<float> (f.envelope.sustain), static_cast<float> (f.envelope.release) };
+
     for (auto& l : instrument.layers)
     {
         auto path = std::filesystem::path (l.sample);
@@ -35,6 +46,12 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
         layer.oneShot = l.mode == model::SamplerLayerMode::oneShot;
         layer.envelope = { static_cast<float> (l.envelope.attack), static_cast<float> (l.envelope.decay),
                            static_cast<float> (l.envelope.sustain), static_cast<float> (l.envelope.release) };
+
+        const auto frames = layer.sample->audio.getNumSamples();
+        const auto toFrame = [&] (double seconds) { return std::clamp (static_cast<int> (std::llround (seconds * layer.sample->sampleRate)), 0, frames); };
+        layer.start = toFrame (l.start);
+        layer.end = l.end ? toFrame (*l.end) : frames;
+        layer.reverse = l.reverse;
         config->layers.push_back (std::move (layer));
     }
 
@@ -64,6 +81,9 @@ void SamplerPlugin::setInstrument (const model::SamplerInstrument& instrument, c
 
     for (auto& l : instrument.layers)
         tailSeconds = std::max (tailSeconds, l.envelope.release);
+
+    if (instrument.filter.type != model::SamplerFilterType::off)
+        tailSeconds = std::max (tailSeconds, instrument.filter.envelope.release);
 
     state.setProperty (instrumentProperty, juce::String (model::toJson (instrument).dump()), nullptr);
     state.setProperty (projectDirProperty, juce::String (projectDir.string()), nullptr);

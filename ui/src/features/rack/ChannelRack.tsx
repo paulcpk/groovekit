@@ -13,8 +13,8 @@ import { useLivePosition } from "@/lib/playhead";
 import { colorFor, formatDb, formatPan, insertName, palette, patternLength, STEP, ticksPerBar, uniqueId } from "@/lib/model";
 import { call, execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
-import { ChannelInspector } from "./ChannelInspector";
-import { addEmptySampler, addSamplerChannel, routeToNewInsert, stepKey } from "./channels";
+import { openChannel } from "./channels";
+import { addEmptySampler, addSamplerChannel, replaceSample, routeToNewInsert, stepKey } from "./channels";
 import { PluginPicker } from "./PluginPicker";
 
 interface Paint {
@@ -92,11 +92,6 @@ export function ChannelRack() {
           )}
         </div>
       </div>
-      {selectedChannel && doc.channels.some((c) => c.id === selectedChannel) && (
-        <div className="w-[320px] shrink-0 border-l border-line">
-          <ChannelInspector channelId={selectedChannel} />
-        </div>
-      )}
     </div>
   );
 }
@@ -288,8 +283,17 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
               channel.mute ? "bg-control text-faint" : "bg-hover text-fg",
               selected && "ring-1 ring-accent",
             )}
-            onClick={() => setUi({ selectedChannel: channel.id })}
-            onDoubleClick={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}
+            title={channel.instrument.type === "sampler" ? "Open the sampler" : "Open the plugin's window"}
+            onClick={() => openChannel(channel, true)}
+            onDragOver={(e) => channel.instrument.type === "sampler" && (isSampleDrag(e) || isFileDrag(e)) && (e.preventDefault(), e.stopPropagation())}
+            onDrop={(e) => {
+              if (channel.instrument.type !== "sampler") return;
+              e.stopPropagation();
+              e.preventDefault();
+              const replace = (path: string) => void replaceSample(channel, path);
+              if (isFileDrag(e)) void importDroppedFiles(e).then((samples) => samples[0] && replace(samples[0].path));
+              else if (droppedSample(e)) replace(droppedSample(e)!.path);
+            }}
           >
             <span className="h-3 w-1 shrink-0 rounded-sm" style={{ background: color }} />
             <span className="truncate">{channel.name ?? channel.id}</span>
@@ -297,6 +301,7 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}>{channel.mute ? "Unmute" : "Mute"}</ContextMenuItem>
+          <ContextMenuItem onSelect={() => openChannel(channel)}>{channel.instrument.type === "sampler" ? "Open the sampler" : "Open the plugin's window"}</ContextMenuItem>
           <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
           <ContextMenuItem onSelect={() => void routeToNewInsert(doc, channel)}>Route to a new insert</ContextMenuItem>
           <ContextMenuSub label="Colour">

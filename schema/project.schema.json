@@ -68,7 +68,21 @@
       "properties": {
         "type": { "const": "sampler" },
         "polyphony": { "description": "Maximum simultaneous voices; the oldest voice is stolen.", "type": "integer", "minimum": 1, "maximum": 256, "default": 32 },
+        "filter": { "description": "Filters every voice, after its layer's volume envelope.", "$ref": "#/$defs/SamplerFilter" },
         "layers": { "type": "array", "items": { "$ref": "#/$defs/SamplerLayer" } }
+      }
+    },
+
+    "SamplerFilter": {
+      "description": "A resonant 12 dB/octave filter per voice, its cutoff moved by its own envelope.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["off", "lowpass", "highpass", "bandpass"], "default": "off" },
+        "cutoff": { "description": "Hz.", "type": "number", "minimum": 20, "maximum": 20000, "default": 20000 },
+        "resonance": { "description": "0 is a gentle slope; towards 1 the cutoff rings.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "envelopeAmount": { "description": "Octaves the envelope moves the cutoff at its peak; negative moves it down.", "type": "number", "minimum": -10, "maximum": 10, "default": 0 },
+        "envelope": { "description": "Shape of the cutoff movement; sustain is the share of the amount held.", "$ref": "#/$defs/Envelope" }
       }
     },
 
@@ -93,7 +107,10 @@
           "enum": ["oneShot", "gate"],
           "default": "oneShot"
         },
-        "envelope": { "$ref": "#/$defs/Envelope" }
+        "envelope": { "$ref": "#/$defs/Envelope" },
+        "start": { "description": "Seconds into the file where the part that plays begins.", "type": "number", "minimum": 0, "default": 0 },
+        "end": { "description": "Seconds into the file where the part that plays ends; unset is the file's end.", "type": "number", "minimum": 0 },
+        "reverse": { "description": "Plays the part between start and end backwards.", "type": "boolean", "default": false }
       }
     },
 
@@ -116,7 +133,7 @@
     },
 
     "Envelope": {
-      "description": "Amplitude envelope. Times in seconds, sustain as linear gain.",
+      "description": "Attack, decay, sustain, release. Times in seconds; sustain is a level from 0 to 1.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

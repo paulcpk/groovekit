@@ -230,3 +230,91 @@ TEST_CASE ("Layer pan uses a balance law")
     CHECK (h.out.getSample (0, 0) == 0.5f);
     CHECK (h.out.getSample (1, 0) == 0.0f);
 }
+
+TEST_CASE ("Start, end and reverse choose the part that plays")
+{
+    SECTION ("forward, with 1 ms fades only where the part cuts into the file")
+    {
+        Config config;
+        auto l = layer (rampSample (1000));
+        l.start = 100;
+        l.end = 400;
+        config.layers.push_back (l);
+        Harness h (config);
+
+        h.run (512, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 0) == 0.0f);
+        CHECK (h.out.getSample (0, 200) == Approx (0.301f));
+        CHECK (h.out.getSample (0, 300) == 0.0f);
+    }
+
+    SECTION ("reversed")
+    {
+        Config config;
+        auto l = layer (rampSample (1000));
+        l.reverse = true;
+        config.layers.push_back (l);
+        Harness h (config);
+
+        h.run (1024, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 0) == Approx (1.0f));
+        CHECK (h.out.getSample (0, 500) == Approx (0.5f));
+        CHECK (h.out.getSample (0, 999) == Approx (0.001f));
+    }
+}
+
+TEST_CASE ("The filter shapes every voice")
+{
+    // A 6 kHz sine.
+    auto tone = std::make_shared<Sample>();
+    tone->sampleRate = rate;
+    tone->audio.setSize (1, 4800);
+
+    for (int i = 0; i < 4800; ++i)
+        tone->audio.setSample (0, i, 0.5f * std::sin (juce::MathConstants<float>::twoPi * 6000.0f * static_cast<float> (i) / static_cast<float> (rate)));
+
+    auto rms = [] (Harness& h) { return h.out.getRMSLevel (0, 2400, 2400); };
+
+    Config config;
+    config.layers.push_back (layer (tone));
+
+    Harness open (config);
+    open.run (4800, { Harness::on (0, 60) });
+    CHECK (rms (open) == Approx (0.3536f).margin (0.01f));
+
+    // 12 dB per octave: about 31 dB down, 2.6 octaves above the cutoff.
+    config.filter.type = Filter::Type::lowpass;
+    config.filter.cutoff = 1000;
+    Harness lowpass (config);
+    lowpass.run (4800, { Harness::on (0, 60) });
+    CHECK (rms (lowpass) < 0.015f);
+
+    // The envelope opens it up: 5 octaves up from 600 Hz is past the top of the range.
+    config.filter.cutoff = 600;
+    config.filter.envelopeAmount = 10;
+    Harness opened (config);
+    opened.run (4800, { Harness::on (0, 60) });
+    CHECK (rms (opened) > 0.2f);
+}
+
+TEST_CASE ("New settings for the same samples keep notes playing")
+{
+    Config config;
+    auto l = layer (constantSample (48000, 0.5f));
+    l.oneShot = false;
+    config.layers.push_back (l);
+    Harness h (config);
+
+    h.run (64, { Harness::on (0, 60) });
+    CHECK (h.engine.getNumActiveVoices() == 1);
+
+    config.layers[0].gain = 0.5f;
+    config.filter.type = Filter::Type::lowpass;
+    h.engine.setConfig (std::make_shared<Config> (config));
+    CHECK (h.engine.getNumActiveVoices() == 1);
+
+    // Another sample stops them.
+    config.layers[0].sample = constantSample (100, 0.5f);
+    h.engine.setConfig (std::make_shared<Config> (config));
+    CHECK (h.engine.getNumActiveVoices() == 0);
+}
