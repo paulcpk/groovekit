@@ -1,0 +1,449 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://groovekit.dev/schema/protocol.schema.json",
+  "description": "Commands that change a project, and the history records they produce. Every command is applied atomically: if the resulting project is invalid, nothing changes.",
+  "$defs": {
+    "Command": {
+      "oneOf": [
+        { "$ref": "#/$defs/SetTempo" },
+        { "$ref": "#/$defs/SetTimeSignature" },
+        { "$ref": "#/$defs/RenameProject" },
+        { "$ref": "#/$defs/AddChannel" },
+        { "$ref": "#/$defs/UpdateChannel" },
+        { "$ref": "#/$defs/RemoveChannel" },
+        { "$ref": "#/$defs/AddSamplerLayer" },
+        { "$ref": "#/$defs/UpdateSamplerLayer" },
+        { "$ref": "#/$defs/RemoveSamplerLayer" },
+        { "$ref": "#/$defs/AddPattern" },
+        { "$ref": "#/$defs/UpdatePattern" },
+        { "$ref": "#/$defs/RemovePattern" },
+        { "$ref": "#/$defs/AddNotes" },
+        { "$ref": "#/$defs/RemoveNotes" },
+        { "$ref": "#/$defs/SetNotes" },
+        { "$ref": "#/$defs/AddTrack" },
+        { "$ref": "#/$defs/UpdateTrack" },
+        { "$ref": "#/$defs/RemoveTrack" },
+        { "$ref": "#/$defs/AddClip" },
+        { "$ref": "#/$defs/UpdateClip" },
+        { "$ref": "#/$defs/RemoveClip" },
+        { "$ref": "#/$defs/AddInsert" },
+        { "$ref": "#/$defs/UpdateInsert" },
+        { "$ref": "#/$defs/RemoveInsert" },
+        { "$ref": "#/$defs/AddEffect" },
+        { "$ref": "#/$defs/UpdateEffect" },
+        { "$ref": "#/$defs/RemoveEffect" },
+        { "$ref": "#/$defs/MoveEffect" },
+        { "$ref": "#/$defs/AddSend" },
+        { "$ref": "#/$defs/UpdateSend" },
+        { "$ref": "#/$defs/RemoveSend" },
+        { "$ref": "#/$defs/Patch" }
+      ],
+      "discriminator": { "propertyName": "type" }
+    },
+
+    "Changes": {
+      "description": "Fields to change, using the same names and units as the project schema. Fields not listed keep their values; ids can't be changed.",
+      "type": "object"
+    },
+
+    "Index": {
+      "description": "Position to insert at; appends when absent.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+
+    "SetTempo": {
+      "type": "object",
+      "required": ["type", "tempo"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "setTempo" },
+        "tempo": { "type": "number", "minimum": 20, "maximum": 999 }
+      }
+    },
+
+    "SetTimeSignature": {
+      "type": "object",
+      "required": ["type", "timeSignature"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "setTimeSignature" },
+        "timeSignature": { "$ref": "project.schema.json#/$defs/TimeSignature" }
+      }
+    },
+
+    "RenameProject": {
+      "type": "object",
+      "required": ["type", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "renameProject" },
+        "name": { "type": "string" }
+      }
+    },
+
+    "AddChannel": {
+      "type": "object",
+      "required": ["type", "channel"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addChannel" },
+        "channel": { "$ref": "project.schema.json#/$defs/Channel" },
+        "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "UpdateChannel": {
+      "type": "object",
+      "required": ["type", "channel", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateChannel" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemoveChannel": {
+      "description": "Also removes the channel's notes from every pattern and automation clips that target it.",
+      "type": "object",
+      "required": ["type", "channel"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeChannel" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "AddSamplerLayer": {
+      "type": "object",
+      "required": ["type", "channel", "layer"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addSamplerLayer" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "layer": { "$ref": "project.schema.json#/$defs/SamplerLayer" },
+        "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "UpdateSamplerLayer": {
+      "type": "object",
+      "required": ["type", "channel", "layer", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateSamplerLayer" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "layer": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemoveSamplerLayer": {
+      "type": "object",
+      "required": ["type", "channel", "layer"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeSamplerLayer" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "layer": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "AddPattern": {
+      "type": "object",
+      "required": ["type", "pattern"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addPattern" },
+        "pattern": { "$ref": "project.schema.json#/$defs/Pattern" },
+        "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "UpdatePattern": {
+      "type": "object",
+      "required": ["type", "pattern", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updatePattern" },
+        "pattern": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemovePattern": {
+      "description": "Also removes every pattern clip that plays it.",
+      "type": "object",
+      "required": ["type", "pattern"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removePattern" },
+        "pattern": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "AddNotes": {
+      "type": "object",
+      "required": ["type", "pattern", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addNotes" },
+        "pattern": { "$ref": "project.schema.json#/$defs/Id" },
+        "notes": { "type": "array", "items": { "$ref": "project.schema.json#/$defs/Note" } }
+      }
+    },
+
+    "RemoveNotes": {
+      "description": "Removes the notes matching every given filter. With no filters, removes all notes.",
+      "type": "object",
+      "required": ["type", "pattern"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeNotes" },
+        "pattern": { "$ref": "project.schema.json#/$defs/Id" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "key": { "$ref": "project.schema.json#/$defs/Key" },
+        "from": { "description": "Notes starting at or after this tick.", "$ref": "project.schema.json#/$defs/Ticks" },
+        "to": { "description": "Notes starting before this tick.", "$ref": "project.schema.json#/$defs/Ticks" }
+      }
+    },
+
+    "SetNotes": {
+      "description": "Replaces all of one channel's notes in a pattern. Every note must belong to that channel.",
+      "type": "object",
+      "required": ["type", "pattern", "channel", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "setNotes" },
+        "pattern": { "$ref": "project.schema.json#/$defs/Id" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "notes": { "type": "array", "items": { "$ref": "project.schema.json#/$defs/Note" } }
+      }
+    },
+
+    "AddTrack": {
+      "type": "object",
+      "required": ["type", "track"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addTrack" },
+        "track": { "$ref": "project.schema.json#/$defs/PlaylistTrack" },
+        "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "UpdateTrack": {
+      "type": "object",
+      "required": ["type", "track", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateTrack" },
+        "track": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemoveTrack": {
+      "description": "Also removes the clips on the track.",
+      "type": "object",
+      "required": ["type", "track"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeTrack" },
+        "track": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "AddClip": {
+      "type": "object",
+      "required": ["type", "clip"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addClip" },
+        "clip": { "$ref": "project.schema.json#/$defs/Clip" }
+      }
+    },
+
+    "UpdateClip": {
+      "description": "Moves, resizes or edits a clip. Its type can't change.",
+      "type": "object",
+      "required": ["type", "clip", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateClip" },
+        "clip": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemoveClip": {
+      "type": "object",
+      "required": ["type", "clip"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeClip" },
+        "clip": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "AddInsert": {
+      "type": "object",
+      "required": ["type", "insert"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addInsert" },
+        "insert": { "$ref": "project.schema.json#/$defs/Insert" },
+        "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "UpdateInsert": {
+      "description": "Effects and sends have their own commands and can't be changed here.",
+      "type": "object",
+      "required": ["type", "insert", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateInsert" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemoveInsert": {
+      "description": "Channels, audio clips and inserts that fed it are routed to master; sends to it and automation targeting it are removed. Master can't be removed.",
+      "type": "object",
+      "required": ["type", "insert"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeInsert" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "AddEffect": {
+      "type": "object",
+      "required": ["type", "insert", "effect"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addEffect" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" },
+        "effect": { "$ref": "project.schema.json#/$defs/Effect" },
+        "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "UpdateEffect": {
+      "description": "params are merged into the existing ones; other fields replace.",
+      "type": "object",
+      "required": ["type", "insert", "effect", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateEffect" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" },
+        "effect": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemoveEffect": {
+      "description": "Also removes automation clips that target the effect.",
+      "type": "object",
+      "required": ["type", "insert", "effect"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeEffect" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" },
+        "effect": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "MoveEffect": {
+      "type": "object",
+      "required": ["type", "insert", "effect", "index"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "moveEffect" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" },
+        "effect": { "$ref": "project.schema.json#/$defs/Id" },
+        "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "AddSend": {
+      "type": "object",
+      "required": ["type", "insert", "send"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addSend" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" },
+        "send": { "$ref": "project.schema.json#/$defs/Send" }
+      }
+    },
+
+    "UpdateSend": {
+      "type": "object",
+      "required": ["type", "insert", "send", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateSend" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" },
+        "send": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemoveSend": {
+      "description": "Also removes automation clips that target the send.",
+      "type": "object",
+      "required": ["type", "insert", "send"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeSend" },
+        "insert": { "$ref": "project.schema.json#/$defs/Id" },
+        "send": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "Patch": {
+      "description": "Raw JSON Patch (RFC 6902, add/remove/replace only) against song.json, for anything the typed commands don't cover.",
+      "type": "object",
+      "required": ["type", "ops"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "patch" },
+        "ops": { "type": "array", "items": { "$ref": "#/$defs/PatchOp" } }
+      }
+    },
+
+    "PatchOp": {
+      "type": "object",
+      "required": ["op", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "type": "string", "enum": ["add", "remove", "replace"] },
+        "path": { "description": "JSON Pointer into song.json.", "type": "string" },
+        "value": { "description": "Required for add and replace." }
+      }
+    },
+
+    "HistoryEntry": {
+      "description": "One applied change. Entries form a tree: undo moves to the parent, new changes after an undo start a branch.",
+      "type": "object",
+      "required": ["id", "time", "origin", "label", "commands", "forward", "inverse"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "description": "Sequence number, starting at 1.", "type": "integer", "minimum": 1 },
+        "parent": { "description": "Entry this one was applied on top of; absent for the first change.", "type": "integer", "minimum": 1 },
+        "time": { "description": "Milliseconds since the Unix epoch.", "type": "integer", "minimum": 0 },
+        "origin": { "description": "Who made the change, e.g. \"ui\", \"agent\" or \"cli\".", "type": "string" },
+        "group": { "description": "Changes with the same group (e.g. one agent request) undo together.", "type": "string" },
+        "label": { "description": "Short human-readable description.", "type": "string" },
+        "commands": { "type": "array", "items": { "$ref": "#/$defs/Command" } },
+        "forward": { "type": "array", "items": { "$ref": "#/$defs/PatchOp" } },
+        "inverse": { "type": "array", "items": { "$ref": "#/$defs/PatchOp" } }
+      }
+    }
+  }
+}

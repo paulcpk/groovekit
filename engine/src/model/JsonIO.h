@@ -215,6 +215,12 @@ inline void readValue (Reader& r, const Json& j, int64_t& out)
     out = j.get<int64_t>();
 }
 
+/** Free-form values are kept as JSON. */
+inline void readValue (Reader&, const Json& j, Json& out)
+{
+    out = j;
+}
+
 template <typename T>
 void readValue (Reader& r, const Json& j, std::vector<T>& out)
 {
@@ -246,6 +252,7 @@ inline Json toJson (bool v)                 { return v; }
 inline Json toJson (double v)               { return v; }
 inline Json toJson (int v)                  { return v; }
 inline Json toJson (int64_t v)              { return v; }
+inline Json toJson (const Json& v)          { return v; }
 
 template <typename T>
 Json toJson (const std::vector<T>& v)

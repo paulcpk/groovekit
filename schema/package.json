@@ -6,16 +6,20 @@
   "type": "module",
   "exports": {
     "./project": "./generated/project.ts",
-    "./project.schema.json": "./project.schema.json"
+    "./protocol": "./generated/protocol.ts",
+    "./project.schema.json": "./project.schema.json",
+    "./protocol.schema.json": "./protocol.schema.json"
   },
   "scripts": {
     "codegen": "node codegen/generate.ts",
     "codegen:check": "node codegen/generate.ts --check",
-    "test": "vitest run"
+    "test": "tsc && vitest run",
+    "typecheck": "tsc"
   },
   "devDependencies": {
+    "@types/node": "24.10.1",
     "ajv": "8.20.0",
-    "json-schema-to-typescript": "16.0.0",
+    "typescript": "5.9.3",
     "vitest": "5.0.5"
   }
 }

@@ -3,6 +3,7 @@ add_executable(gk_tests
     ModelTests.cpp
     RenderTests.cpp
     SamplerTests.cpp
+    SessionTests.cpp
     TestHelpers.cpp)
 
 target_link_libraries(gk_tests PRIVATE gk_engine Catch2::Catch2WithMain)

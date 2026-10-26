@@ -11,7 +11,10 @@ target_sources(gk_engine PRIVATE
     src/render/Render.cpp
     src/sampler/SampleCache.cpp
     src/sampler/SamplerEngine.cpp
-    src/sampler/SamplerPlugin.cpp)
+    src/sampler/SamplerPlugin.cpp
+    src/session/Commands.cpp
+    src/session/Session.cpp
+    src/session/Transaction.cpp)
 
 target_include_directories(gk_engine PUBLIC src)
 
