@@ -1,0 +1,10 @@
+{
+  "render": { "tailSeconds": 2 },
+  "durationSeconds": 17.4839,
+  "peakDb": [-6, -0.1],
+  "integratedLufs": [-18, -13],
+  "segments": [
+    { "start": 0, "end": 15.5, "rmsDb": [-25, -10] },
+    { "start": 17.0, "end": 17.48, "silent": true }
+  ]
+}
