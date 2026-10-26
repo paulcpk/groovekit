@@ -35,11 +35,9 @@ namespace
 
     std::unique_ptr<tracktion::PropertyStorage> createStorage (const EngineContext::Options& o)
     {
-        if (o.settingsFolder.empty())
-            return std::make_unique<tracktion::PropertyStorage> ("GrooveKit");
-
-        std::filesystem::create_directories (o.settingsFolder);
-        return std::make_unique<FolderPropertyStorage> (o.settingsFolder);
+        const auto folder = o.settingsFolder.empty() ? EngineContext::getAppDataFolder() : o.settingsFolder;
+        std::filesystem::create_directories (folder);
+        return std::make_unique<FolderPropertyStorage> (folder);
     }
 }
 
@@ -81,6 +79,13 @@ EngineContext::EngineContext (Options options) : impl (std::make_unique<Impl> (o
     plugins.createBuiltInType<mixer::LimiterPlugin>();
 }
 EngineContext::~EngineContext() = default;
+
+std::filesystem::path EngineContext::getAppDataFolder()
+{
+    // JUCE's userApplicationDataDirectory is ~/Library on macOS.
+    auto library = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
+    return std::filesystem::path (library.getFullPathName().toStdString()) / "Application Support" / "GrooveKit";
+}
 
 tracktion::Engine& EngineContext::getEngine()
 {

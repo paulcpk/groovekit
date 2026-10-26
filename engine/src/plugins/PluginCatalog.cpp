@@ -1,5 +1,7 @@
 #include "PluginCatalog.h"
 
+#include "EngineContext.h"
+
 namespace gk
 {
 
@@ -22,8 +24,7 @@ fs::path PluginCatalog::getDefaultListFile()
     if (auto env = std::getenv ("GROOVEKIT_PLUGIN_LIST"))
         return env;
 
-    auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
-    return fs::path (dir.getFullPathName().toStdString()) / "GrooveKit" / "plugins.xml";
+    return fs::path (EngineContext::getAppDataFolder()) / "plugins.xml";
 }
 
 bool PluginCatalog::startScan (std::function<void (const Progress&)> callback,

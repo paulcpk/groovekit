@@ -1,5 +1,7 @@
 #include "SampleLibrary.h"
 
+#include "EngineContext.h"
+
 #include <fstream>
 #include <set>
 
@@ -96,15 +98,16 @@ namespace
         if (c.tempo)    s += ", " + juce::String (*c.tempo, 1).toStdString() + " BPM";
         if (c.key)      s += ", " + *c.key;
 
-        if (f.pitch && f.pitch->confidence > 0.7f)
+        // Pitch and attack describe a single hit; in a loop they'd only describe its loudest moment.
+        if (! c.loop && f.pitch && f.pitch->confidence > 0.7f)
         {
             const auto cents = static_cast<int> (std::lround (f.pitch->cents));
             s += ", pitched " + noteName (f.pitch->key) + (cents != 0 ? " (" + std::string (cents > 0 ? "+" : "") + std::to_string (cents) + " c)" : "");
         }
 
-        if (f.attackMs <= 10)
+        if (! c.loop && f.attackMs <= 10)
             s += ", sharp attack";
-        else if (f.attackMs >= 100)
+        else if (! c.loop && f.attackMs >= 100)
             s += ", soft attack";
 
         if (f.centroidHz > 0)
@@ -167,8 +170,7 @@ fs::path SampleLibrary::getDefaultIndexFile()
     if (auto env = std::getenv ("GROOVEKIT_LIBRARY_INDEX"))
         return env;
 
-    auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
-    return fs::path (dir.getFullPathName().toStdString()) / "GrooveKit" / "library.json";
+    return fs::path (EngineContext::getAppDataFolder()) / "library.json";
 }
 
 std::vector<fs::path> SampleLibrary::getFolders() const
@@ -436,16 +438,42 @@ std::vector<SampleEntry> SampleLibrary::search (const SampleQuery& q) const
             scored.emplace_back (score, &e);
     }
 
-    std::stable_sort (scored.begin(), scored.end(), [] (auto& a, auto& b) { return a.first > b.first; });
+    // Among equally good matches, alternate between packs (the first folder below the library
+    // folder) so one pack doesn't fill every result.
+    auto packOf = [this] (const std::string& path)
+    {
+        for (auto& folder : folders)
+        {
+            const auto root = folder.string() + "/";
 
-    std::vector<SampleEntry> results;
+            if (path.starts_with (root))
+                return path.substr (root.size(), path.find ('/', root.size()) - root.size());
+        }
+
+        return std::string();
+    };
+
+    std::map<std::pair<int, std::string>, int> seenPerPack;
+    std::vector<std::tuple<int, int, const SampleEntry*>> ranked; // score, rank within its pack, entry
 
     for (auto& [score, e] : scored)
+        ranked.emplace_back (score, seenPerPack[{ score, packOf (e->path) }]++, e);
+
+    std::stable_sort (ranked.begin(), ranked.end(), [] (auto& a, auto& b)
+    {
+        return std::get<0> (a) != std::get<0> (b) ? std::get<0> (a) > std::get<0> (b) : std::get<1> (a) < std::get<1> (b);
+    });
+
+    std::vector<SampleEntry> results;
+    std::set<std::pair<std::string, int64_t>> seenFiles; // copies of a file in several folders show once
+
+    for (auto& [score, rank, e] : ranked)
     {
         if (static_cast<int> (results.size()) >= q.limit)
             break;
 
-        results.push_back (*e);
+        if (seenFiles.insert ({ fs::path (e->path).filename().string(), e->size }).second)
+            results.push_back (*e);
     }
 
     return results;
@@ -467,7 +495,7 @@ Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures)
     if (c.tempo)    j["tempo"] = *c.tempo;
     if (c.key)      j["key"] = *c.key;
 
-    if (f.pitch && f.pitch->confidence > 0.7f)
+    if (! c.loop && f.pitch && f.pitch->confidence > 0.7f)
         j["rootKey"] = f.pitch->key;
 
     if (includeFeatures)

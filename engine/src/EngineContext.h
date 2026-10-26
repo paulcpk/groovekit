@@ -18,7 +18,7 @@ public:
             runPluginScanChildIfRequested() first thing in main(). */
         bool outOfProcessPluginScanning = false;
 
-        /** Where Tracktion keeps its settings (devices, caches); empty for ~/Library/GrooveKit. */
+        /** Where Tracktion keeps its settings (devices, caches); empty for getAppDataFolder(). */
         std::filesystem::path settingsFolder;
     };
 
@@ -31,6 +31,9 @@ public:
     static void runPluginScanChildIfRequested (int argc, char* argv[]);
 
     tracktion::Engine& getEngine();
+
+    /** ~/Library/Application Support/GrooveKit: settings, the sample library index, the plugin list. */
+    static std::filesystem::path getAppDataFolder();
 
 private:
     struct Impl;
