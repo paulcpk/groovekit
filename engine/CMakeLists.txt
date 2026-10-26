@@ -12,6 +12,7 @@ target_sources(gk_engine PRIVATE
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp
     src/library/SampleLibrary.cpp
+    src/live/LiveEngine.cpp
     src/mixer/FaderPlugin.cpp
     src/mixer/LimiterPlugin.cpp
     src/model/Project.cpp

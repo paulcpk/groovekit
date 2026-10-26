@@ -17,6 +17,8 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 
 `kind` is `execute`, `undo` or `redo`. For undo, `ops` are the entry's inverse.
 
+While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second.
+
 ## Methods
 
 | Method | Params | Result |
@@ -32,6 +34,14 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 | `master` | `targetLufs?` (default -14), `ceilingDb?` (-1), `releaseMs?`, `start?`, `end?`, `group?` | `{ inputGainDb, integratedLufs, truePeakDb, reachedTarget, renders }`; sets the master limiter as one history entry |
 | `analyzeMix` | `start?`, `end?` (ticks), `tailSeconds?` | `{ mix, bands, stems: [{ source, integratedLufs, peakDb, bandShare }], masking: [{ a, b, bands }] }` |
 | `listEffects` | | built-in effects with parameter names, units and ranges |
+| `transport.state` / `transport.play` / `transport.stop` | | `{ playing, recording, position (ticks), seconds }` |
+| `transport.setPosition` | `position` (ticks) | transport state |
+| `transport.setLoop` | `start`, `end` (ticks); omit both to stop looping | transport state |
+| `record.inputs` | | `{ inputs: [name] }` |
+| `record.start` | `targets: [{ input, track, insert? }]` (insert defaults to master) | transport state; records from the current position |
+| `record.stop` | `group?` | `{ clips: [id], transport }`; the takes become audio clips (files in `<project>/recordings`) |
+| `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, sampleRate, bufferSize } }` |
+| `audio.setDevice` | `type?`, `output?`, `input?`, `sampleRate?`, `bufferSize?` | same as `audio.devices` |
 | `library.status` | | `{ folders, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |
 | `library.scan` | | progress; `libraryProgress` notifications follow |

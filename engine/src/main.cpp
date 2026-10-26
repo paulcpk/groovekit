@@ -4,6 +4,7 @@
 #include "compiler/EditCompiler.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
+#include "live/LiveEngine.h"
 #include "render/Render.h"
 
 #include <tracktion_engine/tracktion_engine.h>
@@ -22,7 +23,7 @@ Usage:
       --start <ticks>        default 0
       --end <ticks>          default: end of the last clip
       --tail <seconds>       extra time after the end (default 0)
-  groovekit-engine serve <project-folder> [--port <port>] [--library <index.json>]
+  groovekit-engine serve <project-folder> [--port <port>] [--library <index.json>] [--no-audio 1]
       Opens (or creates) the project and serves the JSON-RPC API on ws://127.0.0.1:<port>
       (default 7878) until interrupted. The sample library index defaults to
       ~/Library/Application Support/GrooveKit/library.json.
@@ -106,7 +107,12 @@ Add --verbose to see engine log messages.
         gk::EngineContext context;
         auto session = gk::Session::open (std::filesystem::absolute (args.positional[1]));
         gk::library::SampleLibrary library (args.get ("--library").value_or (gk::library::SampleLibrary::getDefaultIndexFile().string()));
-        gk::ApiHandler handler (*session, context, &library);
+        gk::LiveEngine live (context, *session);
+
+        if (! args.get ("--no-audio"))
+            live.openDefaultAudioDevice();
+
+        gk::ApiHandler handler (*session, context, &library, &live);
         gk::ApiServer server (handler, port);
         server.start();
 

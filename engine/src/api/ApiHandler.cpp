@@ -6,6 +6,7 @@
 #include "compiler/EditCompiler.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
+#include "live/LiveEngine.h"
 #include "render/Render.h"
 #include "session/Mastering.h"
 #include "session/Summary.h"
@@ -88,9 +89,17 @@ namespace
     }
 }
 
-ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l)
-    : session (s), context (c), library (l)
+ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l, LiveEngine* le)
+    : session (s), context (c), library (l), live (le)
 {
+    if (live != nullptr)
+        live->onTransportChange = [this] (const LiveEngine::TransportState& t)
+        {
+            if (broadcast)
+                broadcast (notification ("transport", { { "playing", t.playing }, { "recording", t.recording },
+                                                        { "position", t.position }, { "seconds", t.seconds } }).dump());
+        };
+
     listenerId = session.addListener ([this] (const Change& change)
     {
         if (! broadcast)
@@ -114,6 +123,10 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l)
 ApiHandler::~ApiHandler()
 {
     *alive = false;
+
+    if (live != nullptr)
+        live->onTransportChange = {};
+
     session.removeListener (listenerId);
 }
 
@@ -286,6 +299,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
     if (method.starts_with ("library."))
         return callLibrary (method.substr (8), params);
 
+    if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio."))
+        return callLive (method, params, client);
+
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 }
 
@@ -394,6 +410,126 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
     }
 
     throw RpcError (methodNotFound, "unknown method \"library." + method + "\"");
+}
+
+Json ApiHandler::callLive (const std::string& method, const Json& params, Client& client)
+{
+    if (live == nullptr)
+        throw RpcError (operationFailed, "this engine has no live playback");
+
+    auto state = [this]
+    {
+        auto t = live->getTransportState();
+        return Json { { "playing", t.playing }, { "recording", t.recording }, { "position", t.position }, { "seconds", t.seconds } };
+    };
+
+    if (method == "transport.state")    return state();
+    if (method == "transport.play")     { live->play(); return state(); }
+    if (method == "transport.stop")     { live->stop(); return state(); }
+
+    if (method == "transport.setPosition")
+    {
+        live->setPosition (static_cast<model::Ticks> (optionalNumber (params, "position").value_or (0)));
+        return state();
+    }
+
+    if (method == "transport.setLoop")
+    {
+        auto start = optionalNumber (params, "start");
+        auto end = optionalNumber (params, "end");
+
+        if (start && end)
+            live->setLoop (std::make_pair (static_cast<model::Ticks> (*start), static_cast<model::Ticks> (*end)));
+        else
+            live->setLoop ({});
+
+        return state();
+    }
+
+    if (method == "record.inputs")
+        return { { "inputs", live->getInputNames() } };
+
+    if (method == "record.start")
+    {
+        std::vector<LiveEngine::RecordTarget> targets;
+
+        for (auto& t : params.value ("targets", Json::array()))
+        {
+            if (! t.is_object() || ! t.contains ("input") || ! t.contains ("track"))
+                throw RpcError (invalidParams, "each target needs input and track (and optionally insert)");
+
+            targets.push_back ({ t["input"].get<std::string>(), t.value ("insert", std::string (model::masterInsertId)),
+                                 t["track"].get<std::string>() });
+        }
+
+        live->startRecording (targets);
+        return state();
+    }
+
+    if (method == "record.stop")
+    {
+        ExecuteOptions options;
+        options.origin = client.origin;
+
+        if (params.contains ("group"))
+            options.group = readParam<std::string> (params, "group");
+
+        return { { "clips", live->stopRecording (options) }, { "transport", state() } };
+    }
+
+    auto& devices = context.getEngine().getDeviceManager().deviceManager;
+
+    if (method == "audio.devices")
+    {
+        auto types = Json::array();
+
+        for (auto type : devices.getAvailableDeviceTypes())
+        {
+            type->scanForDevices();
+            auto names = [] (const juce::StringArray& list)
+            {
+                auto j = Json::array();
+
+                for (auto& n : list)
+                    j.push_back (n.toStdString());
+
+                return j;
+            };
+
+            types.push_back ({ { "type", type->getTypeName().toStdString() },
+                               { "outputs", names (type->getDeviceNames (false)) },
+                               { "inputs", names (type->getDeviceNames (true)) } });
+        }
+
+        auto setup = devices.getAudioDeviceSetup();
+        return { { "types", types },
+                 { "current", { { "type", devices.getCurrentAudioDeviceType().toStdString() },
+                                { "output", setup.outputDeviceName.toStdString() }, { "input", setup.inputDeviceName.toStdString() },
+                                { "sampleRate", setup.sampleRate }, { "bufferSize", setup.bufferSize } } } };
+    }
+
+    if (method == "audio.setDevice")
+    {
+        if (params.contains ("type"))
+            devices.setCurrentAudioDeviceType (readParam<std::string> (params, "type"), true);
+
+        auto setup = devices.getAudioDeviceSetup();
+
+        if (params.contains ("output"))                             setup.outputDeviceName = readParam<std::string> (params, "output");
+        if (params.contains ("input"))                              setup.inputDeviceName = readParam<std::string> (params, "input");
+        if (auto v = optionalNumber (params, "sampleRate"))         setup.sampleRate = *v;
+        if (auto v = optionalNumber (params, "bufferSize"))         setup.bufferSize = static_cast<int> (*v);
+
+        setup.useDefaultInputChannels = true;
+        setup.useDefaultOutputChannels = true;
+
+        if (auto error = devices.setAudioDeviceSetup (setup, true); error.isNotEmpty())
+            throw RpcError (operationFailed, error.toStdString());
+
+        return call ("audio.devices", Json::object(), client);
+    }
+
+    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 }
 
 void ApiHandler::startLibraryScan()

@@ -59,7 +59,7 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
   };
 
   beforeAll(async () => {
-    engineProcess = spawn(enginePath, ["serve", project, "--port", String(port), "--library", join(project, "library.json")], { stdio: "ignore" });
+    engineProcess = spawn(enginePath, ["serve", project, "--port", String(port), "--library", join(project, "library.json"), "--no-audio", "1"], { stdio: "ignore" });
     engine = new EngineClient(`ws://127.0.0.1:${port}`);
 
     for (let i = 0; i < 100; i++) {
