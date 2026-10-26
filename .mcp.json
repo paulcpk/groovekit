@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "groovekit": {
+      "command": "node",
+      "args": [
+        "mcp/src/index.ts",
+        "--engine", "build/dev/engine/groovekit-engine",
+        "--project", "${GROOVEKIT_PROJECT:-${HOME}/Music/GrooveKit/Scratch}"
+      ]
+    }
+  }
+}

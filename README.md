@@ -32,12 +32,17 @@ build/dev/engine/groovekit-engine analyze groove.wav
 build/dev/engine/groovekit-engine effects
 ```
 
+### With Claude Code
+
+The engine serves a JSON-RPC API over WebSocket (`groovekit-engine serve <project-folder>`, see [docs/protocol.md](docs/protocol.md)), and [mcp/](mcp) exposes it as MCP tools. The repository's [.mcp.json](.mcp.json) starts both; the project folder defaults to `~/Music/GrooveKit/Scratch` and can be changed with `GROOVEKIT_PROJECT`. Build the engine first, then open Claude Code in the repository and ask it to make a beat.
+
 Songs are JSON files described by [schema/project.schema.json](schema/project.schema.json). The examples in [tests/songs](tests/songs) double as render tests.
 
 ## Repository layout
 
-- `engine/` — C++ engine: model, compiler to Tracktion, sampler, mixer, effects, renderer, analysis, CLI
-- `schema/` — the JSON Schema and the generator for C++ and TypeScript types (`pnpm codegen`)
+- `engine/` — C++ engine: model, commands and history, API server, compiler to Tracktion, sampler, mixer, effects, renderer, analysis, CLI
+- `schema/` — JSON Schemas for the project and the command protocol, and the C++/TypeScript generator (`pnpm codegen`)
+- `mcp/` — the MCP server for agents
 - `tests/` — render test songs and the fixture samples they use
 
 ## License
