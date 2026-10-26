@@ -109,7 +109,7 @@ TEST_CASE ("Live playback follows the song")
 {
     HostedAudio audio (2);
     auto session = beepSession ("live-playback");
-    LiveEngine live (test::getEngineContext(), *session);
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
 
     std::vector<LiveEngine::TransportState> notifications;
     live.onTransportChange = [&] (const LiveEngine::TransportState& s) { notifications.push_back (s); };
@@ -159,7 +159,7 @@ TEST_CASE ("Recording an input adds the take to the project")
     readValue (r, Json::parse (R"({ "type": "updateTrack", "track": "t", "changes": { "mute": true } })"), c);
     session->execute ({ c });
 
-    LiveEngine live (test::getEngineContext(), *session);
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
     auto inputs = live.getInputNames();
     REQUIRE_FALSE (inputs.empty());
 

@@ -10,6 +10,18 @@ namespace gk
 
 class EngineContext;
 
+struct LiveRecordOptions
+{
+    /** Stop by itself after this many ticks, and trim the takes to it. */
+    std::optional<model::Ticks> length;
+
+    /** Don't add clips for takes that stayed silent (MIDI or unused tracks). The files are kept. */
+    bool dropSilent = false;
+
+    /** False to record without touching the project (e.g. for calibration). */
+    bool addClips = true;
+};
+
 /** Real-time playback and recording of a session. Lives on the message thread.
 
     Keeps a playable Edit in step with the session: after a change it recompiles and, if it
@@ -21,7 +33,8 @@ class LiveEngine : private juce::AsyncUpdater,
                    private juce::Timer
 {
 public:
-    LiveEngine (EngineContext&, Session&);
+    /** settingsFile keeps per-device recording alignment; empty for <app data>/recording.json. */
+    LiveEngine (EngineContext&, Session&, std::filesystem::path settingsFile = {});
     ~LiveEngine() override;
 
     /** Opens the system's default audio device. Without this, the engine plays through
@@ -50,11 +63,50 @@ public:
 
     std::vector<std::string> getInputNames() const;
 
-    /** Arms the targets and starts the transport recording. Throws if an input or id is unknown. */
-    void startRecording (const std::vector<RecordTarget>&);
+    struct MidiPort
+    {
+        std::string name;
+        bool enabled = false, sendsClock = false;
+    };
+
+    std::vector<MidiPort> getMidiOutputs() const;
+    std::vector<std::string> getMidiInputs() const;
+
+    /** Sends MIDI clock, start and stop to an output, so hardware like the Digitakt follows
+        GrooveKit's tempo and starts with its transport. Throws if there's no such output. */
+    void setMidiClock (const std::string& output, bool enabled);
+
+    /** Pairs input channels named "... L" and "... R" (as the Digitakt names its per-track outputs)
+        into stereo inputs and leaves the rest mono. Call after the input device changes. */
+    void pairStereoInputs();
+
+    using RecordOptions = LiveRecordOptions;
+
+    /** Arms the targets and starts the transport recording from the current position.
+        Throws if an input or id is unknown. */
+    void startRecording (const std::vector<RecordTarget>&, const RecordOptions& = {});
 
     /** Stops, and adds the takes to the project. Returns the new clip ids. */
     std::vector<model::Id> stopRecording (const ExecuteOptions& = { "recording", {}, {} });
+
+    struct CalibrationResult
+    {
+        double alignmentMs;         // how much later takes from this device are placed from now on
+        double spreadMs;            // median deviation of the hits around the measured offset
+        int hits;                   // hits the measurement used
+        std::string device;
+    };
+
+    /** Records an input that plays clean hits in time with GrooveKit (e.g. a kick on a Digitakt
+        track following GrooveKit's MIDI clock) for a few bars from bar 1, measures how far the hits
+        sit from the 16th-note grid, and stores that as the input device's alignment. Blocks while
+        recording. Round trips through hardware (MIDI out, the instrument, USB audio in) aren't
+        known to the engine, so this is how takes end up on the grid. */
+    CalibrationResult calibrateAlignment (const std::string& input, int bars);
+
+    /** Milliseconds takes from the current input device are moved later when they become clips. */
+    double getAlignmentMs() const;
+    void setAlignmentMs (double);
 
     //==============================================================================
     struct TransportState
@@ -91,6 +143,23 @@ private:
     };
 
     std::vector<ActiveRecording> recordings;
+
+    struct Take
+    {
+        std::filesystem::path file;
+        double startSeconds, offsetSeconds;
+    };
+
+    std::vector<Take> lastTakes;
+
+    std::filesystem::path settingsFile;
+    std::map<std::string, double> alignmentMs; // by input device name
+
+    std::string currentInputDevice() const;
+    void loadSettings();
+    void saveSettings() const;
+    RecordOptions recordOptions;
+    model::Ticks recordStart = 0;
     TransportState lastNotified;
 
     void rebuild();

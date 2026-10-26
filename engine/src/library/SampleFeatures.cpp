@@ -107,10 +107,13 @@ namespace
         return flux;
     }
 
-    int countOnsets (const std::vector<float>& flux, int minGapHops)
+    /** Indices of peaks in an onset strength curve that stand out from the rest. */
+    std::vector<int> pickOnsets (const std::vector<float>& flux, int minGapHops)
     {
+        std::vector<int> onsets;
+
         if (flux.empty())
-            return 0;
+            return onsets;
 
         double mean = 0, var = 0;
 
@@ -120,7 +123,7 @@ namespace
         for (auto v : flux) var += (v - mean) * (v - mean);
         const auto threshold = std::max (0.5, mean + 2.0 * std::sqrt (var / static_cast<double> (flux.size())));
 
-        int count = 0, last = -minGapHops;
+        int last = -minGapHops;
 
         for (int i = 0; i + 1 < static_cast<int> (flux.size()); ++i)
         {
@@ -129,12 +132,17 @@ namespace
 
             if (v > threshold && v >= previous && v >= flux[static_cast<size_t> (i + 1)] && i - last >= minGapHops)
             {
-                ++count;
+                onsets.push_back (i);
                 last = i;
             }
         }
 
-        return count;
+        return onsets;
+    }
+
+    int countOnsets (const std::vector<float>& flux, int minGapHops)
+    {
+        return static_cast<int> (pickOnsets (flux, minGapHops).size());
     }
 
     std::optional<double> estimateTempo (const std::vector<float>& flux, double hopSeconds, double durationSeconds)
@@ -189,6 +197,34 @@ namespace
 
         return std::round (best * 100.0) / 100.0;
     }
+}
+
+std::vector<double> detectTransients (const Audio& audio, double resolutionSeconds)
+{
+    const auto hop = std::max (1, static_cast<int> (std::lround (resolutionSeconds * audio.sampleRate)));
+    auto env = envelope (monoMix (audio, audio.buffer.getNumSamples()), hop);
+
+    // Rise against the loudest of the previous 10 ms, so a hit inside a sustained mix still stands out.
+    const auto lookBack = std::max (1, static_cast<int> (std::lround (0.01 / resolutionSeconds)));
+    std::vector<float> rise (env.size(), 0.0f);
+
+    for (size_t i = 0; i < env.size(); ++i)
+    {
+        float before = 0;
+
+        for (auto j = static_cast<int> (i) - lookBack; j < static_cast<int> (i); ++j)
+            if (j >= 0)
+                before = std::max (before, env[static_cast<size_t> (j)]);
+
+        rise[i] = std::max (0.0f, std::log (env[i] + 1.0e-5f) - std::log (before + 1.0e-5f));
+    }
+
+    std::vector<double> times;
+
+    for (auto i : pickOnsets (rise, std::max (1, static_cast<int> (std::lround (0.03 / resolutionSeconds)))))
+        times.push_back (i * hop / audio.sampleRate);
+
+    return times;
 }
 
 std::optional<SampleFeatures::Pitch> detectPitch (const Audio& audio, int startSample, int windowSamples)

@@ -300,7 +300,7 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
     if (method.starts_with ("library."))
         return callLibrary (method.substr (8), params);
 
-    if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio."))
+    if (method.starts_with ("transport.") || method.starts_with ("record.") || method.starts_with ("audio.") || method.starts_with ("midi."))
         return callLive (method, params, client);
 
     if (method.starts_with ("plugins."))
@@ -450,6 +450,37 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         return state();
     }
 
+    if (method == "midi.devices")
+    {
+        auto outputs = Json::array();
+
+        for (auto& port : live->getMidiOutputs())
+            outputs.push_back ({ { "name", port.name }, { "enabled", port.enabled }, { "clock", port.sendsClock } });
+
+        return { { "outputs", outputs }, { "inputs", live->getMidiInputs() } };
+    }
+
+    if (method == "midi.setClock")
+    {
+        live->setMidiClock (readParam<std::string> (params, "output"), params.value ("enabled", true));
+        return call ("midi.devices", Json::object(), client);
+    }
+
+    if (method == "record.calibrate")
+    {
+        auto r = live->calibrateAlignment (params.value ("input", std::string ("Track 1")), params.value ("bars", 2));
+        return { { "alignmentMs", std::round (r.alignmentMs * 10) / 10 }, { "spreadMs", std::round (r.spreadMs * 10) / 10 },
+                 { "hits", r.hits }, { "device", r.device } };
+    }
+
+    if (method == "record.alignment")
+    {
+        if (auto ms = optionalNumber (params, "ms"))
+            live->setAlignmentMs (*ms);
+
+        return { { "alignmentMs", live->getAlignmentMs() } };
+    }
+
     if (method == "record.inputs")
         return { { "inputs", live->getInputNames() } };
 
@@ -466,7 +497,16 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
                                  t["track"].get<std::string>() });
         }
 
-        live->startRecording (targets);
+        LiveEngine::RecordOptions options;
+        options.dropSilent = params.value ("dropSilent", false);
+
+        if (auto bars = optionalNumber (params, "bars"))
+            options.length = static_cast<model::Ticks> (*bars * static_cast<double> (model::ticksPerBar (session.getProject().timeSignature)));
+
+        if (auto from = optionalNumber (params, "fromBar"))
+            live->setPosition (static_cast<model::Ticks> ((*from - 1) * static_cast<double> (model::ticksPerBar (session.getProject().timeSignature))));
+
+        live->startRecording (targets, options);
         return state();
     }
 
@@ -529,6 +569,8 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
 
         if (auto error = devices.setAudioDeviceSetup (setup, true); error.isNotEmpty())
             throw RpcError (operationFailed, error.toStdString());
+
+        live->pairStereoInputs();
 
         return call ("audio.devices", Json::object(), client);
     }

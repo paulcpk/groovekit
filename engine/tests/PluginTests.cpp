@@ -134,7 +134,7 @@ TEST_CASE ("Plugin state is captured into the project and restored")
     replace.ops.push_back ({ model::PatchOpOp::replace, "/mixer", doc["mixer"] });
     session->execute ({ replace });
 
-    LiveEngine live (test::getEngineContext(), *session);
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
     ApiHandler handler (*session, test::getEngineContext(), nullptr, &live, &appleUnits());
 
     Json response;

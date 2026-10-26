@@ -37,8 +37,12 @@ While playing, `transport` notifications (`{ playing, recording, position, secon
 | `transport.state` / `transport.play` / `transport.stop` | | `{ playing, recording, position (ticks), seconds }` |
 | `transport.setPosition` | `position` (ticks) | transport state |
 | `transport.setLoop` | `start`, `end` (ticks); omit both to stop looping | transport state |
-| `record.inputs` | | `{ inputs: [name] }` |
-| `record.start` | `targets: [{ input, track, insert? }]` (insert defaults to master) | transport state; records from the current position |
+| `record.inputs` | | `{ inputs: [name] }`; channels named "X L"/"X R" (e.g. the Digitakt's) are paired into stereo inputs named "X" |
+| `record.start` | `targets: [{ input, track, insert? }]` (insert defaults to master), `fromBar?`, `bars?` (stops by itself), `dropSilent?` | transport state |
+| `record.calibrate` | `input?` (default "Track 1"), `bars?` (2) | `{ alignmentMs, spreadMs, hits, device }`: records clean hits in time with GrooveKit (e.g. a kick on clock-synced hardware) and stores how much later that device's takes are placed |
+| `record.alignment` | `ms?` | `{ alignmentMs }` for the current input device |
+| `midi.devices` | | `{ outputs: [{ name, enabled, clock }], inputs }` |
+| `midi.setClock` | `output`, `enabled?` (true) | same as `midi.devices`; sends clock, start and stop so hardware follows GrooveKit |
 | `record.stop` | `group?` | `{ clips: [id], transport }`; the takes become audio clips (files in `<project>/recordings`) |
 | `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, sampleRate, bufferSize } }` |
 | `audio.setDevice` | `type?`, `output?`, `input?`, `sampleRate?`, `bufferSize?` | same as `audio.devices` |

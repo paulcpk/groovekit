@@ -1,6 +1,10 @@
 #include "LiveEngine.h"
 
 #include "EngineContext.h"
+#include "analysis/Analysis.h"
+#include "library/SampleFeatures.h"
+
+#include <fstream>
 
 namespace gk
 {
@@ -8,9 +12,18 @@ namespace gk
 namespace te = tracktion;
 using namespace model;
 
-LiveEngine::LiveEngine (EngineContext& c, Session& s)
-    : context (c), session (s)
+namespace
 {
+    /** Takes quieter than this throughout count as silent. */
+    constexpr float silentTakeDb = -50.0f;
+}
+
+LiveEngine::LiveEngine (EngineContext& c, Session& s, std::filesystem::path file)
+    : context (c), session (s),
+      settingsFile (file.empty() ? EngineContext::getAppDataFolder() / "recording.json" : std::move (file))
+{
+    loadSettings();
+
     listenerId = session.addListener ([this] (const Change&)
     {
         needsRebuild = true;
@@ -33,6 +46,7 @@ LiveEngine::~LiveEngine()
 void LiveEngine::openDefaultAudioDevice()
 {
     context.getEngine().getDeviceManager().initialise();
+    pairStereoInputs();
 
     if (hasAudioDevice())
         transport().ensureContextAllocated();
@@ -172,17 +186,110 @@ void LiveEngine::setLoop (std::optional<std::pair<Ticks, Ticks>> range)
 }
 
 //==============================================================================
+namespace
+{
+    /** "Track 1 L + Track 1 R" -> "Track 1"; other names stay as they are. */
+    std::string friendlyInputName (const juce::String& name)
+    {
+        const auto left = name.upToFirstOccurrenceOf (" + ", false, false);
+        const auto right = name.fromFirstOccurrenceOf (" + ", false, false);
+
+        if (left.endsWith (" L") && right.endsWith (" R") && left.dropLastCharacters (2) == right.dropLastCharacters (2))
+            return left.dropLastCharacters (2).toStdString();
+
+        return name.toStdString();
+    }
+}
+
 std::vector<std::string> LiveEngine::getInputNames() const
 {
     std::vector<std::string> names;
 
     for (auto device : context.getEngine().getDeviceManager().getWaveInputDevices())
-        names.push_back (device->getName().toStdString());
+        names.push_back (friendlyInputName (device->getName()));
 
     return names;
 }
 
-void LiveEngine::startRecording (const std::vector<RecordTarget>& targets)
+std::vector<LiveEngine::MidiPort> LiveEngine::getMidiOutputs() const
+{
+    std::vector<MidiPort> ports;
+    auto& devices = context.getEngine().getDeviceManager();
+
+    for (int i = 0; i < devices.getNumMidiOutDevices(); ++i)
+        if (auto d = devices.getMidiOutDevice (i))
+            ports.push_back ({ d->getName().toStdString(), d->isEnabled(), d->isSendingClock() });
+
+    return ports;
+}
+
+std::vector<std::string> LiveEngine::getMidiInputs() const
+{
+    std::vector<std::string> names;
+
+    for (auto& d : context.getEngine().getDeviceManager().getMidiInDevices())
+        names.push_back (d->getName().toStdString());
+
+    return names;
+}
+
+void LiveEngine::setMidiClock (const std::string& output, bool enabled)
+{
+    auto& devices = context.getEngine().getDeviceManager();
+
+    for (int i = 0; i < devices.getNumMidiOutDevices(); ++i)
+    {
+        if (auto d = devices.getMidiOutDevice (i); d != nullptr && d->getName().toStdString() == output)
+        {
+            if (enabled && ! d->isEnabled())
+                d->setEnabled (true);
+
+            d->setSendingClock (enabled);
+            devices.dispatchPendingUpdates();
+
+            // The playback context picks up output devices when it's created.
+            if (hasAudioDevice())
+                transport().ensureContextAllocated (true);
+
+            return;
+        }
+    }
+
+    throw std::runtime_error ("No MIDI output \"" + output + "\"");
+}
+
+void LiveEngine::pairStereoInputs()
+{
+    auto& devices = context.getEngine().getDeviceManager();
+    auto device = devices.deviceManager.getCurrentAudioDevice();
+
+    if (device == nullptr)
+        return;
+
+    const auto names = device->getInputChannelNames();
+
+    for (int ch = 0; ch + 1 < names.size(); ch += 2)
+    {
+        const auto& left = names[ch];
+        const auto& right = names[ch + 1];
+        const bool pair = left.endsWith (" L") && right.endsWith (" R")
+                       && left.dropLastCharacters (2) == right.dropLastCharacters (2);
+
+        devices.setDeviceInChannelStereo (ch, pair);
+    }
+
+    devices.dispatchPendingUpdates();
+
+    // GrooveKit aligns takes itself; Tracktion's adjustment can only drop samples, never pad.
+    for (auto input : devices.getWaveInputDevices())
+        if (input->getRecordAdjustmentMs() != 0)
+            input->setRecordAdjustmentMs (0);
+
+    needsRebuild = true;
+    updateNow();
+}
+
+void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const RecordOptions& options)
 {
     if (targets.empty())
         throw std::runtime_error ("Nothing to record");
@@ -205,14 +312,18 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets)
         if (findInsert (project, t.insert) == nullptr)
             throw std::runtime_error ("No mixer insert \"" + t.insert + "\"");
 
-        if (findTrack (project, t.track) == nullptr)
+        if (options.addClips && findTrack (project, t.track) == nullptr)
             throw std::runtime_error ("No playlist track \"" + t.track + "\"");
 
         te::InputDeviceInstance* input = nullptr;
 
         for (auto instance : playbackContext->getAllInputs())
-            if (instance->getInputDevice().getName().toStdString() == t.input)
+        {
+            const auto name = instance->getInputDevice().getName();
+
+            if (name.toStdString() == t.input || friendlyInputName (name) == t.input)
                 input = instance;
+        }
 
         if (input == nullptr)
             throw std::runtime_error ("No input \"" + t.input + "\"");
@@ -232,6 +343,8 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets)
     }
 
     edit.dispatchPendingUpdatesSynchronously();
+    recordOptions = options;
+    recordStart = getPosition();
     transport().record (false);
     notifyTransport (true);
 }
@@ -245,6 +358,7 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
     std::vector<Command> commands;
     std::vector<Id> ids;
     std::set<Id> used;
+    lastTakes.clear();
 
     for (auto& clip : project.playlist.clips)
         used.insert (getClipId (clip));
@@ -262,6 +376,10 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             auto file = std::filesystem::weakly_canonical (wave->getSourceFileReference().getFile().getFullPathName().toStdString());
             auto relative = file.lexically_relative (std::filesystem::weakly_canonical (projectDir));
             const auto position = wave->getPosition();
+            lastTakes.push_back ({ file, position.getStart().inSeconds(), position.getOffset().inSeconds() });
+
+            if (! recordOptions.addClips)
+                continue;
 
             Id id;
 
@@ -270,11 +388,21 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
 
             used.insert (id);
 
+            if (recordOptions.dropSilent && analysis::peakDb (analysis::loadAudio (file)) < silentTakeDb)
+                continue;
+
+            // The device's measured round trip moves the take onto the grid.
+            const auto shift = te::TimeDuration::fromSeconds (getAlignmentMs() / 1000.0);
+
             AudioClip ac;
             ac.id = id;
             ac.track = r.target.track;
-            ac.start = toTicks (position.getStart());
-            ac.length = std::max<Ticks> (1, toTicks (position.getEnd()) - ac.start);
+            ac.start = toTicks (position.getStart() + shift);
+            ac.length = std::max<Ticks> (1, toTicks (position.getEnd() + shift) - ac.start);
+
+            if (recordOptions.length)
+                ac.length = std::max<Ticks> (1, std::min (ac.length, recordStart + *recordOptions.length - ac.start));
+
             ac.sample = relative.empty() || relative.string().starts_with ("..") ? file.string() : relative.string();
             ac.insert = r.target.insert;
             ac.offset = position.getOffset().inSeconds();
@@ -301,6 +429,115 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
     return ids;
 }
 
+LiveEngine::CalibrationResult LiveEngine::calibrateAlignment (const std::string& input, int bars)
+{
+    if (bars < 1)
+        throw std::runtime_error ("Calibrate over at least one bar");
+
+    LiveRecordOptions options;
+    options.addClips = false;
+    options.length = bars * ticksPerBar (session.getProject().timeSignature);
+
+    setPosition (0);
+    startRecording ({ { input, masterInsertId, {} } }, options);
+
+    // Pump messages until the timed recording stops itself.
+    for (auto start = juce::Time::getMillisecondCounter(); ! recordings.empty();)
+    {
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
+
+        if (juce::Time::getMillisecondCounter() - start > static_cast<juce::uint32> (bars * 20000 + 5000))
+        {
+            stopRecording();
+            throw std::runtime_error ("Calibration recording didn't finish");
+        }
+    }
+
+    if (lastTakes.empty())
+        throw std::runtime_error ("Nothing was recorded from \"" + input + "\"");
+
+    auto& take = lastTakes.front();
+    const auto audio = analysis::loadAudio (take.file);
+
+    // Clean hits (a kick) give exact onsets; fall back to transients for denser material.
+    auto hits = analysis::detectOnsets (audio, -40.0f, 0.05);
+
+    if (hits.size() < 4)
+        hits = library::detectTransients (audio);
+
+    const auto step = 60.0 / session.getProject().tempo / 4.0; // a 16th note
+    std::vector<double> offsets;
+
+    for (auto t : hits)
+    {
+        const auto when = take.startSeconds + t - take.offsetSeconds;
+        offsets.push_back (when - std::round (when / step) * step);
+    }
+
+    if (offsets.size() < 4)
+        throw std::runtime_error ("Too few hits to calibrate (" + std::to_string (offsets.size()) + "); is \"" + input + "\" playing in time?");
+
+    auto median = [] (std::vector<double> v)
+    {
+        std::nth_element (v.begin(), v.begin() + static_cast<std::ptrdiff_t> (v.size() / 2), v.end());
+        return v[v.size() / 2];
+    };
+
+    const auto offset = median (offsets);
+    std::vector<double> deviations;
+
+    for (auto o : offsets)
+        deviations.push_back (std::abs (o - offset));
+
+    // Raw takes arrive `offset` early (negative) or late; place them later by the opposite.
+    setAlignmentMs (-offset * 1000.0);
+
+    return { getAlignmentMs(), median (deviations) * 1000.0, static_cast<int> (offsets.size()), currentInputDevice() };
+}
+
+std::string LiveEngine::currentInputDevice() const
+{
+    return context.getEngine().getDeviceManager().deviceManager.getAudioDeviceSetup().inputDeviceName.toStdString();
+}
+
+double LiveEngine::getAlignmentMs() const
+{
+    auto it = alignmentMs.find (currentInputDevice());
+    return it != alignmentMs.end() ? it->second : 0.0;
+}
+
+void LiveEngine::setAlignmentMs (double ms)
+{
+    alignmentMs[currentInputDevice()] = ms;
+    saveSettings();
+}
+
+void LiveEngine::loadSettings()
+{
+    std::ifstream in (settingsFile);
+
+    if (! in)
+        return;
+
+    try
+    {
+        auto j = Json::parse (in);
+
+        for (auto& [device, ms] : j.value ("alignmentMs", Json::object()).items())
+            alignmentMs[device] = ms.get<double>();
+    }
+    catch (const std::exception&)
+    {
+        // A damaged file just means no alignment until the next calibration.
+    }
+}
+
+void LiveEngine::saveSettings() const
+{
+    std::filesystem::create_directories (settingsFile.parent_path());
+    std::ofstream (settingsFile) << Json { { "alignmentMs", alignmentMs } }.dump (2) << "\n";
+}
+
 tracktion::Plugin* LiveEngine::findPlugin (const std::string& key) const
 {
     auto it = compiled.plugins.find (key);
@@ -320,6 +557,10 @@ LiveEngine::TransportState LiveEngine::getTransportState() const
 
 void LiveEngine::timerCallback()
 {
+    // Timed recordings stop on their own; the takes are trimmed to the exact length.
+    if (! recordings.empty() && recordOptions.length && getPosition() >= recordStart + *recordOptions.length)
+        stopRecording();
+
     notifyTransport (false);
 }
 

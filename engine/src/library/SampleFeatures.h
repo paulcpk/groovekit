@@ -45,6 +45,9 @@ struct SampleFeatures
 /** Analyses up to maxSeconds of the audio. */
 SampleFeatures analyseSample (const analysis::Audio&, double maxSeconds = 30);
 
+/** Times (seconds) where the level jumps, even within a dense mix: drum hits in a loop or a recording. */
+std::vector<double> detectTransients (const analysis::Audio&, double resolutionSeconds = 0.001);
+
 /** Fundamental frequency of the mono mix in [start, start + window) using YIN. */
 std::optional<SampleFeatures::Pitch> detectPitch (const analysis::Audio&, int startSample, int windowSamples);
 
