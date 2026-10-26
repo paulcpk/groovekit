@@ -128,13 +128,13 @@ export function Browser() {
         <div className="flex flex-wrap gap-1">
           {categories.map((c) => (
             <button key={c} type="button" onClick={() => setCategory(category === c ? undefined : c)}
-              className={cn("h-5 rounded-[3px] px-1.5 text-2xs", category === c ? "bg-accent text-black" : "bg-control text-dim hover:text-fg")}>
+              className={cn("h-5 rounded-[3px] px-1.5 text-2xs", category === c ? "gk-lit text-black" : "gk-key bg-control text-dim hover:text-fg")}>
               {c}
             </button>
           ))}
           <button type="button" onClick={() => setLoops(loops === true ? false : loops === false ? undefined : true)}
             title="Loops / one-shots / both"
-            className={cn("flex h-5 items-center gap-1 rounded-[3px] px-1.5 text-2xs", loops !== undefined ? "bg-accent text-black" : "bg-control text-dim hover:text-fg")}>
+            className={cn("flex h-5 items-center gap-1 rounded-[3px] px-1.5 text-2xs", loops !== undefined ? "gk-lit text-black" : "gk-key bg-control text-dim hover:text-fg")}>
             <Repeat size={9} /> {loops === true ? "loops" : loops === false ? "one-shots" : "all"}
           </button>
         </div>

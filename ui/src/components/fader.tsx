@@ -50,8 +50,13 @@ export function Fader({ db, onChange, onCommit, height = 140 }: {
       <div className="absolute top-1.5 bottom-1.5 left-1/2 w-[3px] -translate-x-1/2 rounded bg-bg" />
       <div className="absolute left-0 right-0 h-px bg-faint" style={{ bottom: 6 + dbToFader(0) * track }} />
       <div
-        className="absolute left-0 h-3 w-5 rounded-[2px] border border-[#55555d] bg-[#8a8a93] shadow"
-        style={{ bottom: pos * track }}
+        className="absolute left-0 h-3 w-5 rounded-[3px]"
+        style={{
+          bottom: pos * track,
+          // A cap like the pads: lit from above, a lip below.
+          background: "linear-gradient(to bottom, #c4c4cc, #8a8a93 55%, #5e5e66)",
+          boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.55), inset 0 -1.5px 0 rgb(0 0 0 / 0.3), 0 0 0 1px rgb(0 0 0 / 0.55), 0 2px 3px rgb(0 0 0 / 0.5)",
+        }}
       >
         <div className="mx-auto mt-[5px] h-px w-3 bg-[#2a2a2e]" />
       </div>
@@ -88,5 +93,11 @@ export function Meter({ left, right, height = 140, width = 3 }: { left: number; 
 /** A small activity light for channels. */
 export function ActivityLed({ level }: { level: number }) {
   const on = meterPos(level);
-  return <div className="h-2 w-2 rounded-full" style={{ background: on > 0.05 ? `rgba(111, 208, 140, ${0.35 + on * 0.65})` : "#2a2a2f" }} />;
+  const lit = on > 0.05;
+  return (
+    <div className="h-2 w-2 rounded-full" style={{
+      background: lit ? `rgba(111, 208, 140, ${0.35 + on * 0.65})` : "#2a2a2f",
+      boxShadow: lit ? `inset 0 1px 0 rgb(255 255 255 / 0.4), 0 0 ${3 + on * 6}px rgba(111, 208, 140, ${on * 0.8})` : "inset 0 1px 1px rgb(0 0 0 / 0.5)",
+    }} />
+  );
 }
