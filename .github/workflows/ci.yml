@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema:
+    name: Schema and codegen
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generated code is up to date
+        run: pnpm codegen:check
+      - run: pnpm test
+
+  engine:
+    name: Engine (ASan + UBSan)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out submodules
+        run: |
+          # JUCE is referenced over SSH inside Tracktion's .gitmodules
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --recursive --depth 1
+
+      - name: Install tools
+        run: brew install ninja ccache
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-asan-${{ github.sha }}
+          restore-keys: ccache-asan-
+
+      - name: Configure
+        run: >
+          cmake --preset asan
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache
+          -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build --preset asan
+
+      - name: Test
+        run: ctest --preset asan
+
+      - name: Upload renders on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renders
+          path: ${{ runner.temp }}/groovekit-tests-*
+          if-no-files-found: ignore
