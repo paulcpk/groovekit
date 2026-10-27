@@ -1,0 +1,85 @@
+---
+/** Screenshots of the instruments and effects, each linking to its full size. */
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
+
+const shots = [
+  {
+    file: "multiband",
+    width: 1340,
+    height: 896,
+    name: "Multiband compressor",
+    text: "Three or four bands, each with its waveform scrolling past. Drag the crossovers and thresholds, pull loud parts down and lift quiet ones up, band by band.",
+  },
+  {
+    file: "triad",
+    width: 1880,
+    height: 1400,
+    name: "Triad synth",
+    text: "Three oscillators with FM and ring modulation, unison, a filter with its own envelope, an LFO and glide. A VST3 that comes with GrooveKit, with presets from sub bass to chord stabs.",
+  },
+  {
+    file: "compressor",
+    width: 1360,
+    height: 706,
+    name: "Compressor",
+    text: "Its curve with the sound riding it, and the last seconds of level and gain reduction. Drag the curve for threshold and ratio.",
+  },
+  {
+    file: "exciter",
+    width: 1440,
+    height: 760,
+    name: "Exciter",
+    text: "Tube, tape, transformer or console warmth, level-matched, with generated harmonics for presence and body.",
+  },
+  {
+    file: "stereo",
+    width: 1377,
+    height: 868,
+    name: "Stereo field",
+    text: "Send each side to each side, widen, delay one side, keep the bass mono, and watch the image on a vectorscope.",
+  },
+  {
+    file: "bitcrusher",
+    width: 1360,
+    height: 666,
+    name: "Bitcrusher",
+    text: "Fewer bits and a lower sample rate on a little LCD, with jitter for broken, noisy textures.",
+  },
+];
+---
+
+<section id="gallery" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site">
+    <div class="max-w-3xl">
+      <p class="eyebrow">Instruments & effects</p>
+      <h2 class="title mt-4">Every device shows you what it does.</h2>
+      <p class="mt-6 text-lg leading-relaxed text-dim">
+        The built-in effects draw their work as it happens, from gain reduction to the stereo image,
+        and each comes with presets. The agent uses the same devices, by name and number.
+      </p>
+    </div>
+
+    <div class="mt-14 grid grid-cols-1 gap-4 md:grid-cols-2">
+      {shots.map((s) => (
+        <figure class="overflow-hidden rounded-2xl bg-panel ring-1 ring-line">
+          <a href={`${base}gallery/${s.file}.jpg`} class="block bg-bg">
+            <img
+              src={`${base}gallery/${s.file}.jpg`}
+              alt={`${s.name} in GrooveKit`}
+              width={s.width}
+              height={s.height}
+              loading="lazy"
+              decoding="async"
+              class="block h-auto w-full"
+            />
+          </a>
+          <figcaption class="p-6 sm:p-7">
+            <h3 class="text-lg font-semibold tracking-[-0.015em]">{s.name}</h3>
+            <p class="mt-2 max-w-2xl leading-relaxed text-dim">{s.text}</p>
+          </figcaption>
+        </figure>
+      ))}
+    </div>
+  </div>
+</section>
