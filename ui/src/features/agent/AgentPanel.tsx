@@ -1,12 +1,13 @@
-import { ArrowUp, Check, ChevronRight, KeyRound, Loader2, Sparkles, Square, Trash2, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, Download, KeyRound, Loader2, Mic, RotateCcw, Sparkles, Square, Trash2, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button, IconButton, Tabs } from "@/components/controls";
 import { Activity } from "@/features/history/Activity";
 import { cn } from "@/lib/cn";
-import { useEngine } from "@/state/engine";
-import { clearConversation, send, setApiKey, stop, useAgent, useApiKey, type ChatItem } from "./agent";
+import { toast, useEngine } from "@/state/engine";
+import { clearConversation, retry, send, setApiKey, stop, useAgent, useApiKey, type ChatItem } from "./agent";
+import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
 
 const SUGGESTIONS = [
   "Make a 4-bar techno groove at 128 BPM with kick, clap and hats",
@@ -38,12 +39,14 @@ const TOOL_LABELS: Record<string, string> = {
   project: "Project",
 };
 
+const VOICE_SHORTCUT = "⌘⇧M";
+
 /** One line about what a tool call was for. */
 function toolSummary(input: unknown) {
   if (!input || typeof input !== "object") return "";
   const i = input as Record<string, unknown>;
   const value = i.label ?? i.query ?? i.action ?? i.path ?? i.category;
-  return typeof value === "string" ? value : "";
+  return typeof value === "string" ? value.replace(/^.*\//, "") : "";
 }
 
 // Replies are Markdown; images show their alt text only, so text that reached the model can't
@@ -51,14 +54,15 @@ function toolSummary(input: unknown) {
 const MARKDOWN: Components = {
   img: ({ alt }) => <>{alt}</>,
   p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
-  ul: ({ children }) => <ul className="my-1.5 list-disc space-y-0.5 pl-4">{children}</ul>,
-  ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-0.5 pl-4">{children}</ol>,
-  code: ({ children }) => <code className="rounded-[3px] bg-bg px-1 font-mono text-[11px]">{children}</code>,
-  pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[4px] bg-bg p-2 text-[11px]">{children}</pre>,
-  a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer" className="text-accent underline">{children}</a>,
-  h1: ({ children }) => <p className="mt-2 mb-1 font-semibold">{children}</p>,
-  h2: ({ children }) => <p className="mt-2 mb-1 font-semibold">{children}</p>,
+  ul: ({ children }) => <ul className="my-1.5 list-disc space-y-0.5 pl-4 marker:text-faint">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-0.5 pl-4 marker:text-faint">{children}</ol>,
+  code: ({ children }) => <code className="rounded-[3px] bg-bg px-1 py-px font-mono text-[11px]">{children}</code>,
+  pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[6px] bg-bg p-2 text-[11px] ring-1 ring-line [&_code]:bg-transparent [&_code]:p-0">{children}</pre>,
+  a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-2">{children}</a>,
+  h1: ({ children }) => <p className="mt-3 mb-1 font-semibold">{children}</p>,
+  h2: ({ children }) => <p className="mt-3 mb-1 font-semibold">{children}</p>,
   h3: ({ children }) => <p className="mt-2 mb-1 font-semibold">{children}</p>,
+  blockquote: ({ children }) => <blockquote className="my-1.5 border-l-2 border-line pl-2 text-dim">{children}</blockquote>,
   table: ({ children }) => <div className="my-2 overflow-x-auto"><table className="text-[11px]">{children}</table></div>,
   th: ({ children }) => <th className="border-b border-line px-1.5 py-0.5 text-left">{children}</th>,
   td: ({ children }) => <td className="border-b border-line/50 px-1.5 py-0.5">{children}</td>,
@@ -83,6 +87,22 @@ export function AgentPanel() {
   );
 }
 
+//==============================================================================
+type ToolItem = Extract<ChatItem, { kind: "tool" }>;
+type Block = { kind: "tools"; tools: ToolItem[]; key: number } | { kind: "item"; item: ChatItem; key: number };
+
+/** Consecutive tool calls show as one block, like a step of work. */
+function toBlocks(items: ChatItem[]): Block[] {
+  const blocks: Block[] = [];
+  items.forEach((item, i) => {
+    const last = blocks.at(-1);
+    if (item.kind === "tool" && last?.kind === "tools") last.tools.push(item);
+    else if (item.kind === "tool") blocks.push({ kind: "tools", tools: [item], key: i });
+    else blocks.push({ kind: "item", item, key: i });
+  });
+  return blocks;
+}
+
 function Chat() {
   const key = useApiKey((s) => s.key);
   const items = useAgent((s) => s.items);
@@ -91,12 +111,18 @@ function Chat() {
   const [draft, setDraft] = useState("");
   const list = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
+  const blocks = useMemo(() => toBlocks(items), [items]);
+
+  const toBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const el = list.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
 
   // Follows the conversation while it's scrolled to the bottom.
   useLayoutEffect(() => {
-    const el = list.current;
-    if (el && following.current) el.scrollTop = el.scrollHeight;
-  }, [items]);
+    if (following.current) toBottom();
+  }, [items, toBottom]);
 
   if (!key) return <KeySetup />;
 
@@ -105,129 +131,401 @@ function Chat() {
     following.current = true;
     setDraft("");
     void send(text.trim());
+    requestAnimationFrame(() => toBottom("smooth"));
   };
 
   const last = items.at(-1);
-  const working = running && last?.kind !== "assistant";
+  const working = running && last?.kind !== "assistant" && !(last?.kind === "tool" && last.status === "running");
 
   return (
     <div className="flex h-full flex-col">
-      <div ref={list} className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-        }}>
-        {items.length === 0 ? (
-          <div className="flex flex-col gap-3 pt-2">
-            <div className="flex items-center gap-2 text-sm text-fg"><Sparkles size={14} className="text-agent" /> What should we make?</div>
-            <p className="text-xs leading-relaxed text-dim">
-              The agent arranges, mixes and masters with the same tools as Claude Code, in this project. Its changes show up live,
-              outlined in violet, and one ⌘Z undoes a request.
-            </p>
-            <div className="flex flex-col gap-1.5">
-              {SUGGESTIONS.map((s) => (
-                <button key={s} type="button" disabled={!connected} onClick={() => submit(s)}
-                  className="rounded-[6px] bg-raised px-2.5 py-2 text-left text-xs text-dim ring-1 ring-line hover:text-fg hover:ring-agent/50">
-                  {s}
-                </button>
+      <div className="relative min-h-0 flex-1">
+        <div ref={list} className="h-full overflow-y-auto overscroll-contain px-3 py-3"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+            following.current = bottom;
+            setAtBottom(bottom);
+          }}>
+          {items.length === 0 ? (
+            <Welcome connected={connected} onPick={submit} />
+          ) : (
+            <div className="flex flex-col gap-3">
+              {blocks.map((block, i) => (
+                <Fragment key={block.key}>
+                  {block.kind === "tools"
+                    ? <ToolGroup tools={block.tools} />
+                    : <Item item={block.item} last={i === blocks.length - 1} running={running} />}
+                </Fragment>
               ))}
+              {working && <div className="text-shimmer flex items-center gap-2 py-0.5 text-xs">Working…</div>}
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {items.map((item, i) => <Item key={i} item={item} />)}
-            {working && (
-              <div className="flex items-center gap-2 text-xs text-faint"><Loader2 size={12} className="animate-spin text-agent" /> Working…</div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
+        <button type="button" title="Jump to the latest"
+          className={cn("absolute bottom-2 left-1/2 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-full bg-raised text-dim shadow-lg ring-1 ring-line transition-opacity hover:text-fg",
+            atBottom ? "pointer-events-none opacity-0" : "opacity-100")}
+          tabIndex={atBottom ? -1 : 0}
+          onClick={() => {
+            following.current = true;
+            toBottom("smooth");
+          }}>
+          <ArrowDown size={13} />
+        </button>
       </div>
-      <Composer value={draft} onChange={setDraft} onSend={() => submit()} onStop={stop} running={running} disabled={!connected} />
+      <Composer value={draft} onChange={setDraft} onSend={submit} onStop={stop} running={running} disabled={!connected} />
     </div>
   );
 }
 
-function Item({ item }: { item: ChatItem }) {
-  const [open, setOpen] = useState(false);
+function Welcome({ connected, onPick }: { connected: boolean; onPick: (text: string) => void }) {
+  return (
+    <div className="flex animate-rise flex-col gap-3 pt-2">
+      <div className="flex items-center gap-2 text-sm text-fg"><Sparkles size={14} className="text-agent" /> What should we make?</div>
+      <p className="text-xs leading-relaxed text-dim">
+        The agent arranges, mixes and masters with the same tools as Claude Code, in this project. Its changes show up live,
+        outlined in violet, and one ⌘Z undoes a request. Type, or press <Kbd>{VOICE_SHORTCUT}</Kbd> and just say it.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {SUGGESTIONS.map((s) => (
+          <button key={s} type="button" disabled={!connected} onClick={() => onPick(s)}
+            className="rounded-[8px] bg-raised px-2.5 py-2 text-left text-xs text-dim ring-1 ring-line transition-colors hover:text-fg hover:ring-agent/50">
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
+function Kbd({ children }: { children: React.ReactNode }) {
+  return <kbd className="rounded-[3px] bg-control px-1 py-px font-sans text-[10px] text-dim ring-1 ring-line">{children}</kbd>;
+}
+
+function Item({ item, last, running }: { item: ChatItem; last: boolean; running: boolean }) {
   switch (item.kind) {
     case "user":
-      return <div className="ml-6 self-end rounded-[10px] rounded-br-[3px] bg-control px-2.5 py-1.5 text-xs whitespace-pre-wrap text-fg">{item.text}</div>;
+      return (
+        <div className="ml-8 max-w-[90%] animate-rise self-end rounded-[12px] rounded-br-[4px] bg-control px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words text-fg">
+          {item.text}
+        </div>
+      );
     case "assistant":
-      return <div className="text-xs leading-relaxed text-fg"><Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN}>{item.text}</Markdown></div>;
+      return (
+        <div className="group relative text-xs leading-relaxed break-words text-fg">
+          <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN}>{item.text}</Markdown>
+          {!(running && last) && item.text && <CopyButton text={item.text} />}
+        </div>
+      );
     case "note":
       return <div className="border-l-2 border-agent/40 pl-2 text-[11px] leading-relaxed text-faint italic">{item.text}</div>;
     case "error":
-      return <div className="rounded-[6px] bg-rec/10 px-2.5 py-1.5 text-xs text-rec ring-1 ring-rec/30">{item.text}</div>;
-    case "tool": {
-      const summary = toolSummary(item.input);
       return (
-        <div className="rounded-[6px] bg-raised ring-1 ring-line">
-          <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px]">
-            {item.status === "running" ? <Loader2 size={11} className="shrink-0 animate-spin text-agent" />
-              : item.status === "done" ? <Check size={11} className="shrink-0 text-ok" /> : <X size={11} className="shrink-0 text-rec" />}
-            <span className="shrink-0 text-fg">{TOOL_LABELS[item.name] ?? item.name}</span>
-            {summary && <span className="min-w-0 flex-1 truncate text-faint">{summary}</span>}
-            <ChevronRight size={11} className={cn("ml-auto shrink-0 text-faint transition-transform", open && "rotate-90")} />
-          </button>
-          {open && (
-            <div className="border-t border-line px-2 py-1.5 font-mono text-[10px] leading-snug text-dim">
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(item.input, null, 1)}</pre>
-              {item.result !== undefined && (
-                <pre className="mt-1.5 max-h-48 overflow-auto border-t border-line/60 pt-1.5 whitespace-pre-wrap break-all">
-                  {item.result.length > 4000 ? `${item.result.slice(0, 4000)}…` : item.result}
-                </pre>
-              )}
-            </div>
+        <div className="flex items-start gap-2 rounded-[8px] bg-rec/10 px-2.5 py-2 text-xs text-rec ring-1 ring-rec/30">
+          <AlertTriangle size={13} className="mt-px shrink-0" />
+          <span className="min-w-0 flex-1">{item.text}</span>
+          {last && !running && (
+            <button type="button" onClick={() => void retry()} className="flex shrink-0 items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-fg hover:bg-rec/20">
+              <RotateCcw size={11} /> Try again
+            </button>
           )}
         </div>
       );
-    }
+    case "tool":
+      return <ToolGroup tools={[item]} />;
   }
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button type="button" title={copied ? "Copied" : "Copy"}
+      className="mt-1 flex h-5 w-5 items-center justify-center rounded-[4px] text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg focus-visible:opacity-100"
+      onClick={() => void navigator.clipboard?.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })}>
+      {copied ? <Check size={11} /> : <Copy size={11} />}
+    </button>
+  );
+}
+
+/** A run of tool calls: what's happening now while it works, a count once it's done, and each
+    call's input and result when opened. */
+function ToolGroup({ tools }: { tools: ToolItem[] }) {
+  const [open, setOpen] = useState(false);
+  const current = tools.find((t) => t.status === "running");
+  const failed = tools.filter((t) => t.status === "error").length;
+  const label = (t: ToolItem) => TOOL_LABELS[t.name] ?? t.name;
+
+  return (
+    <div className="rounded-[8px] bg-raised/60 ring-1 ring-line">
+      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left text-[11px]">
+        {current ? <Loader2 size={12} className="shrink-0 animate-spin text-agent" />
+          : failed ? <AlertTriangle size={12} className="shrink-0 text-accent" /> : <Check size={12} className="shrink-0 text-ok" />}
+        {current ? (
+          <span className="text-shimmer min-w-0 flex-1 truncate">{label(current)}{toolSummary(current.input) ? ` · ${toolSummary(current.input)}` : ""}</span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-dim">
+            {tools.length === 1 ? label(tools[0]) : `${tools.length} steps`}
+            {tools.length === 1 && toolSummary(tools[0].input) && <span className="text-faint"> · {toolSummary(tools[0].input)}</span>}
+            {failed > 0 && <span className="text-accent"> · {failed} didn't work</span>}
+          </span>
+        )}
+        <ChevronRight size={11} className={cn("shrink-0 text-faint transition-transform", open && "rotate-90")} />
+      </button>
+      {open && (
+        <div className="flex flex-col border-t border-line py-1">
+          {tools.map((t) => <ToolRow key={t.id} tool={t} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolRow({ tool }: { tool: ToolItem }) {
+  const [open, setOpen] = useState(false);
+  const summary = toolSummary(tool.input);
+
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-[11px] hover:bg-hover/50">
+        {tool.status === "running" ? <Loader2 size={10} className="shrink-0 animate-spin text-agent" />
+          : tool.status === "done" ? <Check size={10} className="shrink-0 text-ok" /> : <X size={10} className="shrink-0 text-rec" />}
+        <span className="shrink-0 text-fg">{TOOL_LABELS[tool.name] ?? tool.name}</span>
+        {summary && <span className="min-w-0 flex-1 truncate text-faint">{summary}</span>}
+      </button>
+      {open && (
+        <div className="mx-2.5 mb-1.5 rounded-[6px] bg-bg px-2 py-1.5 font-mono text-[10px] leading-snug text-dim">
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(tool.input, null, 1)}</pre>
+          {tool.result !== undefined && (
+            <pre className={cn("mt-1.5 max-h-48 overflow-auto border-t border-line/60 pt-1.5 whitespace-pre-wrap break-all", tool.status === "error" && "text-rec")}>
+              {tool.result.length > 4000 ? `${tool.result.slice(0, 4000)}…` : tool.result}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+//==============================================================================
+const clock = (ms: number) => {
+  const seconds = Math.floor(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
+/** The message box: a field that grows with its text, voice messages (live level bars, then
+    cancel, check the text first, or send it straight away), send, and stop while the agent works. */
 function Composer({ value, onChange, onSend, onStop, running, disabled }: {
-  value: string; onChange: (v: string) => void; onSend: () => void; onStop: () => void; running: boolean; disabled: boolean;
+  value: string; onChange: (v: string) => void; onSend: (text?: string) => void; onStop: () => void; running: boolean; disabled: boolean;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const recorder = useVoiceRecorder();
+  const model = useVoiceModel();
+  const [transcribing, setTranscribing] = useState(false);
+  const [offerModel, setOfferModel] = useState(false);
+  const recording = recorder.state !== "idle";
+  const level = recorder.levels[recorder.levels.length - 1] ?? 0;
 
   // Grows with its text, up to a point.
   useLayoutEffect(() => {
     const el = input.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(160, el.scrollHeight)}px`;
-  }, [value]);
+    el.style.height = `${Math.min(180, el.scrollHeight)}px`;
+  }, [value, recording, transcribing]);
+
+  useEffect(() => {
+    if (!disabled) void loadVoiceModel(true).catch(() => {});
+  }, [disabled]);
+
+  useEffect(() => {
+    if (recorder.error) toast(RECORDER_ERRORS[recorder.error], "error");
+  }, [recorder.error]);
+
+  // The model finished downloading: say so once.
+  const wasDownloading = useRef(false);
+  useEffect(() => {
+    if (wasDownloading.current && model?.ready) {
+      setOfferModel(false);
+      void loadVoiceModel(true).catch(() => {});
+      toast(`Voice is ready: click the microphone or press ${VOICE_SHORTCUT}`);
+    }
+    wasDownloading.current = !!model?.downloading;
+  }, [model?.ready, model?.downloading]);
+
+  const startVoice = useCallback(() => {
+    if (disabled || transcribing) return;
+    if (!model?.ready) {
+      setOfferModel(true);
+      return;
+    }
+    void loadVoiceModel(true).catch(() => {});
+    void recorder.start();
+  }, [disabled, transcribing, model?.ready, recorder]);
+
+  /** Stops recording and turns it into text: into the field to check, or sent as it is. */
+  const accept = useCallback(async (sendNow: boolean) => {
+    const audio = await recorder.stop();
+    if (!audio) return;
+    setTranscribing(true);
+    try {
+      const text = await transcribe(audio);
+      if (!text) {
+        toast("Didn't catch that. Try again a little closer to the microphone.");
+        return;
+      }
+      const combined = value.trim() ? `${value.trimEnd()} ${text}` : text;
+      if (sendNow && !running) onSend(combined);
+      else {
+        onChange(combined);
+        requestAnimationFrame(() => {
+          input.current?.focus();
+          input.current?.setSelectionRange(combined.length, combined.length);
+        });
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setTranscribing(false);
+    }
+  }, [recorder, value, running, onSend, onChange]);
+
+  // The voice shortcut: starts recording, or finishes it.
+  const request = useVoiceRequest((s) => s.pending);
+  useEffect(() => {
+    if (!request) return;
+    useVoiceRequest.setState({ pending: false });
+    if (recorder.state === "recording") void accept(false);
+    else if (recorder.state === "idle") startVoice();
+  }, [request, recorder.state, accept, startVoice]);
+
+  // While recording: Enter keeps the text to check, ⌘Enter sends it, Escape throws it away.
+  useEffect(() => {
+    if (!recording) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") recorder.cancel();
+      else void accept(e.metaKey || e.ctrlKey);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [recording, recorder, accept]);
+
+  const canSend = !!value.trim() && !disabled && !transcribing;
 
   return (
-    <div className="shrink-0 border-t border-line p-2">
-      <div className="flex items-end gap-1.5 rounded-[8px] bg-bg px-2 py-1.5 ring-1 ring-line focus-within:ring-agent/60">
-        <textarea
-          ref={input}
-          rows={1}
-          value={value}
-          disabled={disabled}
-          placeholder={disabled ? "Waiting for the engine…" : "Ask the agent…"}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            // Enter sends; Shift+Enter starts a new line.
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              onSend();
-            }
-          }}
-          className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-xs leading-5 text-fg outline-none placeholder:text-faint"
-        />
-        {running ? (
-          <IconButton size="sm" title="Stop" onClick={onStop} className="bg-control text-fg"><Square size={10} fill="currentColor" /></IconButton>
+    <div className="shrink-0 p-2 pt-1">
+      {offerModel && !model?.ready && <VoiceModelOffer onClose={() => setOfferModel(false)} />}
+      <div
+        className={cn(
+          "relative rounded-[12px] bg-raised ring-1 transition-[box-shadow,ring-color] duration-150",
+          recording ? "ring-agent/60" : "ring-line focus-within:ring-agent/50",
+        )}
+        // Glows with the voice while recording.
+        style={recording ? { boxShadow: `0 0 ${6 + level * 26}px ${level * 6}px color-mix(in srgb, var(--color-agent) ${Math.round(18 + level * 40)}%, transparent)` } : undefined}
+      >
+        {recording ? (
+          <div className="flex h-[72px] items-center gap-2 px-2.5">
+            <span className={cn("h-2 w-2 shrink-0 rounded-full bg-rec", recorder.state === "recording" && "animate-pulse")} />
+            <span className="w-8 shrink-0 text-[11px] text-dim tabular">{clock(recorder.elapsed)}</span>
+            <div className="flex h-9 min-w-0 flex-1 items-center justify-end gap-[2px] overflow-hidden" role="img" aria-label="Recording">
+              {recorder.levels.map((l, i) => (
+                <span key={i} className="w-[2px] shrink-0 rounded-full bg-agent transition-[height] duration-100 ease-out"
+                  style={{ height: `${Math.max(7, l * 100)}%`, opacity: 0.25 + (0.75 * i) / BAR_COUNT }} />
+              ))}
+            </div>
+            <IconButton size="sm" title="Throw it away (Esc)" onClick={recorder.cancel} className="h-7 w-7 rounded-full"><X size={13} /></IconButton>
+            <IconButton size="sm" title="Check the text before sending (Enter)" disabled={recorder.state !== "recording"} onClick={() => void accept(false)}
+              className="h-7 w-7 rounded-full bg-control text-fg"><Check size={13} /></IconButton>
+            <IconButton size="sm" title="Send (⌘Enter)" disabled={recorder.state !== "recording" || running} onClick={() => void accept(true)}
+              className="h-7 w-7 rounded-full bg-agent text-black hover:bg-agent"><ArrowUp size={13} /></IconButton>
+          </div>
         ) : (
-          <IconButton size="sm" title="Send (Enter)" disabled={disabled || !value.trim()} onClick={onSend}
-            className={cn(value.trim() && "bg-agent text-black hover:bg-agent")}>
-            <ArrowUp size={12} />
-          </IconButton>
+          <>
+            <textarea
+              ref={input}
+              rows={1}
+              value={value}
+              disabled={disabled || transcribing}
+              placeholder={disabled ? "Waiting for the engine…" : transcribing ? "" : "Ask the agent…"}
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                // Enter sends; Shift+Enter starts a new line.
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  if (canSend && !running) onSend();
+                }
+              }}
+              className="block max-h-[180px] min-h-[38px] w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-xs leading-5 text-fg outline-none placeholder:text-faint focus-visible:outline-none disabled:opacity-60"
+            />
+            {transcribing && (
+              <div className="pointer-events-none absolute top-2.5 left-3 flex items-center gap-1.5 text-xs">
+                <span className="text-shimmer">Transcribing…</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1 px-1.5 pb-1.5">
+              <span className="ml-1.5 min-w-0 flex-1 truncate text-[10px] text-faint">
+                {value.trim() ? "Enter to send · Shift+Enter for a new line" : `${VOICE_SHORTCUT} to talk`}
+              </span>
+              <IconButton size="sm" title={`Voice message (${VOICE_SHORTCUT})`} disabled={disabled || transcribing} onClick={startVoice}
+                className="h-7 w-7 rounded-full">
+                {transcribing ? <Loader2 size={13} className="animate-spin" /> : <Mic size={13} />}
+              </IconButton>
+              {running ? (
+                <IconButton size="sm" title="Stop" onClick={onStop} className="h-7 w-7 rounded-full bg-control text-fg"><Square size={10} fill="currentColor" /></IconButton>
+              ) : (
+                <IconButton size="sm" title="Send (Enter)" disabled={!canSend} onClick={() => onSend()}
+                  className={cn("h-7 w-7 rounded-full transition-colors", canSend ? "bg-agent text-black hover:bg-agent" : "bg-control")}>
+                  <ArrowUp size={13} />
+                </IconButton>
+              )}
+            </div>
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Voice needs Whisper's model on this Mac: what it is, and downloading it once. */
+function VoiceModelOffer({ onClose }: { onClose: () => void }) {
+  const model = useVoiceModel();
+  const mb = Math.round((model?.modelBytes ?? 190e6) / 1e6);
+
+  return (
+    <div className="mb-2 animate-rise rounded-[10px] bg-raised p-2.5 text-xs ring-1 ring-line">
+      <div className="flex items-start gap-2">
+        <Mic size={13} className="mt-px shrink-0 text-agent" />
+        <div className="min-w-0 flex-1 leading-relaxed text-dim">
+          {model?.downloading ? (
+            <>
+              <div className="mb-1.5 text-fg">Downloading the speech model… {Math.round((model.progress ?? 0) * 100)}%</div>
+              <div className="h-1 overflow-hidden rounded-full bg-control">
+                <div className="h-full rounded-full bg-agent transition-[width] duration-200" style={{ width: `${(model.progress ?? 0) * 100}%` }} />
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="text-fg">Talk to the agent.</span> Your voice is turned into text on this Mac by Whisper, so nothing you say
+              leaves it. That needs a speech model, downloaded once ({mb} MB).
+              {model?.error && <div className="mt-1 text-rec">{model.error}</div>}
+            </>
+          )}
+        </div>
+        <IconButton size="sm" title="Not now" onClick={onClose} className="-mt-0.5 shrink-0"><X size={11} /></IconButton>
+      </div>
+      {!model?.downloading && (
+        <div className="mt-2 flex justify-end">
+          <Button size="sm" className="bg-agent text-black hover:bg-agent" onClick={() => void downloadVoiceModel().catch((e) => toast(String(e), "error"))}>
+            <Download size={11} /> {model?.error ? "Try again" : `Download (${mb} MB)`}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -248,7 +546,7 @@ function KeySetup() {
         if (key.trim()) setApiKey(key);
       }}>
         <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => e.stopPropagation()}
-          placeholder="sk-ant-…" className="h-7 rounded-[4px] bg-bg px-2 text-xs text-fg outline-none ring-1 ring-line focus:ring-agent/60" />
+          placeholder="sk-ant-…" className="h-7 rounded-[6px] bg-bg px-2 text-xs text-fg outline-none ring-1 ring-line focus:ring-agent/60 focus-visible:outline-none" />
         <Button size="sm" type="submit" disabled={!key.trim()} className="self-start bg-agent text-black hover:bg-agent">Save key</Button>
       </form>
       <p className="text-faint">You can also use Claude Code: the agent tools are its MCP server (see the README).</p>

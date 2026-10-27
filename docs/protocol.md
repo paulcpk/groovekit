@@ -38,6 +38,9 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `listEffects` | | built-in effects with parameter names, units, ranges and `choices` (for parameters that pick an option by index), `defaultMix`, and their factory `presets` |
 | `presets.list` | `kind` (an effect kind, or `sampler` for channel filter and envelope presets) | `{ factory: [preset], user: [preset] }`; an effect preset is `{ name, params, mix? }`, a channel preset `{ name, filter?, envelope? }` |
 | `presets.save` / `presets.delete` | `kind`, and `preset` (with a `name`) or `name` | the list again; the user's presets are files in `<app data>/presets/<kind>/` |
+| `voice.status` | `prepare?` (also load the model in the background, which takes a few seconds the first time) | `{ ready, downloading, progress, modelBytes, error? }`: whether Whisper's speech model is on this Mac |
+| `voice.download` | | the status; downloads the model (190 MB) once into `<app data>/models`, with `voiceModel` notifications as it goes |
+| `voice.transcribe` | `audio` (16-bit PCM at 16 kHz, mono, base64), `language?` (two letters; detected when absent) | `{ job }` at once; a `voiceTranscript` notification `{ job, text }` or `{ job, error }` follows |
 | `mixer.spectrum` | `insert`, `effect` | `{ bins, fromHz, toHz }`: what the effect slot outputs (after its mix) as 160 dB values, log-spaced from 20 Hz to 20 kHz |
 | `mixer.waveform` | `insert`, `effect`, `samples?` (1024) | `{ samples }`: the slot's latest output, mono |
 | `transport.state` / `transport.play` / `transport.stop` | | `{ playing, recording, position (ticks), seconds, mode, pattern? }`; stop keeps the position |

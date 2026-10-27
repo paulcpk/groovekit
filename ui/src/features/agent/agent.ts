@@ -138,10 +138,16 @@ export function stop() {
   abort = undefined;
 }
 
-/** Sends a message and lets the agent work until it's done (or stopped). */
-export async function send(text: string) {
+/** Picks up after an error: the agent carries on from where the conversation stopped. */
+export function retry() {
+  const last = useAgent.getState().history.at(-1);
+  return last?.role === "user" ? send("", true) : send("Carry on where you stopped.");
+}
+
+/** Sends a message (or, resuming, nothing new) and lets the agent work until it's done or stopped. */
+export async function send(text: string, resume = false) {
   const apiKey = useApiKey.getState().key;
-  if (!apiKey || useAgent.getState().running || !text.trim()) return;
+  if (!apiKey || useAgent.getState().running || (!resume && !text.trim())) return;
 
   const url = uiEngine.url;
   const list = toolsFor(url);
@@ -149,11 +155,15 @@ export async function send(text: string) {
   const controller = new AbortController();
   abort = controller;
 
-  push({ kind: "user", text });
-  set((s) => ({
-    running: true,
-    history: [...s.history, { role: "user", content: `${text}\n\n[GrooveKit: ${appState()}]` }],
-  }));
+  if (resume) {
+    set({ running: true });
+  } else {
+    push({ kind: "user", text });
+    set((s) => ({
+      running: true,
+      history: [...s.history, { role: "user", content: `${text}\n\n[GrooveKit: ${appState()}]` }],
+    }));
+  }
 
   let jsonRetries = 0;
 

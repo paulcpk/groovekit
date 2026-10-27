@@ -102,7 +102,19 @@ function touchedIds(before: Project | undefined, after: Project, ops: PatchOp[])
   return [...ids];
 }
 
+const listeners = new Map<string, Set<(params: any) => void>>();
+
+/** Calls back for every notification of a kind until the returned function is called. */
+export function listen(method: string, callback: (params: any) => void) {
+  const set = listeners.get(method) ?? new Set();
+  listeners.set(method, set);
+  set.add(callback);
+  return () => void set.delete(callback);
+}
+
 function onNotification(method: string, params: any) {
+  listeners.get(method)?.forEach((callback) => callback(params));
+
   switch (method) {
     case "snapshot": {
       // Another project was opened (by this UI or a client sharing the engine).

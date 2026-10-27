@@ -16,3 +16,6 @@ node_modules/
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Screenshots dropped into the folder while working
+Screenshot*.png

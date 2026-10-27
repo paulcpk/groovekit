@@ -32,6 +32,30 @@
     0% { opacity: 0.9; }
     100% { opacity: 0; }
   }
+
+  --animate-shimmer: shimmer 2.2s linear infinite;
+
+  @keyframes shimmer {
+    from { background-position: 150% 0; }
+    to { background-position: -50% 0; }
+  }
+
+  --animate-rise: rise 0.22s ease-out both;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+/* Text that shimmers while something is under way ("Working", "Transcribing"). */
+.text-shimmer {
+  background: linear-gradient(90deg, var(--color-faint) 0%, var(--color-faint) 35%, var(--color-fg) 50%, var(--color-faint) 65%, var(--color-faint) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: var(--animate-shimmer);
 }
 
 html, body, #root {
@@ -66,9 +90,12 @@ input, textarea {
 ::-webkit-scrollbar-thumb { background: #34343a; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
-:focus-visible {
-  outline: 1px solid var(--color-accent);
-  outline-offset: -1px;
+/* Keyboard focus, in the base layer so a control can draw its own (outline-none, a ring). */
+@layer base {
+  :focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: -1px;
+  }
 }
 
 .tabular { font-variant-numeric: tabular-nums; }

@@ -44,6 +44,20 @@ if(NOT rubberband_POPULATED)
     FetchContent_Populate(rubberband)
 endif()
 
+# Speech to text for the agent's voice messages, on this Mac (MIT), with Metal.
+FetchContent_Declare(whisper
+    GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git
+    GIT_TAG v1.9.5
+    GIT_SHALLOW TRUE)
+set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")
+set(WHISPER_BUILD_TESTS OFF CACHE INTERNAL "")
+set(WHISPER_BUILD_EXAMPLES OFF CACHE INTERNAL "")
+set(WHISPER_BUILD_SERVER OFF CACHE INTERNAL "")
+set(GGML_METAL ON CACHE INTERNAL "")
+set(GGML_METAL_EMBED_LIBRARY ON CACHE INTERNAL "")
+set(GGML_NATIVE OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(whisper)
+
 set(TRACKTION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/engine/external/tracktion_engine")
 add_subdirectory("${TRACKTION_DIR}/modules/juce" juce EXCLUDE_FROM_ALL)
 add_subdirectory("${TRACKTION_DIR}/modules" tracktion EXCLUDE_FROM_ALL)

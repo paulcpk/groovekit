@@ -16,6 +16,7 @@
 #include "session/Presets.h"
 #include "session/RecentProjects.h"
 #include "session/Summary.h"
+#include "voice/Transcriber.h"
 
 #include <juce_events/juce_events.h>
 
@@ -403,6 +404,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
         return catalogue;
     }
 
+    if (method.starts_with ("voice."))
+        return callVoice (method, params);
+
     if (method.starts_with ("presets."))
     {
         const auto folder = presetsFolder.empty() ? EngineContext::getAppDataFolder() / "presets" : presetsFolder;
@@ -661,7 +665,35 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
 
     if (method == "describe")
     {
-        auto path = readParam<std::string> (params, "path");
+        // A path relative to the project folder works, like in the song; so does a bare file
+        // name that one library sample has.
+        const std::filesystem::path requested = readParam<std::string> (params, "path");
+        auto path = requested;
+        std::error_code ec;
+
+        if (path.is_relative())
+            if (auto dir = session.getProjectDir())
+                path = *dir / path;
+
+        if (! std::filesystem::is_regular_file (path, ec))
+        {
+            library::SampleQuery query;
+            query.text = requested.stem().string();
+            query.limit = 200;
+            std::vector<std::filesystem::path> named;
+
+            for (auto& e : library->search (query))
+                if (std::filesystem::path (e.path).filename() == requested.filename())
+                    named.push_back (e.path);
+
+            if (named.size() != 1)
+                throw RpcError (invalidParams, "No file at " + path.string()
+                                + (named.empty() ? "; pass the sample's full path, as get_summary or search_samples give it"
+                                                 : "; several library samples are named " + requested.filename().string() + ", pass the full path"));
+
+            path = named.front();
+        }
+
         auto entry = library->find (path);
         return library::SampleLibrary::toJson (entry ? *entry : library::SampleLibrary::analyseFile (path), true);
     }
@@ -997,6 +1029,102 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
             live->setFollowSystemOutput (output->empty());
 
         return call ("audio.devices", Json::object(), client);
+    }
+
+    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+namespace
+{
+    /** One for the whole engine: the model stays loaded when another project opens. */
+    voice::Transcriber& getTranscriber()
+    {
+        static voice::Transcriber transcriber (EngineContext::getAppDataFolder() / "models");
+        return transcriber;
+    }
+
+    Json voiceStatusJson (const voice::Transcriber::Status& s)
+    {
+        Json j { { "ready", s.ready }, { "downloading", s.downloading }, { "progress", std::round (s.progress * 1000.0) / 1000.0 },
+                 { "modelBytes", s.modelBytes } };
+
+        if (! s.error.empty())
+            j["error"] = s.error;
+
+        return j;
+    }
+}
+
+Json ApiHandler::callVoice (const std::string& method, const Json& params)
+{
+    auto& transcriber = getTranscriber();
+
+    if (method == "voice.status")
+    {
+        // The UI asks when voice may be used soon: the model loads meanwhile.
+        if (params.value ("prepare", false))
+            transcriber.prepare();
+
+        return voiceStatusJson (transcriber.getStatus());
+    }
+
+    if (method == "voice.download")
+    {
+        // Progress goes to every client from the message thread.
+        transcriber.download ([alive = alive, this] (const voice::Transcriber::Status& s)
+        {
+            juce::MessageManager::callAsync ([alive, this, s]
+            {
+                if (*alive && broadcast)
+                    broadcast (notification ("voiceModel", voiceStatusJson (s)).dump());
+            });
+        });
+
+        return voiceStatusJson (transcriber.getStatus());
+    }
+
+    if (method == "voice.transcribe")
+    {
+        // 16-bit little-endian PCM at 16 kHz, mono, as base64.
+        juce::MemoryOutputStream decoded;
+
+        if (! juce::Base64::convertFromBase64 (decoded, juce::String (readParam<std::string> (params, "audio"))))
+            throw RpcError (invalidParams, "audio must be base64");
+
+        const auto* pcm = static_cast<const int16_t*> (decoded.getData());
+        std::vector<float> samples (decoded.getDataSize() / 2);
+
+        for (size_t i = 0; i < samples.size(); ++i)
+            samples[i] = static_cast<float> (pcm[i]) / 32768.0f;
+
+        if (! transcriber.getStatus().ready)
+            throw RpcError (operationFailed, "The speech model isn't downloaded yet (voice.download)");
+
+        // It takes a moment: the text arrives as a voiceTranscript notification with this job id.
+        const auto job = juce::Uuid().toString().toStdString();
+        const auto language = params.value ("language", std::string());
+
+        std::thread ([alive = alive, this, job, language, samples = std::move (samples), &transcriber]
+        {
+            Json result { { "job", job } };
+
+            try
+            {
+                result["text"] = transcriber.transcribe (samples, language);
+            }
+            catch (const std::exception& e)
+            {
+                result["error"] = e.what();
+            }
+
+            juce::MessageManager::callAsync ([alive, this, result]
+            {
+                if (*alive && broadcast)
+                    broadcast (notification ("voiceTranscript", result).dump());
+            });
+        }).detach();
+
+        return { { "job", job } };
     }
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");

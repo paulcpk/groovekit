@@ -32,6 +32,7 @@ function cppComponents(): Component[] {
     { name: "Tracktion Engine", license: "GPL-3.0-or-later", url: "https://github.com/Tracktion/tracktion_engine", files: [join(tracktion, "../LICENSE.md"), join(spdx, "GPL-3.0-only.txt")] },
     { name: "Rubber Band Library", license: "GPL-2.0-or-later", url: "https://breakfastquay.com/rubberband", files: [join(deps, "rubberband-src/COPYING")] },
     { name: "IXWebSocket", license: "BSD-3-Clause", url: "https://github.com/machinezone/IXWebSocket", files: [join(deps, "ixwebsocket-src/LICENSE.txt")] },
+    { name: "whisper.cpp and ggml (and OpenAI's Whisper model)", license: "MIT", url: "https://github.com/ggml-org/whisper.cpp", files: [join(deps, "whisper-src/LICENSE")] },
     { name: "JSON for Modern C++", license: "MIT", url: "https://github.com/nlohmann/json", files: [join(deps, "nlohmann_json-src/LICENSE.MIT")] },
 
     // Inside JUCE

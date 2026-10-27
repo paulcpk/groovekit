@@ -39,7 +39,8 @@ target_sources(gk_engine PRIVATE
     src/session/RecentProjects.cpp
     src/session/Session.cpp
     src/session/Summary.cpp
-    src/session/Transaction.cpp)
+    src/session/Transaction.cpp
+    src/voice/Transcriber.cpp)
 
 target_include_directories(gk_engine PUBLIC src)
 
@@ -67,6 +68,7 @@ target_link_libraries(gk_engine
         juce::juce_audio_processors
         juce::juce_audio_utils
         juce::juce_dsp
+        whisper
     PUBLIC
         juce::juce_recommended_config_flags
         nlohmann_json::nlohmann_json

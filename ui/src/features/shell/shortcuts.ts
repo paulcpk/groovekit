@@ -6,6 +6,7 @@ import { setUi, useUi } from "@/state/ui";
 import { redo, setPosition, stop, togglePlay, toggleLoop, undo } from "./actions";
 import { browseForProject, saveProject } from "./ProjectDialog";
 import { splitAtPlayhead } from "@/features/playlist/clipOps";
+import { useVoiceRequest } from "@/features/agent/voice";
 
 let clipboard: Clip[] = [];
 let lastSpace = 0;
@@ -35,6 +36,14 @@ function typing(e: KeyboardEvent) {
 export function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Talk to the agent, from anywhere (also while typing to it).
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        setUi({ sidebarOpen: true, sidebarTab: "activity" });
+        useVoiceRequest.setState({ pending: true });
+        return;
+      }
+
       if (typing(e)) return;
       const mod = e.metaKey || e.ctrlKey;
 

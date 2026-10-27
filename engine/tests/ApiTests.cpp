@@ -148,6 +148,12 @@ TEST_CASE ("The API searches the sample library")
     r = call ("library.describe", { { "path", (root / "Sub A.wav").string() } });
     CHECK (r["result"]["features"]["pitch"]["key"] == 45);
 
+    // A bare file name finds the library's sample of that name; a missing one says what to pass.
+    r = call ("library.describe", { { "path", "Sub A.wav" } });
+    CHECK (r["result"]["features"]["pitch"]["key"] == 45);
+    r = call ("library.describe", { { "path", "Nowhere.wav" } });
+    CHECK_THAT (r["error"]["message"].get<std::string>(), ContainsSubstring ("full path"));
+
     CHECK (call ("library.status", Json::object())["result"]["progress"]["samples"] == 2);
 }
 

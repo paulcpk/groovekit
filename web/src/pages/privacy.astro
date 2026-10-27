@@ -60,7 +60,9 @@ const link = "font-medium text-fg underline decoration-accent underline-offset-4
             the song to carry them out (track and sample names, notes, mix settings, sample file paths, analysis
             results), to Anthropic’s API with your own API key, under Anthropic’s terms and{" "}
             <a href="https://www.anthropic.com/legal/privacy" class={link}>privacy policy</a>. Your key and the
-            conversation are stored on your Mac.
+            conversation are stored on your Mac. Voice messages are turned into text on your Mac, by Whisper; the
+            recording isn’t sent anywhere, only the text, like a typed message. The speech model is downloaded once,
+            from Hugging Face, when you first use the microphone and agree to it.
           </li>
           <li>
             <span class="text-fg">Claude Code or another MCP client</span> sends the same kinds of data to whichever

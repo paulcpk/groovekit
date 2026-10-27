@@ -206,7 +206,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What data leaves my Mac?",
-    a: "None, unless you use the agent. GrooveKit has no account, analytics or telemetry, and your songs and samples stay on your Mac. When you chat with the agent in the app, your messages and what it reads of the song (names, notes, mix settings, sample file paths) go to Anthropic with your API key; with Claude Code or another MCP client, to that client’s AI provider. The privacy page, linked in the footer, has the details.",
+    a: "None, unless you use the agent. GrooveKit has no account, analytics or telemetry, and your songs and samples stay on your Mac. When you chat with the agent in the app, your messages and what it reads of the song (names, notes, mix settings, sample file paths) go to Anthropic with your API key (voice messages become text on your Mac first; the recording isn’t sent); with Claude Code or another MCP client, to that client’s AI provider. The privacy page, linked in the footer, has the details.",
   },
   {
     q: "Does it cost anything?",

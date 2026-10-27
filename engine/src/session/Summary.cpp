@@ -16,11 +16,6 @@ namespace
         return std::round (static_cast<double> (t) / static_cast<double> (ticksPerBar (ts)) * 1000.0) / 1000.0;
     }
 
-    std::string fileName (const std::string& path)
-    {
-        return std::filesystem::path (path).filename().string();
-    }
-
     Json describeInstrument (const Instrument& instrument)
     {
         if (auto sampler = std::get_if<SamplerInstrument> (&instrument))
@@ -29,7 +24,8 @@ namespace
 
             for (auto& l : sampler->layers)
             {
-                Json layer { { "id", l.id }, { "sample", fileName (l.sample) } };
+                // The path as the song has it, so describe_sample can find the file.
+                Json layer { { "id", l.id }, { "sample", l.sample } };
 
                 if (l.keyRange.low != 0 || l.keyRange.high != 127)
                     layer["keys"] = std::to_string (l.keyRange.low) + "-" + std::to_string (l.keyRange.high);

@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>GrooveKit records from your audio inputs, such as an audio interface or a Digitakt over USB.</string>
+    <string>GrooveKit records from your audio inputs, such as an audio interface or a Digitakt over USB, and your voice messages to the agent.</string>
 </dict>
 </plist>
