@@ -1,5 +1,7 @@
 #pragma once
 
+#include "music/Keys.h"
+
 #include "analysis/Analysis.h"
 
 namespace gk::library
@@ -37,6 +39,20 @@ struct SampleFeatures
     };
 
     std::optional<Pitch> pitch;
+
+    /** The key of what sounds (chords, basslines, melodies), from how much of each note there
+        is; confidence under about 0.3 is a guess (drums, noise). */
+    struct Tonality
+    {
+        music::Key key;
+        float confidence;   // 0..1
+    };
+
+    std::optional<Tonality> tonality;
+
+    /** Which analysis made these; older ones are redone on the next scan. */
+    int version = 0;
+    static constexpr int currentVersion = 2;
 
     int onsetCount = 0;
     std::optional<double> estimatedTempo;   // for loops: from onsets, checked against bar-length candidates

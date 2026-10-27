@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NoteTranscriber.h"
 #include "SoundIndex.h"
 #include "Styles.h"
 #include "Taste.h"
@@ -76,6 +77,20 @@ public:
         what differs most. Blocks for several seconds. */
     model::Json compare (const StyleProfile&, const std::filesystem::path& render, double songTempo, double songSwing);
 
+    /** The notes in a stretch of one of the styles' reference tracks: track is part of its file
+        name (searched in style, or every style); from and length in seconds (from defaults to
+        a stretch two fifths in). part is music (everything but the drums and bass: leads,
+        chords, vocals) or bass. Downloads the note model the first time, then blocks for a few
+        seconds. Throws std::runtime_error naming the tracks if none matches. */
+    struct ReferenceNotes
+    {
+        std::string track;
+        double tempo = 0, from = 0, length = 0;
+        std::vector<music::HeardNote> notes;
+    };
+
+    ReferenceNotes hearNotes (const std::string& style, const std::string& track, std::optional<double> from, double length, Role part);
+
 private:
     library::SampleLibrary& library;
     Models models;
@@ -90,6 +105,7 @@ private:
     std::thread indexStarter;
     std::mutex separatorMutex;
     std::unique_ptr<Separator> separator;
+    std::unique_ptr<NoteTranscriber> noteTranscriber;
     std::atomic<bool> starting { false }, stopping { false };
 
     // Library-wide statistics, rebuilt when the index changes.

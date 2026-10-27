@@ -1503,6 +1503,8 @@ struct Project
     std::string name = "";
     /** Beats per minute. */
     double tempo {};
+    /** The song's key, e.g. "A minor" or "F# major": melodies taken from humming or reference tracks move into it, and samples are matched against it. */
+    std::optional<std::string> key;
     TimeSignature timeSignature;
     /** Delays every second 16th note by up to half a 16th (1: a dotted-16th feel). Applies to pattern notes that start on an off-beat 16th. */
     double swing = 0;
@@ -1516,11 +1518,12 @@ struct Project
 
 inline void readValue (Reader& r, const Json& j, Project& out)
 {
-    r.expectObject (j, { "schemaVersion", "name", "tempo", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
+    r.expectObject (j, { "schemaVersion", "name", "tempo", "key", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
 
     r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 3); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.required (j, "tempo", [&] (const Json& v) { readValue (r, v, out.tempo); r.checkMin (out.tempo, 20); r.checkMax (out.tempo, 999); });
+    r.optional (j, "key", [&] (const Json& v) { readValue (r, v, out.key.emplace()); r.checkMinLength (*out.key, 2); });
     r.optional (j, "timeSignature", [&] (const Json& v) { readValue (r, v, out.timeSignature); });
     r.optional (j, "swing", [&] (const Json& v) { readValue (r, v, out.swing); r.checkMin (out.swing, 0); r.checkMax (out.swing, 1); });
     r.required (j, "channels", [&] (const Json& v) { readValue (r, v, out.channels); });
@@ -1535,6 +1538,10 @@ inline Json toJson (const Project& v)
     j["schemaVersion"] = 3;
     j["name"] = toJson (v.name);
     j["tempo"] = toJson (v.tempo);
+
+    if (v.key)
+        j["key"] = toJson (*v.key);
+
     j["timeSignature"] = toJson (v.timeSignature);
     j["swing"] = toJson (v.swing);
     j["channels"] = toJson (v.channels);

@@ -18,6 +18,8 @@ Plugins: the user's VST3/AU plugins are listed by plugins (scan first if the lis
 
 Listening: GrooveKit can hear its sample library and the user's reference tracks (once its listening models are downloaded, a 400 MB download the user starts in the Browser). Choose sounds by how they sound, never by their names: two files called "stab" can have nothing in common. A style is a folder of reference tracks the user loves (styles); styles describe gives its tempo range, swing, loudness, the levels of drums, bass and music against the mix, and words for what each part sounds like. search_samples with style ranks the library by fit to that style for each sample's part (category), 0 being an average sample of the user's library and 100 as close as the references are to each other: build from the top (fit 50 and above), use sound (words like "dusty warm chord stab") to steer within the style, and like (a path) to find sounds that belong with one you chose, so the kit hangs together. Results say in words what each sample sounds like. After arranging, compare_to_style renders the song and reports how far each part is from the references and what differs most (tempo, swing, busy or sparse drums, balance, levels); fix the biggest differences and compare again. When the user says a sound fits or doesn't, record it with rate_sample: their verdicts steer later searches.
 
+
+Keys and melodies: give the song a key with the setKey command ("A minor"); get_summary shows it. Samples have keys too: search_samples results give key (from the file name, else heard; keySource says which, heardKey when the sound disagrees with the name) and rootKey (a one-shot's pitch, drums included: a kick's is its tail's). fitsKey ("song" or a key) keeps samples that go with that key (the same notes, a fifth away, or a root in its scale) and gives each keyFit.transpose: the semitones (layer transpose) that put it exactly in key, tonic for one-shots, so loops and kicks can be tuned to the song. The melody tool turns melodies into notes on the song's grid, in its key and a register: from the user's voice (they hum or sing on "da" in a voice message, often after saying which channel it's for: the message then mentions the hummed melody) or from a reference track (a part of a style's tracks: its lead line, chords or bassline). Place the result with edit_project (addPattern if needed, then addNotes with the notes, channel set).
 Recording: the record tool captures hardware like the user's Digitakt II per track into clips, with GrooveKit as MIDI clock master. After a recording, each take is an audio clip with its own sampler channel; cut (updateClip offset/length), copy and arrange them like any other.
 
 Workflow: get_summary to see the song, get_schema once for exact shapes, edit_project to change it (commands apply atomically; errors name the offending field), render to hear it as numbers (LUFS, peak, onsets), then adjust and re-render. Every edit is undoable; edits made close together form one group that undo reverts in one step.`;
@@ -360,7 +362,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "search_samples",
     {
-      description: "Searches the user's sample library. Every word in query must match the file name, its folders or its category. With style, sound or like (needs the listening models), results are ranked by how they sound: fit (to the style, for each sample's part: 0 an average library sample, 100 as close as the style's references are to each other) and match (to the words or the sample: the share of the library it beats, 0-100); combine them with the filters, e.g. category and loop. Results give the path, a description of the sound, sounds (words for what it sounds like), category, loop, tempo, key, duration, rootKey (detected pitch) where known, and the user's rating.",
+      description: "Searches the user's sample library. Every word in query must match the file name, its folders or its category. With style, sound or like (needs the listening models), results are ranked by how they sound: fit (to the style, for each sample's part: 0 an average library sample, 100 as close as the style's references are to each other) and match (to the words or the sample: the share of the library it beats, 0-100); combine them with the filters, e.g. category and loop. Results give the path, a description of the sound, sounds (words for what it sounds like), category, loop, tempo, key (keySource: name, sound or both; heardKey when the sound disagrees with the name), duration, rootKey (detected pitch) where known, keyFit with fitsKey, and the user's rating.",
       inputSchema: {
         query: z.string().optional().describe("Words in the file name or folders, e.g. \"kick\" or \"vinyl\""),
         style: z.string().optional().describe("A style name (styles list): rank by fit to it"),
@@ -370,7 +372,8 @@ Opening, creating or saving as switches the user's window too, so only do it whe
         category: z.enum(["kick", "snare", "clap", "hat", "cymbal", "tom", "perc", "bass", "synth", "vocal", "fx", "drums", "other"]).optional(),
         loop: z.boolean().optional().describe("true for loops only, false for one-shots only"),
         tempo: z.number().optional().describe("BPM; also matches half and double time"),
-        key: z.string().optional().describe("e.g. \"Am\", \"F# minor\""),
+        key: z.string().optional().describe("In this key (or its relative), e.g. \"Am\", \"F# minor\""),
+        fitsKey: z.string().optional().describe("\"song\" or a key: only samples that go with it, each with keyFit.transpose (semitones to put it exactly in key)"),
         minDuration: z.number().optional().describe("Seconds"),
         maxDuration: z.number().optional().describe("Seconds"),
         limit: z.number().int().min(1).max(100).optional().describe("Default 20"),
@@ -378,6 +381,28 @@ Opening, creating or saving as switches the user's window too, so only do it whe
       annotations: { readOnlyHint: true },
     },
     (args) => attempt(() => engine.call("library.search", args))
+  );
+
+  server.registerTool(
+    "melody",
+    {
+      description: "Notes of a melody, placed on the song's grid (ticks from the melody's start, 960 a beat) in the song's key (or key) and a register, ready for addNotes. source voice: what the user hummed or sang in a voice message (the latest, or recording), its tempo worked out from the rhythm (tempo \"song\" takes it as hummed at the song's tempo), snapped to the scale. source reference: a stretch of one of the styles' reference tracks (track: words of its file name; from and length in seconds, default 24 s two fifths in), split into stems and transcribed: part lead (the top line of everything but drums and bass), chords (all of it) or bass; takes several seconds. Gives notes, length (whole bars), heardTempo, heardKey and transposed (semitones moved).",
+      inputSchema: {
+        source: z.enum(["voice", "reference"]),
+        recording: z.string().optional().describe("voice: which voice message (default the latest)"),
+        tempo: z.enum(["song"]).optional().describe("voice: it was hummed at the song's tempo"),
+        track: z.string().optional().describe("reference: words of the track's file name"),
+        style: z.string().optional().describe("reference: the style to look in (default all)"),
+        from: z.number().optional().describe("Seconds: where to start (reference), or where the melody starts in the voice message"),
+        length: z.number().optional().describe("reference: seconds to take, 2-60 (default 24)"),
+        part: z.enum(["lead", "chords", "bass"]).optional().describe("reference: default lead"),
+        key: z.string().optional().describe("Move it into this key instead of the song's"),
+        register: z.enum(["bass", "chords", "lead", "high"]).optional().describe("Octaves to move it into (bass C1-E3, chords C3-C5, lead C4-C6, high C5-C7)"),
+        snapToScale: z.boolean().optional().describe("Snap notes to the key's scale (default: voice yes, reference no)"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ source, ...args }) => attempt(() => engine.call(source === "voice" ? "melody.voice" : "melody.reference", args))
   );
 
   server.registerTool(

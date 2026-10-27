@@ -356,6 +356,8 @@ export interface Project {
   name?: string;
   /** Beats per minute. */
   tempo: number;
+  /** The song's key, e.g. "A minor" or "F# major": melodies taken from humming or reference tracks move into it, and samples are matched against it. */
+  key?: string;
   timeSignature?: TimeSignature;
   /** Delays every second 16th note by up to half a 16th (1: a dotted-16th feel). Applies to pattern notes that start on an off-beat 16th. */
   swing?: number;

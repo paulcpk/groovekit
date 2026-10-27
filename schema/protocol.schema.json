@@ -6,6 +6,7 @@
     "Command": {
       "oneOf": [
         { "$ref": "#/$defs/SetTempo" },
+        { "$ref": "#/$defs/SetKey" },
         { "$ref": "#/$defs/SetTimeSignature" },
         { "$ref": "#/$defs/SetSwing" },
         { "$ref": "#/$defs/RenameProject" },
@@ -62,6 +63,16 @@
       "properties": {
         "type": { "const": "setTempo" },
         "tempo": { "type": "number", "minimum": 20, "maximum": 999 }
+      }
+    },
+
+    "SetKey": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "setKey" },
+        "key": { "description": "\"A minor\", \"F# major\" and the like; leaving it out clears the song's key.", "type": "string" }
       }
     },
 

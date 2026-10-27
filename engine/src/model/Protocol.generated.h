@@ -70,6 +70,32 @@ inline Json toJson (const SetTempo& v)
     return j;
 }
 
+struct SetKey
+{
+    /** "A minor", "F# major" and the like; leaving it out clears the song's key. */
+    std::optional<std::string> key;
+
+    bool operator== (const SetKey&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, SetKey& out)
+{
+    r.expectObject (j, { "type", "key" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "setKey"); });
+    r.optional (j, "key", [&] (const Json& v) { readValue (r, v, out.key.emplace()); });
+}
+
+inline Json toJson (const SetKey& v)
+{
+    auto j = Json::object();
+    j["type"] = "setKey";
+
+    if (v.key)
+        j["key"] = toJson (*v.key);
+    return j;
+}
+
 struct SetTimeSignature
 {
     TimeSignature timeSignature;
@@ -992,7 +1018,7 @@ inline Json toJson (const Patch& v)
     return j;
 }
 
-using Command = std::variant<SetTempo, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
+using Command = std::variant<SetTempo, SetKey, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
 
 inline void readValue (Reader& r, const Json& j, Command& out)
 {
@@ -1003,6 +1029,7 @@ inline void readValue (Reader& r, const Json& j, Command& out)
     r.required (j, "type", [&] (const Json& v) { readValue (r, v, tag); });
 
     if (tag == "setTempo") { readValue (r, j, out.emplace<SetTempo>()); return; }
+    if (tag == "setKey") { readValue (r, j, out.emplace<SetKey>()); return; }
     if (tag == "setTimeSignature") { readValue (r, j, out.emplace<SetTimeSignature>()); return; }
     if (tag == "setSwing") { readValue (r, j, out.emplace<SetSwing>()); return; }
     if (tag == "renameProject") { readValue (r, j, out.emplace<RenameProject>()); return; }

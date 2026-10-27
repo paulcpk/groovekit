@@ -78,6 +78,10 @@ private:
 
     std::map<std::string, std::pair<std::filesystem::file_time_type, model::Json>> peaksCache;
 
+    /** The last few voice messages' audio (16 kHz mono), by job id, newest last: a melody hummed
+        in one can be placed later. */
+    std::vector<std::pair<std::string, std::vector<float>>> voiceRecordings;
+
     model::Json render (const model::Json& params);
     model::Json peaks (const model::Json& params);
     model::Json captureState (const std::string& pluginKey, const std::string& origin);
@@ -86,6 +90,7 @@ private:
     model::Json callPlugins (const std::string& method, const model::Json& params, Client&);
     model::Json callProject (const std::string& method, const model::Json& params);
     model::Json callVoice (const std::string& method, const model::Json& params);
+    model::Json callMelody (const std::string& method, const model::Json& params);
     model::Json callListening (const std::string& method, const model::Json& params);
     model::Json callChats (const std::string& method, const model::Json& params);
     model::Json compareToStyle (const model::Json& params);

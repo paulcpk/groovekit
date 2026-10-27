@@ -8,7 +8,7 @@ import { Activity } from "@/features/history/Activity";
 import { cn } from "@/lib/cn";
 import { toast, useEngine } from "@/state/engine";
 import { deleteChat, newChat, openChat, refreshChats, retry, send, setApiKey, stop, useAgent, useApiKey, useChats, type ChatItem, type ChatSummary } from "./agent";
-import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
+import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, transcriptText, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
 
 const SUGGESTIONS = [
   "Make a 4-bar techno groove at 128 BPM with kick, clap and hats",
@@ -515,7 +515,7 @@ function Composer({ value, onChange, onSend, onStop, running, disabled }: {
     if (!audio) return;
     setTranscribing(true);
     try {
-      const text = await transcribe(audio);
+      const text = transcriptText(await transcribe(audio));
       if (!text) {
         toast("Didn't catch that. Try again a little closer to the microphone.");
         return;

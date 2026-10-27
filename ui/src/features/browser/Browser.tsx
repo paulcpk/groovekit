@@ -5,7 +5,7 @@ import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparat
 import { endSampleDrag, startSampleDrag, type DraggedSample } from "@/features/playlist/geometry";
 import { addSamplerChannel } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
-import { fileName } from "@/lib/model";
+import { fileName, noteName } from "@/lib/model";
 import { previewSample, stopPreview } from "@/features/shell/actions";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
@@ -19,8 +19,14 @@ interface Sample {
   loop: boolean;
   tempo?: number;
   key?: string;
+  /** Where the key comes from: the file name, the sound, or both agreeing. */
+  keySource?: "name" | "sound" | "name and sound";
+  /** What it sounds like, when that's not the name's key. */
+  heardKey?: string;
   durationSeconds: number;
   rootKey?: number;
+  /** How it goes with the song's key (when filtering by it): semitones to put it exactly in key. */
+  keyFit?: { fits: boolean; transpose: number };
   /** Ranked by sound: fit to the style (0 an average library sample, 100 like the references), match to the words or sample (0-100). */
   fit?: number;
   match?: number;
@@ -50,6 +56,29 @@ function Fit({ fit }: { fit: number }) {
   );
 }
 
+/** "Am", "F#": short key names. */
+function shortKey(key: string) {
+  const [tonic, mode] = key.split(" ");
+  return mode === "minor" ? `${tonic}m` : tonic;
+}
+
+/** A sample's key (heard ones in italics), or a one-shot's note, and with the song's key, the
+    semitones that put it in key. */
+function KeyLabel({ sample: s }: { sample: Sample }) {
+  const label = s.key ? shortKey(s.key) : s.rootKey !== undefined ? noteName(s.rootKey) : undefined;
+  if (!label) return null;
+  const title = s.key
+    ? `${s.key}${s.keySource === "sound" ? " (heard)" : s.keySource === "name and sound" ? " (named, and sounds it)" : " (from its name)"}${s.heardKey ? `; sounds like ${s.heardKey}` : ""}`
+    : `Its note: ${noteName(s.rootKey!)}`;
+  const shift = s.keyFit?.transpose;
+  return (
+    <span className="flex shrink-0 items-baseline gap-1 text-2xs" title={shift ? `${title}. ${shift > 0 ? "+" : ""}${shift} semitones put it in the song's key.` : title}>
+      <span className={cn("text-faint", s.keySource === "sound" && "italic", s.heardKey && "underline decoration-dotted")}>{label}</span>
+      {shift !== undefined && shift !== 0 && <span className="text-accent tabular">{shift > 0 ? "+" : ""}{shift}</span>}
+    </span>
+  );
+}
+
 /** One sample: click to hear it, drag it to the playlist or channel rack, double-click for a channel.
     With a style, it can be marked as fitting or not; any sample can lead to sounds like it. */
 function SampleRow({ sample: s, depth = 0, selected, playing, onClick, style, onRate, onSimilar }: {
@@ -73,7 +102,7 @@ function SampleRow({ sample: s, depth = 0, selected, playing, onClick, style, on
       </span>
       <span className="min-w-0 flex-1 truncate text-fg">{fileName(s.path)}</span>
       {s.loop && s.tempo && <span className="shrink-0 text-2xs text-faint tabular">{Math.round(s.tempo)}</span>}
-      {s.key && <span className="shrink-0 text-2xs text-faint">{s.key}</span>}
+      <KeyLabel sample={s} />
       {/* In the tree, the folders say what kind of sound it is; names get the room. */}
       {depth === 0 && <span className="shrink-0 rounded-[2px] bg-bg px-1 text-[9px] text-dim">{s.category}</span>}
       {onSimilar && (
@@ -153,6 +182,9 @@ export function Browser() {
   const [bySound, setBySound] = useState(false);
   const [category, setCategory] = useState<string>();
   const [loops, setLoops] = useState<boolean | undefined>();
+  const songKey = useEngine((s) => s.doc?.key);
+  const [inKey, setInKey] = useState(false);
+  const fitsKey = inKey && !!songKey;
   const [chosenStyle, setChosenStyle] = useState(loadStyle);
   const [like, setLike] = useState<Sample>();
   const [results, setResults] = useState<Sample[]>([]);
@@ -167,7 +199,7 @@ export function Browser() {
   const soundQuery = listening && bySound;
   const likePath = listening ? like?.path : undefined;
   // With nothing to search for, the library shows as its folders.
-  const filtering = query.trim() !== "" || category !== undefined || loops !== undefined || !!style || !!likePath;
+  const filtering = query.trim() !== "" || category !== undefined || loops !== undefined || !!style || !!likePath || fitsKey;
 
   const chooseStyle = (name?: string) => {
     setChosenStyle(name);
@@ -190,6 +222,7 @@ export function Browser() {
         ...(loops !== undefined ? { loop: loops } : {}),
         ...(style ? { style } : {}),
         ...(likePath ? { like: likePath } : {}),
+        ...(fitsKey ? { fitsKey: "song" } : {}),
       }).then((r) => {
         setResults(r.results);
         setSize(r.librarySize);
@@ -197,7 +230,7 @@ export function Browser() {
       }, () => {});
     }, soundQuery ? 350 : 150);
     return () => clearTimeout(timer);
-  }, [connected, query, soundQuery, category, loops, style, likePath, version, progress?.running, status?.index.running]);
+  }, [connected, query, soundQuery, category, loops, style, likePath, fitsKey, songKey, version, progress?.running, status?.index.running]);
 
   const rate = (s: Sample, fits: boolean | null) => {
     if (style) void rateSample(s.path, style, fits).then(() => setVersion((v) => v + 1));
@@ -246,6 +279,13 @@ export function Browser() {
             className={cn("flex h-5 items-center gap-1 rounded-[3px] px-1.5 text-2xs", loops !== undefined ? "bg-accent text-black" : "bg-control text-dim hover:text-fg")}>
             <Repeat size={9} /> {loops === true ? "loops" : loops === false ? "one-shots" : "all"}
           </button>
+          {songKey && (
+            <button type="button" onClick={() => setInKey(!inKey)}
+              title={`Only samples that go with ${songKey} (the same notes, a fifth away, or a note in its scale), with the semitones that put each exactly in key`}
+              className={cn("h-5 rounded-[3px] px-1.5 text-2xs", fitsKey ? "bg-accent text-black" : "bg-control text-dim hover:text-fg")}>
+              in {shortKey(songKey)}
+            </button>
+          )}
         </div>
         {listening && (
           <div className="flex min-w-0 items-center gap-1">

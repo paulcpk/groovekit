@@ -11,6 +11,7 @@ add_executable(gk_tests
     PluginTests.cpp
     PresetTests.cpp
     RenderTests.cpp
+    MusicTests.cpp
     SamplerTests.cpp
     SessionTests.cpp
     TestHelpers.cpp)

@@ -495,7 +495,7 @@ Json Listening::search (const library::SampleQuery& filters, const SoundQuery& q
         if (! seen.insert ({ std::filesystem::path (r.entry->path).filename().string(), r.entry->size }).second)
             continue;
 
-        auto j = library::SampleLibrary::toJson (*r.entry, false);
+        auto j = library::SampleLibrary::toJson (*r.entry, false, filters.fitsKey);
 
         if (r.fit)      j["fit"] = static_cast<int> (std::lround (*r.fit));
         if (r.match)    j["match"] = static_cast<int> (std::lround (*r.match));
@@ -540,6 +540,98 @@ Json Listening::describeStyle (const StyleProfile& profile)
 
     j["sounds"] = parts;
     return j;
+}
+
+Listening::ReferenceNotes Listening::hearNotes (const std::string& styleName, const std::string& trackName, std::optional<double> from,
+                                               double length, Role part)
+{
+    // The track: the first whose file name has the words asked for.
+    const auto wanted = juce::String (trackName).toLowerCase().trim();
+    std::shared_ptr<const StyleProfile> profile;
+    const StyleProfile::Track* track = nullptr;
+    std::vector<std::string> known;
+
+    for (auto& name : styles.names())
+    {
+        if (! styleName.empty() && ! juce::String (name).equalsIgnoreCase (juce::String (styleName)))
+            continue;
+
+        auto p = styles.get (name);
+
+        if (p == nullptr)
+            continue;
+
+        for (auto& t : p->tracks)
+        {
+            const auto stem = std::filesystem::path (t.path).stem().string();
+            known.push_back (stem);
+
+            if (track == nullptr && juce::String (stem).toLowerCase().contains (wanted))
+            {
+                profile = p;
+                track = &t;
+            }
+        }
+    }
+
+    if (track == nullptr)
+    {
+        std::string list;
+
+        for (size_t i = 0; i < known.size() && i < 40; ++i)
+            list += (i ? ", " : "") + known[i];
+
+        throw std::runtime_error (known.empty() ? "There are no reference tracks yet: add a style first"
+                                                : "No reference track named like \"" + trackName + "\". The tracks: " + list);
+    }
+
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (track->path)));
+
+    if (reader == nullptr)
+        throw std::runtime_error ("Can't read " + track->path);
+
+    const auto duration = static_cast<double> (reader->lengthInSamples) / reader->sampleRate;
+    length = std::clamp (length, 2.0, std::min (60.0, duration));
+    const auto start = std::clamp (from.value_or (duration * 0.4), 0.0, std::max (0.0, duration - length));
+    const auto frames = static_cast<int> (length * reader->sampleRate);
+
+    juce::AudioBuffer<float> raw (2, frames);
+    reader->read (&raw, 0, frames, static_cast<juce::int64> (start * reader->sampleRate), true, true);
+
+    // The separator wants 44.1 kHz stereo.
+    const auto stretch = static_cast<int> (length * Separator::sampleRate);
+    juce::AudioBuffer<float> chunk (2, stretch);
+    chunk.clear();
+
+    for (int c = 0; c < 2; ++c)
+    {
+        juce::AudioBuffer<float> channel (1, frames);
+        channel.copyFrom (0, 0, raw, std::min (c, static_cast<int> (reader->numChannels) - 1), 0, frames);
+        auto resampled = resampleMono (channel, reader->sampleRate, Separator::sampleRate);
+        chunk.copyFrom (c, 0, resampled.data(), std::min (stretch, static_cast<int> (resampled.size())));
+    }
+
+    ReferenceNotes result;
+    result.track = std::filesystem::path (track->path).stem().string();
+    result.tempo = track->tempo;
+    result.from = start;
+    result.length = length;
+
+    std::lock_guard lock (separatorMutex);
+
+    if (separator == nullptr)
+        separator = std::make_unique<Separator> (models);
+
+    auto stems = separator->separate (chunk);
+    separator.reset(); // a gigabyte, until it's next needed
+
+    if (noteTranscriber == nullptr)
+        noteTranscriber = std::make_unique<NoteTranscriber> (models);
+
+    result.notes = noteTranscriber->transcribe (part == Role::bass ? stems.bass : stems.other, Separator::sampleRate);
+    return result;
 }
 
 Json Listening::compare (const StyleProfile& profile, const std::filesystem::path& render, double songTempo, double songSwing)

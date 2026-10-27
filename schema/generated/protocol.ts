@@ -9,6 +9,12 @@ export interface SetTempo {
   tempo: number;
 }
 
+export interface SetKey {
+  type: "setKey";
+  /** "A minor", "F# major" and the like; leaving it out clears the song's key. */
+  key?: string;
+}
+
 export interface SetTimeSignature {
   type: "setTimeSignature";
   timeSignature: TimeSignature;
@@ -238,7 +244,7 @@ export interface Patch {
   ops: PatchOp[];
 }
 
-export type Command = SetTempo | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | UpdateInstrument | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | InsertTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
+export type Command = SetTempo | SetKey | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | UpdateInstrument | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | InsertTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
 
 /** One applied change. Entries form a tree: undo moves to the parent, new changes after an undo start a branch. */
 export interface HistoryEntry {

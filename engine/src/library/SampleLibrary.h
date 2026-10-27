@@ -25,7 +25,8 @@ struct SampleQuery
     std::optional<bool> loop;
     std::optional<double> tempo;            // also matches half and double time
     double tempoTolerance = 2;
-    std::optional<std::string> key;         // "Am", "A minor", ...
+    std::optional<std::string> key;         // "Am", "A minor", ...: in that key (or its relative)
+    std::optional<music::Key> fitsKey;      // goes with that key: see SampleLibrary::fitTo
     std::optional<double> minDuration, maxDuration;
     int limit = 20;
 };
@@ -97,7 +98,32 @@ public:
     /** Analyses one file now, whether or not it's in a library folder. */
     static SampleEntry analyseFile (const std::filesystem::path&);
 
-    static model::Json toJson (const SampleEntry&, bool includeFeatures);
+    /** A result for clients; with a song key, how the sample goes with it ("keyFit"). */
+    static model::Json toJson (const SampleEntry&, bool includeFeatures, std::optional<music::Key> songKey = {});
+
+    /** A sample's key: what its name says, else what it sounds like (names are usually right;
+        hearing a loop's key goes wrong more often, between a key and its fifth or major and
+        minor). One-shots with a clear pitch have a root note too. */
+    struct SampleKey
+    {
+        std::optional<music::Key> key;
+        std::string source;                 // "name", "sound", or "name and sound"
+        std::optional<music::Key> heard;    // what it sounds like, when that's not the name's key
+        std::optional<int> root;            // MIDI note
+    };
+
+    static SampleKey keyOf (const SampleEntry&);
+
+    /** How a sample goes with a song's key, if it has a key or a root note to go by: whether it
+        fits as it is (the same notes, a fifth away, or a root in the scale), and the semitones
+        that put it exactly in the key (by its relative major for keys, to the tonic for roots). */
+    struct KeyFit
+    {
+        bool fits = false;
+        int transpose = 0;
+    };
+
+    static std::optional<KeyFit> fitTo (const SampleEntry&, music::Key);
 
 private:
     const std::filesystem::path indexFile;

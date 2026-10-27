@@ -57,6 +57,12 @@ namespace
         if (auto p = j.find ("pitch"); p != j.end())
             f.pitch = SampleFeatures::Pitch { p->value ("hz", 0.0), p->value ("key", 0), p->value ("cents", 0.0), p->value ("confidence", 0.0f) };
 
+        if (auto t = j.find ("tonality"); t != j.end())
+            if (auto key = music::parseKey (t->value ("key", std::string())))
+                f.tonality = SampleFeatures::Tonality { *key, t->value ("confidence", 0.0f) };
+
+        f.version = j.value ("version", 0);
+
         return f;
     }
 
@@ -96,7 +102,10 @@ namespace
         s += duration;
 
         if (c.tempo)    s += ", " + juce::String (*c.tempo, 1).toStdString() + " BPM";
-        if (c.key)      s += ", " + *c.key;
+        const auto key = SampleLibrary::keyOf (e);
+
+        if (key.key)
+            s += ", " + music::keyName (*key.key) + (key.source == "sound" ? " (heard)" : key.heard ? " (sounds like " + music::keyName (*key.heard) + ")" : "");
 
         // Pitch and attack describe a single hit; in a loop they'd only describe its loudest moment.
         if (! c.loop && f.pitch && f.pitch->confidence > 0.7f)
@@ -119,13 +128,10 @@ namespace
         return s;
     }
 
-    bool keysMatch (const std::optional<std::string>& entryKey, const std::string& wanted)
+    bool keysMatch (const std::optional<music::Key>& entryKey, const std::string& wanted)
     {
-        if (! entryKey)
-            return false;
-
-        auto normalised = parseKey (wanted).value_or (wanted);
-        return juce::String (*entryKey).equalsIgnoreCase (juce::String (normalised));
+        const auto key = music::parseKey (wanted);
+        return entryKey && key && entryKey->relativeMajor() == key->relativeMajor();
     }
 }
 
@@ -299,7 +305,8 @@ void SampleLibrary::scan (ProgressCallback callback)
             {
                 std::lock_guard lock (mutex);
 
-                if (auto it = entries.find (key (file)); it != entries.end() && it->second.size == size && it->second.modified == modified)
+                if (auto it = entries.find (key (file)); it != entries.end() && it->second.size == size && it->second.modified == modified
+                                                         && it->second.features.version >= SampleFeatures::currentVersion)
                 {
                     ++progress.unchanged;
                     continue;
@@ -486,7 +493,11 @@ std::vector<SampleEntry> SampleLibrary::search (const SampleQuery& q) const
         if (q.loop && c.loop != *q.loop)                                continue;
         if (q.minDuration && f.durationSeconds < *q.minDuration)        continue;
         if (q.maxDuration && f.durationSeconds > *q.maxDuration)        continue;
-        if (q.key && ! keysMatch (c.key, *q.key))                       continue;
+        if (q.key && ! keysMatch (keyOf (e).key, *q.key))               continue;
+
+        if (q.fitsKey)
+            if (auto fit = fitTo (e, *q.fitsKey); ! fit || ! fit->fits)
+                continue;
 
         if (q.tempo)
         {
@@ -562,7 +573,58 @@ std::vector<SampleEntry> SampleLibrary::search (const SampleQuery& q) const
     return results;
 }
 
-Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures)
+SampleLibrary::SampleKey SampleLibrary::keyOf (const SampleEntry& e)
+{
+    auto& f = e.features;
+    auto& c = e.classification;
+    SampleKey k;
+
+    const auto named = c.key ? music::parseKey (*c.key) : std::nullopt;
+
+    // A key is heard in what has harmony or a line to it; a drum hit's "key" is its root, and a
+    // drum loop's only counts when it's very clear (tuned toms, a pitched perc line).
+    static const std::set<std::string> drums { "kick", "snare", "clap", "hat", "cymbal", "tom", "perc", "drums" };
+    const bool tonal = c.loop || f.durationSeconds >= 1.5 || c.category == "synth" || c.category == "bass" || c.category == "vocal";
+    const auto needed = drums.contains (c.category) ? 0.6f : 0.25f;
+    const auto heard = tonal && f.tonality && f.tonality->confidence >= needed ? std::optional (f.tonality->key) : std::nullopt;
+
+    if (named)
+    {
+        k.key = named;
+        k.source = heard && heard->relativeMajor() == named->relativeMajor() ? "name and sound" : "name";
+
+        if (heard && heard->relativeMajor() != named->relativeMajor())
+            k.heard = heard;
+    }
+    else if (heard)
+    {
+        k.key = heard;
+        k.source = "sound";
+    }
+
+    if (! c.loop && f.pitch && f.pitch->confidence > 0.7f)
+        k.root = f.pitch->key;
+
+    return k;
+}
+
+std::optional<SampleLibrary::KeyFit> SampleLibrary::fitTo (const SampleEntry& e, music::Key songKey)
+{
+    const auto k = keyOf (e);
+
+    if (k.key)
+        return KeyFit { music::compatible (*k.key, songKey), music::semitonesBetween (*k.key, songKey) };
+
+    if (k.root)
+    {
+        auto toTonic = ((songKey.tonic - *k.root) % 12 + 12) % 12;
+        return KeyFit { songKey.contains (*k.root % 12), toTonic > 6 ? toTonic - 12 : toTonic };
+    }
+
+    return {};
+}
+
+Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures, std::optional<music::Key> songKey)
 {
     auto& f = e.features;
     auto& c = e.classification;
@@ -576,10 +638,24 @@ Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures)
     };
 
     if (c.tempo)    j["tempo"] = *c.tempo;
-    if (c.key)      j["key"] = *c.key;
 
-    if (! c.loop && f.pitch && f.pitch->confidence > 0.7f)
-        j["rootKey"] = f.pitch->key;
+    const auto key = keyOf (e);
+
+    if (key.key)
+    {
+        j["key"] = music::keyName (*key.key);
+        j["keySource"] = key.source;
+
+        if (key.heard)
+            j["heardKey"] = music::keyName (*key.heard);
+    }
+
+    if (key.root)
+        j["rootKey"] = *key.root;
+
+    if (songKey)
+        if (auto fit = fitTo (e, *songKey))
+            j["keyFit"] = { { "fits", fit->fits }, { "transpose", fit->transpose } };
 
     if (includeFeatures)
     {

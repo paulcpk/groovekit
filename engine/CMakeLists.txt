@@ -24,6 +24,7 @@ target_sources(gk_engine PRIVATE
     src/listening/Groove.cpp
     src/listening/Listening.cpp
     src/listening/Models.cpp
+    src/listening/NoteTranscriber.cpp
     src/listening/Ort.cpp
     src/listening/Separator.cpp
     src/listening/SoundIndex.cpp
@@ -44,6 +45,8 @@ target_sources(gk_engine PRIVATE
     src/render/Stretch.cpp
     src/sampler/AudioChannelPlugin.cpp
     src/sampler/SampleCache.cpp
+    src/music/Keys.cpp
+    src/music/Notes.cpp
     src/sampler/Modulation.cpp
     src/sampler/SamplerEngine.cpp
     src/sampler/SamplerPlugin.cpp

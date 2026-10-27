@@ -195,25 +195,41 @@ export async function downloadVoiceModel() {
   useVoiceModel.setState(await engine.call<VoiceModel>("voice.download"), true);
 }
 
+/** What the engine heard in a recording: its text, and the melody hummed or sung in it, if any
+    (the agent places it with the melody tool, by the recording's id). */
+export interface Transcript {
+  text: string;
+  recording?: string;
+  melody?: { from: number; to: number; notes: number };
+}
+
 /** The text of a recording. The engine answers at once with a job and sends the text when it's done. */
-export async function transcribe(audio: string, language?: string): Promise<string> {
+export async function transcribe(audio: string, language?: string): Promise<Transcript> {
   let unlisten = () => {};
-  const done = new Promise<{ job: string; text?: string; error?: string }>((resolve) => {
-    const results = new Map<string, { text?: string; error?: string }>();
+  type Result = { job: string; text?: string; error?: string; recording?: string; melody?: Transcript["melody"] };
+  const done = new Promise<Result>((resolve) => {
+    const results = new Map<string, Result>();
     let waitingFor: string | undefined;
-    unlisten = listen("voiceTranscript", (result) => {
+    unlisten = listen("voiceTranscript", (result: Result) => {
       if (result.job === waitingFor) resolve(result);
       else results.set(result.job, result);
     });
     void engine.call<{ job: string }>("voice.transcribe", { audio, ...(language ? { language } : {}) }).then(({ job }) => {
       waitingFor = job;
       const early = results.get(job);
-      if (early) resolve({ job, ...early });
+      if (early) resolve(early);
     }, (e) => resolve({ job: "", error: e instanceof Error ? e.message : String(e) }));
   });
   const result = await done.finally(unlisten);
   if (result.error) throw new Error(result.error);
-  return result.text ?? "";
+  return { text: result.text ?? "", recording: result.recording, melody: result.melody };
+}
+
+/** A transcript as message text: what was said, then a note of the melody for the agent. */
+export function transcriptText({ text, recording, melody }: Transcript) {
+  if (!melody || !recording) return text.trim();
+  const note = `[hummed melody: ${melody.notes} notes from ${melody.from.toFixed(1)} s in voice message ${recording}]`;
+  return `${text.trim()} ${note}`.trim();
 }
 
 /** The voice shortcut was pressed: the agent's message box starts (or finishes) a recording when

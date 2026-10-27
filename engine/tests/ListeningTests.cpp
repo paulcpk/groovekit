@@ -1,6 +1,7 @@
 #include "TestHelpers.h"
 
 #include "listening/Clap.h"
+#include "listening/NoteTranscriber.h"
 #include "listening/Separator.h"
 #include "listening/Styles.h"
 #include "listening/Taste.h"
@@ -136,6 +137,68 @@ TEST_CASE ("The separator puts a kick in the drums and a held low note in the ba
     CHECK (bass > 0.05f);
 }
 
+
+TEST_CASE ("Note activations become notes the way Basic Pitch makes them")
+{
+    // C4 held for 40 frames from an onset at frame 10, and an E4 with no onset (found from its frames).
+    NoteTranscriber::Activations a;
+    a.frames.resize (100);
+    a.onsets.resize (100);
+    std::vector<double> times;
+
+    for (int t = 0; t < 100; ++t)
+    {
+        times.push_back (t * 256.0 / 22050.0);
+
+        if (t >= 10 && t < 50) a.frames[static_cast<size_t> (t)][39] = 0.8f;
+        if (t >= 60 && t < 90) a.frames[static_cast<size_t> (t)][43] = 0.6f;
+    }
+
+    a.onsets[10][39] = 0.9f;
+
+    const auto notes = NoteTranscriber::notesFrom (a, times);
+    REQUIRE (notes.size() == 2);
+    CHECK (notes[0].pitch == 60);
+    CHECK (notes[0].start == Catch::Approx (times[10]));
+    CHECK (notes[0].end == Catch::Approx (times[50]).margin (0.02));
+    CHECK (notes[1].pitch == 64);
+}
+
+TEST_CASE ("Basic Pitch hears the notes of a played melody")
+{
+    auto* models = downloadedModels();
+
+    if (models == nullptr)
+        SKIP ("The listening models aren't downloaded");
+
+    // C4, E4, G4, C5, half a second each, plucked.
+    const int rate = 44100;
+    juce::AudioBuffer<float> audio (1, 2 * rate);
+    audio.clear();
+    const int keys[] { 60, 64, 67, 72 };
+
+    for (int n = 0; n < 4; ++n)
+    {
+        const auto hz = 440.0 * std::pow (2.0, (keys[n] - 69) / 12.0);
+
+        for (int i = 0; i < rate / 2; ++i)
+        {
+            const auto t = static_cast<double> (i) / rate;
+            const auto p = 2.0 * juce::MathConstants<double>::pi * hz * t;
+            audio.setSample (0, n * rate / 2 + i, static_cast<float> (0.4 * std::exp (-t * 3) * (std::sin (p) + 0.3 * std::sin (2 * p))));
+        }
+    }
+
+    NoteTranscriber transcriber (*models);
+    const auto notes = gk::music::topLine (transcriber.transcribe (audio, rate));
+    REQUIRE (notes.size() >= 4);
+
+    std::vector<int> heard;
+    for (auto& n : notes) heard.push_back (static_cast<int> (n.pitch));
+
+    CHECK (heard == std::vector<int> { 60, 64, 67, 72 });
+    CHECK (notes[1].start == Catch::Approx (0.5).margin (0.05));
+}
 
 TEST_CASE ("The groove of a drum pattern: tempo, swing and density")
 {

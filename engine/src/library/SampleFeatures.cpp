@@ -2,6 +2,8 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include <map>
+
 namespace gk::library
 {
 
@@ -356,9 +358,39 @@ SampleFeatures analyseSample (const Audio& audio, double maxSeconds)
 
     measureSpectrum (mono, audio.sampleRate, f);
 
-    // Pitch from the body of the sound, just after the attack.
+    // Pitch from the body of the sound: just after the attack, and through it to the end of the
+    // decay, where the note most windows agree on wins (a kick's pitch is its tail's, past the
+    // click).
     const auto pitchStart = static_cast<int> ((peak + 2) * static_cast<size_t> (window));
     f.pitch = detectPitch (audio, pitchStart, static_cast<int> (audio.sampleRate * 0.1));
+
+    {
+        std::map<int, std::vector<SampleFeatures::Pitch>> byKey;
+        const auto bodyEnd = std::min (numSamples, static_cast<int> (decayEnd * static_cast<size_t> (window)));
+        const auto step = static_cast<int> (audio.sampleRate * 0.05);
+        int windows = 0;
+
+        for (auto at = pitchStart; at + static_cast<int> (audio.sampleRate * 0.1) <= bodyEnd && windows < 12; at += step, ++windows)
+            if (auto p = detectPitch (audio, at, static_cast<int> (audio.sampleRate * 0.1)); p && p->confidence > 0.8f)
+                byKey[p->key].push_back (*p);
+
+        auto best = std::max_element (byKey.begin(), byKey.end(), [] (auto& a, auto& b) { return a.second.size() < b.second.size(); });
+
+        if (best != byKey.end() && best->second.size() >= 3 && best->second.size() * 2 > static_cast<size_t> (windows))
+        {
+            auto& found = best->second;
+            std::sort (found.begin(), found.end(), [] (auto& a, auto& b) { return a.hz < b.hz; });
+            f.pitch = found[found.size() / 2];
+            f.pitch->confidence = std::max (f.pitch->confidence, static_cast<float> (found.size()) / static_cast<float> (windows));
+        }
+    }
+
+    // The key of what sounds, for anything long enough to have one.
+    if (numSamples > audio.sampleRate * 0.3)
+        if (auto key = music::estimateKey (music::chromaOf (mono.data(), numSamples, audio.sampleRate)))
+            f.tonality = SampleFeatures::Tonality { key->key, key->confidence };
+
+    f.version = SampleFeatures::currentVersion;
 
     const auto hop = static_cast<int> (audio.sampleRate * 0.01);
     auto flux = onsetStrength (mono, hop);
@@ -396,6 +428,10 @@ model::Json toJson (const SampleFeatures& f)
     if (f.estimatedTempo)
         j["estimatedTempo"] = *f.estimatedTempo;
 
+    if (f.tonality)
+        j["tonality"] = { { "key", music::keyName (f.tonality->key) }, { "confidence", round (f.tonality->confidence, 0.01) } };
+
+    j["version"] = f.version;
     return j;
 }
 

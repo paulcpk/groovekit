@@ -10,6 +10,10 @@
     "schemaVersion": { "description": "3 since playlist tracks are numbered lanes and audio clips play sampler channels. Older songs are converted when they open.", "const": 3 },
     "name": { "type": "string", "default": "" },
     "tempo": { "description": "Beats per minute.", "type": "number", "minimum": 20, "maximum": 999 },
+    "key": {
+      "description": "The song's key, e.g. \"A minor\" or \"F# major\": melodies taken from humming or reference tracks move into it, and samples are matched against it.",
+      "type": "string", "minLength": 2
+    },
     "timeSignature": { "$ref": "#/$defs/TimeSignature" },
     "swing": { "description": "Delays every second 16th note by up to half a 16th (1: a dotted-16th feel). Applies to pattern notes that start on an off-beat 16th.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
     "channels": { "type": "array", "items": { "$ref": "#/$defs/Channel" } },

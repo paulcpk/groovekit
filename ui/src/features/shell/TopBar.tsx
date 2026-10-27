@@ -126,7 +126,55 @@ function Tempo() {
         <span className="text-faint">/</span>
         <span>{ts.denominator ?? 4}</span>
       </div>
+      <KeyMenu songKey={doc.key} />
     </div>
+  );
+}
+
+const TONICS = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+
+/** The song's key: melodies taken from humming or reference tracks move into it, and the
+    browser can show the samples that go with it. */
+function KeyMenu({ songKey }: { songKey?: string }) {
+  const [open, setOpen] = useState(false);
+  const set = (key?: string) => {
+    setOpen(false);
+    void execute(key ? { type: "setKey", key } : { type: "setKey" }, { label: key ? `Key: ${key}` : "No key" });
+  };
+  const [tonic, mode] = songKey?.split(" ") ?? [];
+  return (
+    <Dropdown open={open} onOpenChange={setOpen}>
+      <DropdownTrigger asChild>
+        <button type="button" title="The song's key" className={cn("rounded-[3px] px-1 text-sm hover:bg-control", songKey ? "text-fg" : "text-faint")}>
+          {songKey ? `${tonic}${mode === "minor" ? "m" : ""}` : "Key"}
+        </button>
+      </DropdownTrigger>
+      <DropdownContent>
+        <DropdownLabel>Minor</DropdownLabel>
+        <div className="grid grid-cols-6 gap-0.5 px-1.5 pb-1">
+          {TONICS.map((t) => <KeyCell key={t} label={`${t}m`} on={songKey === `${t} minor`} onClick={() => set(`${t} minor`)} />)}
+        </div>
+        <DropdownLabel>Major</DropdownLabel>
+        <div className="grid grid-cols-6 gap-0.5 px-1.5 pb-1">
+          {TONICS.map((t) => <KeyCell key={t} label={t} on={songKey === `${t} major`} onClick={() => set(`${t} major`)} />)}
+        </div>
+        {songKey && (
+          <>
+            <DropdownSeparator />
+            <DropdownItem onSelect={() => set()}>No key</DropdownItem>
+          </>
+        )}
+      </DropdownContent>
+    </Dropdown>
+  );
+}
+
+function KeyCell({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className={cn("h-6 w-9 rounded-[3px] text-xs tabular", on ? "bg-accent text-black" : "text-dim hover:bg-control hover:text-fg")}>
+      {label}
+    </button>
   );
 }
 

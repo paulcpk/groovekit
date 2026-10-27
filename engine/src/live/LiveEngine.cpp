@@ -427,8 +427,8 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             continue;
         }
 
-        // What only the UI shows: names, colours, which rack list a channel is in.
-        if ((keys.size() == 3 && keys[0] == "channels" && (keys[2] == "name" || keys[2] == "color" || keys[2] == "group"))
+        // What only the UI shows: names, colours, which rack list a channel is in, the song's key.
+        if ((keys.size() == 1 && (keys[0] == "key" || keys[0] == "name")) || (keys.size() == 3 && keys[0] == "channels" && (keys[2] == "name" || keys[2] == "color" || keys[2] == "group"))
             || (keys.size() == 4 && keys[0] == "playlist" && keys[1] == "tracks" && (keys[3] == "name" || keys[3] == "color"))
             || (keys.size() == 3 && keys[0] == "playlist" && keys[1] == "tracks" && op.op == PatchOpOp::add && op.value && op.value->empty()))
             continue;

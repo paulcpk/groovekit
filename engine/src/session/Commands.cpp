@@ -1,4 +1,5 @@
 #include "Commands.h"
+#include "music/Keys.h"
 
 #include "model/Project.h"
 
@@ -177,6 +178,24 @@ namespace
         Editor e;
 
         void operator() (const SetTempo& c)             { e.tx.add ("/tempo", c.tempo); }
+
+        void operator() (const SetKey& c)
+        {
+            if (! c.key)
+            {
+                if (e.has ("/key"))
+                    e.tx.remove ("/key");
+
+                return;
+            }
+
+            const auto key = music::parseKey (*c.key);
+
+            if (! key)
+                throw CommandError ("\"" + *c.key + "\" isn't a key; name one like \"A minor\" or \"F# major\"");
+
+            e.tx.add ("/key", music::keyName (*key));
+        }
         void operator() (const SetTimeSignature& c)     { e.tx.add ("/timeSignature", toJson (c.timeSignature)); }
         void operator() (const SetSwing& c)             { e.tx.add ("/swing", c.swing); }
         void operator() (const RenameProject& c)        { e.tx.add ("/name", c.name); }
@@ -484,6 +503,7 @@ std::string describeCommand (const Command& command)
         using T = std::decay_t<decltype (c)>;
 
         if constexpr (std::is_same_v<T, SetTempo>)              return "Set tempo to " + (std::ostringstream() << c.tempo).str();
+        else if constexpr (std::is_same_v<T, SetKey>)           return c.key ? "Set key to " + *c.key : std::string ("Clear the key");
         else if constexpr (std::is_same_v<T, SetTimeSignature>) return "Set time signature";
         else if constexpr (std::is_same_v<T, SetSwing>)         return "Set swing to " + std::to_string (static_cast<int> (std::round (c.swing * 100))) + "%";
         else if constexpr (std::is_same_v<T, RenameProject>)    return "Rename project";

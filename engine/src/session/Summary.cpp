@@ -102,6 +102,9 @@ Json summarizeProject (const Project& project)
         { "lengthSeconds", std::round (static_cast<double> (end) / ticksPerQuarter * 60.0 / project.tempo * 100.0) / 100.0 },
     };
 
+    if (project.key)
+        summary["key"] = *project.key;
+
     auto channels = Json::array();
 
     for (auto& c : project.channels)

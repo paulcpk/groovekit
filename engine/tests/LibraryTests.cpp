@@ -1,6 +1,7 @@
 #include "TestHelpers.h"
 
 #include "library/SampleLibrary.h"
+#include "music/Keys.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -185,4 +186,83 @@ TEST_CASE ("The library scans folders, searches and persists")
     CHECK (library.getProgress().unchanged == 3);
     CHECK (library.getProgress().analysed == 0);
     CHECK (library.size() == 3);
+}
+
+TEST_CASE ("Samples have a key from their sound, and roots from their pitch")
+{
+    const double rate = 44100;
+    const auto tone = [&] (std::vector<double> notes, double seconds)
+    {
+        gk::analysis::Audio audio;
+        audio.sampleRate = rate;
+        audio.buffer.setSize (1, static_cast<int> (seconds * rate));
+
+        for (int i = 0; i < audio.buffer.getNumSamples(); ++i)
+        {
+            double v = 0;
+
+            for (auto n : notes)
+                v += std::sin (juce::MathConstants<double>::twoPi * 440.0 * std::pow (2.0, (n - 69) / 12.0) * i / rate);
+
+            audio.buffer.setSample (0, i, static_cast<float> (0.2 * v));
+        }
+
+        return audio;
+    };
+
+    // Two seconds of A minor: A, C, E over a low A, then D, F, A.
+    auto chords = tone ({ 45, 57, 60, 64 }, 1.0);
+    auto second = tone ({ 50, 57, 62, 65 }, 1.0);
+    chords.buffer.setSize (1, 2 * static_cast<int> (rate), true);
+    chords.buffer.copyFrom (0, static_cast<int> (rate), second.buffer, 0, 0, static_cast<int> (rate));
+
+    SampleEntry loop;
+    loop.features = analyseSample (chords);
+    loop.classification.loop = true;
+    loop.classification.category = "synth";
+    REQUIRE (loop.features.tonality);
+    CHECK (gk::music::keyName (loop.features.tonality->key) == "A minor");
+
+    auto key = SampleLibrary::keyOf (loop);
+    REQUIRE (key.key);
+    CHECK (key.source == "sound");
+
+    // A name saying otherwise wins, and what it sounds like is noted.
+    loop.classification.key = "F# minor";
+    key = SampleLibrary::keyOf (loop);
+    CHECK (gk::music::keyName (*key.key) == "F# minor");
+    REQUIRE (key.heard);
+    CHECK (gk::music::keyName (*key.heard) == "A minor");
+    loop.classification.key.reset();
+
+    // In C major it fits as it is; in Bb minor it's 1 semitone up... to Db major's notes.
+    CHECK (SampleLibrary::fitTo (loop, { 0, false })->fits);
+    CHECK (SampleLibrary::fitTo (loop, { 0, false })->transpose == 0);
+    CHECK (! SampleLibrary::fitTo (loop, { 10, true })->fits);
+    CHECK (SampleLibrary::fitTo (loop, { 10, true })->transpose == 1);
+
+    // A kick: a click, then a 49 Hz tail. Its root is G1 (31), from the tail.
+    gk::analysis::Audio kick;
+    kick.sampleRate = rate;
+    kick.buffer.setSize (1, static_cast<int> (0.6 * rate));
+
+    for (int i = 0; i < kick.buffer.getNumSamples(); ++i)
+    {
+        const auto t = i / rate;
+        const auto click = t < 0.004 ? 0.9 * std::sin (juce::MathConstants<double>::twoPi * 900 * t) : 0.0;
+        kick.buffer.setSample (0, i, static_cast<float> (click + 0.8 * std::exp (-t * 5) * std::sin (juce::MathConstants<double>::twoPi * 49.0 * t)));
+    }
+
+    SampleEntry hit;
+    hit.features = analyseSample (kick);
+    hit.classification.category = "kick";
+    key = SampleLibrary::keyOf (hit);
+    REQUIRE (key.root);
+    CHECK (*key.root == 31);
+    CHECK (! key.key);
+
+    // In G minor it's on the tonic; in A minor it's a 7th (in the scale), 2 semitones under the tonic.
+    CHECK (SampleLibrary::fitTo (hit, { 7, true })->transpose == 0);
+    CHECK (SampleLibrary::fitTo (hit, { 9, true })->fits);
+    CHECK (SampleLibrary::fitTo (hit, { 9, true })->transpose == 2);
 }
