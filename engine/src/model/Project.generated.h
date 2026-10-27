@@ -56,8 +56,11 @@ enum class SamplerFilterType
 {
     off,
     lowpass,
+    lowpass24,
     highpass,
-    bandpass
+    highpass24,
+    bandpass,
+    notch
 };
 
 inline const char* toString (SamplerFilterType v)
@@ -66,8 +69,11 @@ inline const char* toString (SamplerFilterType v)
     {
         case SamplerFilterType::off: return "off";
         case SamplerFilterType::lowpass: return "lowpass";
+        case SamplerFilterType::lowpass24: return "lowpass24";
         case SamplerFilterType::highpass: return "highpass";
+        case SamplerFilterType::highpass24: return "highpass24";
         case SamplerFilterType::bandpass: return "bandpass";
+        case SamplerFilterType::notch: return "notch";
     }
 
     return "";
@@ -82,8 +88,50 @@ inline void readValue (Reader& r, const Json& j, SamplerFilterType& out)
 
     if (s == "off") { out = SamplerFilterType::off; return; }
     if (s == "lowpass") { out = SamplerFilterType::lowpass; return; }
+    if (s == "lowpass24") { out = SamplerFilterType::lowpass24; return; }
     if (s == "highpass") { out = SamplerFilterType::highpass; return; }
+    if (s == "highpass24") { out = SamplerFilterType::highpass24; return; }
     if (s == "bandpass") { out = SamplerFilterType::bandpass; return; }
+    if (s == "notch") { out = SamplerFilterType::notch; return; }
+
+    r.fail ("unknown value \"" + s + "\"");
+}
+
+enum class LfoShape
+{
+    sine,
+    triangle,
+    square,
+    saw,
+    random
+};
+
+inline const char* toString (LfoShape v)
+{
+    switch (v)
+    {
+        case LfoShape::sine: return "sine";
+        case LfoShape::triangle: return "triangle";
+        case LfoShape::square: return "square";
+        case LfoShape::saw: return "saw";
+        case LfoShape::random: return "random";
+    }
+
+    return "";
+}
+
+inline Json toJson (LfoShape v) { return toString (v); }
+
+inline void readValue (Reader& r, const Json& j, LfoShape& out)
+{
+    std::string s;
+    readValue (r, j, s);
+
+    if (s == "sine") { out = LfoShape::sine; return; }
+    if (s == "triangle") { out = LfoShape::triangle; return; }
+    if (s == "square") { out = LfoShape::square; return; }
+    if (s == "saw") { out = LfoShape::saw; return; }
+    if (s == "random") { out = LfoShape::random; return; }
 
     r.fail ("unknown value \"" + s + "\"");
 }
@@ -114,6 +162,39 @@ inline void readValue (Reader& r, const Json& j, SamplerLayerMode& out)
 
     if (s == "oneShot") { out = SamplerLayerMode::oneShot; return; }
     if (s == "gate") { out = SamplerLayerMode::gate; return; }
+
+    r.fail ("unknown value \"" + s + "\"");
+}
+
+enum class SamplerLayerLoop
+{
+    off,
+    forward,
+    pingPong
+};
+
+inline const char* toString (SamplerLayerLoop v)
+{
+    switch (v)
+    {
+        case SamplerLayerLoop::off: return "off";
+        case SamplerLayerLoop::forward: return "forward";
+        case SamplerLayerLoop::pingPong: return "pingPong";
+    }
+
+    return "";
+}
+
+inline Json toJson (SamplerLayerLoop v) { return toString (v); }
+
+inline void readValue (Reader& r, const Json& j, SamplerLayerLoop& out)
+{
+    std::string s;
+    readValue (r, j, s);
+
+    if (s == "off") { out = SamplerLayerLoop::off; return; }
+    if (s == "forward") { out = SamplerLayerLoop::forward; return; }
+    if (s == "pingPong") { out = SamplerLayerLoop::pingPong; return; }
 
     r.fail ("unknown value \"" + s + "\"");
 }
@@ -274,40 +355,56 @@ inline Json toJson (const TimeSignature& v)
     return j;
 }
 
-/** Attack, decay, sustain, release. Times in seconds; sustain is a level from 0 to 1. */
+/** Delay, attack, hold, decay, sustain, release. Times in seconds; sustain is a level from 0 to 1. The curves bend the attack, decay and release: 0 is straight, positive moves fast at first and then eases (the way sounds fade), negative starts slowly. */
 struct Envelope
 {
+    double delay = 0;
     double attack = 0;
+    double hold = 0;
     double decay = 0;
     double sustain = 1;
     double release = 0.01;
+    double attackCurve = 0;
+    double decayCurve = 0;
+    double releaseCurve = 0;
 
     bool operator== (const Envelope&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, Envelope& out)
 {
-    r.expectObject (j, { "attack", "decay", "sustain", "release" });
+    r.expectObject (j, { "delay", "attack", "hold", "decay", "sustain", "release", "attackCurve", "decayCurve", "releaseCurve" });
 
+    r.optional (j, "delay", [&] (const Json& v) { readValue (r, v, out.delay); r.checkMin (out.delay, 0); r.checkMax (out.delay, 30); });
     r.optional (j, "attack", [&] (const Json& v) { readValue (r, v, out.attack); r.checkMin (out.attack, 0); r.checkMax (out.attack, 30); });
+    r.optional (j, "hold", [&] (const Json& v) { readValue (r, v, out.hold); r.checkMin (out.hold, 0); r.checkMax (out.hold, 30); });
     r.optional (j, "decay", [&] (const Json& v) { readValue (r, v, out.decay); r.checkMin (out.decay, 0); r.checkMax (out.decay, 30); });
     r.optional (j, "sustain", [&] (const Json& v) { readValue (r, v, out.sustain); r.checkMin (out.sustain, 0); r.checkMax (out.sustain, 1); });
     r.optional (j, "release", [&] (const Json& v) { readValue (r, v, out.release); r.checkMin (out.release, 0); r.checkMax (out.release, 30); });
+    r.optional (j, "attackCurve", [&] (const Json& v) { readValue (r, v, out.attackCurve); r.checkMin (out.attackCurve, -1); r.checkMax (out.attackCurve, 1); });
+    r.optional (j, "decayCurve", [&] (const Json& v) { readValue (r, v, out.decayCurve); r.checkMin (out.decayCurve, -1); r.checkMax (out.decayCurve, 1); });
+    r.optional (j, "releaseCurve", [&] (const Json& v) { readValue (r, v, out.releaseCurve); r.checkMin (out.releaseCurve, -1); r.checkMax (out.releaseCurve, 1); });
 }
 
 inline Json toJson (const Envelope& v)
 {
     auto j = Json::object();
+    j["delay"] = toJson (v.delay);
     j["attack"] = toJson (v.attack);
+    j["hold"] = toJson (v.hold);
     j["decay"] = toJson (v.decay);
     j["sustain"] = toJson (v.sustain);
     j["release"] = toJson (v.release);
+    j["attackCurve"] = toJson (v.attackCurve);
+    j["decayCurve"] = toJson (v.decayCurve);
+    j["releaseCurve"] = toJson (v.releaseCurve);
     return j;
 }
 
-/** A resonant 12 dB/octave filter per voice (and per audio clip), its cutoff moved by its own envelope. */
+/** A resonant filter per voice (and per audio clip), its cutoff moved by its own envelope. */
 struct SamplerFilter
 {
+    /** lowpass and highpass are 12 dB/octave, lowpass24 and highpass24 steeper at 24; bandpass keeps a band around the cutoff, notch takes it out. */
     SamplerFilterType type = SamplerFilterType::off;
     /** Hz. */
     double cutoff = 20000;
@@ -340,6 +437,156 @@ inline Json toJson (const SamplerFilter& v)
     j["resonance"] = toJson (v.resonance);
     j["envelopeAmount"] = toJson (v.envelopeAmount);
     j["envelope"] = toJson (v.envelope);
+    return j;
+}
+
+/** A low-frequency oscillator added to the target. */
+struct Lfo
+{
+    LfoShape shape = LfoShape::sine;
+    /** Share of the target's span it swings either way; 0 is off. */
+    double amount = 0;
+    /** Cycles a second, when not synced. */
+    double speed = 4;
+    /** Beats per cycle (0.25 is a 16th, 4 a bar in 4/4) following the tempo, instead of speed. */
+    std::optional<double> sync;
+    /** Seconds after a note starts before it moves. */
+    double delay = 0;
+    /** Seconds it then takes to swing fully. */
+    double attack = 0;
+    /** Each note starts its cycle; false keeps one cycle running for every note. */
+    bool retrigger = true;
+
+    bool operator== (const Lfo&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, Lfo& out)
+{
+    r.expectObject (j, { "shape", "amount", "speed", "sync", "delay", "attack", "retrigger" });
+
+    r.optional (j, "shape", [&] (const Json& v) { readValue (r, v, out.shape); });
+    r.optional (j, "amount", [&] (const Json& v) { readValue (r, v, out.amount); r.checkMin (out.amount, -1); r.checkMax (out.amount, 1); });
+    r.optional (j, "speed", [&] (const Json& v) { readValue (r, v, out.speed); r.checkMin (out.speed, 0.01); r.checkMax (out.speed, 50); });
+    r.optional (j, "sync", [&] (const Json& v) { readValue (r, v, out.sync.emplace()); r.checkMin (*out.sync, 0.0625); r.checkMax (*out.sync, 64); });
+    r.optional (j, "delay", [&] (const Json& v) { readValue (r, v, out.delay); r.checkMin (out.delay, 0); r.checkMax (out.delay, 10); });
+    r.optional (j, "attack", [&] (const Json& v) { readValue (r, v, out.attack); r.checkMin (out.attack, 0); r.checkMax (out.attack, 10); });
+    r.optional (j, "retrigger", [&] (const Json& v) { readValue (r, v, out.retrigger); });
+}
+
+inline Json toJson (const Lfo& v)
+{
+    auto j = Json::object();
+    j["shape"] = toJson (v.shape);
+    j["amount"] = toJson (v.amount);
+    j["speed"] = toJson (v.speed);
+
+    if (v.sync)
+        j["sync"] = toJson (*v.sync);
+
+    j["delay"] = toJson (v.delay);
+    j["attack"] = toJson (v.attack);
+    j["retrigger"] = toJson (v.retrigger);
+    return j;
+}
+
+struct LfoTarget
+{
+    std::optional<Lfo> lfo;
+
+    bool operator== (const LfoTarget&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, LfoTarget& out)
+{
+    r.expectObject (j, { "lfo" });
+
+    r.optional (j, "lfo", [&] (const Json& v) { readValue (r, v, out.lfo.emplace()); });
+}
+
+inline Json toJson (const LfoTarget& v)
+{
+    auto j = Json::object();
+
+    if (v.lfo)
+        j["lfo"] = toJson (*v.lfo);
+    return j;
+}
+
+struct ModulationTarget
+{
+    /** Its shape; the amount sets how far it moves the target at its peak. */
+    Envelope envelope;
+    /** Share of the target's span the envelope moves it at its peak; negative moves it the other way, 0 is off. */
+    double amount = 0;
+    std::optional<Lfo> lfo;
+
+    bool operator== (const ModulationTarget&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, ModulationTarget& out)
+{
+    r.expectObject (j, { "envelope", "amount", "lfo" });
+
+    r.optional (j, "envelope", [&] (const Json& v) { readValue (r, v, out.envelope); });
+    r.optional (j, "amount", [&] (const Json& v) { readValue (r, v, out.amount); r.checkMin (out.amount, -1); r.checkMax (out.amount, 1); });
+    r.optional (j, "lfo", [&] (const Json& v) { readValue (r, v, out.lfo.emplace()); });
+}
+
+inline Json toJson (const ModulationTarget& v)
+{
+    auto j = Json::object();
+    j["envelope"] = toJson (v.envelope);
+    j["amount"] = toJson (v.amount);
+
+    if (v.lfo)
+        j["lfo"] = toJson (*v.lfo);
+    return j;
+}
+
+/** Envelopes and LFOs that move a sampler's volume, cutoff, resonance, pan and pitch over each note. Notes only: audio clips keep the layer's volume envelope and the filter's cutoff envelope. Amounts are shares of each target's span: volume all of it, cutoff 5 octaves, resonance all of it, pan from centre to one side, pitch 24 semitones. */
+struct SamplerModulation
+{
+    /** Tremolo; the volume envelope is each layer's own. */
+    std::optional<LfoTarget> volume;
+    /** Moves the filter's cutoff; its envelope is the filter's own (envelope and envelopeAmount). */
+    std::optional<LfoTarget> cutoff;
+    std::optional<ModulationTarget> resonance;
+    std::optional<ModulationTarget> pan;
+    /** An envelope amount of 0.5 drops or raises the pitch by 12 semitones, as in a pitched-down kick. */
+    std::optional<ModulationTarget> pitch;
+
+    bool operator== (const SamplerModulation&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, SamplerModulation& out)
+{
+    r.expectObject (j, { "volume", "cutoff", "resonance", "pan", "pitch" });
+
+    r.optional (j, "volume", [&] (const Json& v) { readValue (r, v, out.volume.emplace()); });
+    r.optional (j, "cutoff", [&] (const Json& v) { readValue (r, v, out.cutoff.emplace()); });
+    r.optional (j, "resonance", [&] (const Json& v) { readValue (r, v, out.resonance.emplace()); });
+    r.optional (j, "pan", [&] (const Json& v) { readValue (r, v, out.pan.emplace()); });
+    r.optional (j, "pitch", [&] (const Json& v) { readValue (r, v, out.pitch.emplace()); });
+}
+
+inline Json toJson (const SamplerModulation& v)
+{
+    auto j = Json::object();
+
+    if (v.volume)
+        j["volume"] = toJson (*v.volume);
+
+    if (v.cutoff)
+        j["cutoff"] = toJson (*v.cutoff);
+
+    if (v.resonance)
+        j["resonance"] = toJson (*v.resonance);
+
+    if (v.pan)
+        j["pan"] = toJson (*v.pan);
+
+    if (v.pitch)
+        j["pitch"] = toJson (*v.pitch);
     return j;
 }
 
@@ -418,6 +665,22 @@ struct SamplerLayer
     std::optional<double> end;
     /** Plays the part between start and end backwards. */
     bool reverse = false;
+    /** Notes only. forward loops the part that plays, pingPong plays it back and forth; a looping layer plays until its note ends, then releases. */
+    SamplerLayerLoop loop = SamplerLayerLoop::off;
+    /** Seconds the part that plays fades in over (notes only). */
+    double fadeIn = 0;
+    /** Seconds it fades out over before its end (notes only; not while looping). */
+    double fadeOut = 0;
+    /** Brings the part that plays up (or down) to a peak of 0 dB before its gain (notes only). */
+    bool normalize = false;
+    /** Flips the polarity (notes only). */
+    bool invert = false;
+    /** Swaps left and right (notes only). */
+    bool swapStereo = false;
+    /** Transient shaping (notes only): positive sharpens each hit's attack, negative softens it. */
+    double punch = 0;
+    /** Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it. */
+    double tail = 0;
     /** Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it. */
     std::optional<double> sourceTempo;
 
@@ -426,7 +689,7 @@ struct SamplerLayer
 
 inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
 {
-    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "sourceTempo" });
+    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "loop", "fadeIn", "fadeOut", "normalize", "invert", "swapStereo", "punch", "tail", "sourceTempo" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "sample", [&] (const Json& v) { readValue (r, v, out.sample); r.checkMinLength (out.sample, 1); });
@@ -443,6 +706,14 @@ inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
     r.optional (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.optional (j, "end", [&] (const Json& v) { readValue (r, v, out.end.emplace()); r.checkMin (*out.end, 0); });
     r.optional (j, "reverse", [&] (const Json& v) { readValue (r, v, out.reverse); });
+    r.optional (j, "loop", [&] (const Json& v) { readValue (r, v, out.loop); });
+    r.optional (j, "fadeIn", [&] (const Json& v) { readValue (r, v, out.fadeIn); r.checkMin (out.fadeIn, 0); r.checkMax (out.fadeIn, 10); });
+    r.optional (j, "fadeOut", [&] (const Json& v) { readValue (r, v, out.fadeOut); r.checkMin (out.fadeOut, 0); r.checkMax (out.fadeOut, 10); });
+    r.optional (j, "normalize", [&] (const Json& v) { readValue (r, v, out.normalize); });
+    r.optional (j, "invert", [&] (const Json& v) { readValue (r, v, out.invert); });
+    r.optional (j, "swapStereo", [&] (const Json& v) { readValue (r, v, out.swapStereo); });
+    r.optional (j, "punch", [&] (const Json& v) { readValue (r, v, out.punch); r.checkMin (out.punch, -1); r.checkMax (out.punch, 1); });
+    r.optional (j, "tail", [&] (const Json& v) { readValue (r, v, out.tail); r.checkMin (out.tail, -1); r.checkMax (out.tail, 1); });
     r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
 }
 
@@ -467,6 +738,14 @@ inline Json toJson (const SamplerLayer& v)
         j["end"] = toJson (*v.end);
 
     j["reverse"] = toJson (v.reverse);
+    j["loop"] = toJson (v.loop);
+    j["fadeIn"] = toJson (v.fadeIn);
+    j["fadeOut"] = toJson (v.fadeOut);
+    j["normalize"] = toJson (v.normalize);
+    j["invert"] = toJson (v.invert);
+    j["swapStereo"] = toJson (v.swapStereo);
+    j["punch"] = toJson (v.punch);
+    j["tail"] = toJson (v.tail);
 
     if (v.sourceTempo)
         j["sourceTempo"] = toJson (*v.sourceTempo);
@@ -480,6 +759,7 @@ struct SamplerInstrument
     int polyphony = 32;
     /** Filters every voice and audio clip, after the layer's volume envelope. */
     SamplerFilter filter;
+    std::optional<SamplerModulation> modulation;
     std::vector<SamplerLayer> layers;
 
     bool operator== (const SamplerInstrument&) const = default;
@@ -487,11 +767,12 @@ struct SamplerInstrument
 
 inline void readValue (Reader& r, const Json& j, SamplerInstrument& out)
 {
-    r.expectObject (j, { "type", "polyphony", "filter", "layers" });
+    r.expectObject (j, { "type", "polyphony", "filter", "modulation", "layers" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "sampler"); });
     r.optional (j, "polyphony", [&] (const Json& v) { readValue (r, v, out.polyphony); r.checkMin (out.polyphony, 1); r.checkMax (out.polyphony, 256); });
     r.optional (j, "filter", [&] (const Json& v) { readValue (r, v, out.filter); });
+    r.optional (j, "modulation", [&] (const Json& v) { readValue (r, v, out.modulation.emplace()); });
     r.required (j, "layers", [&] (const Json& v) { readValue (r, v, out.layers); });
 }
 
@@ -501,6 +782,10 @@ inline Json toJson (const SamplerInstrument& v)
     j["type"] = "sampler";
     j["polyphony"] = toJson (v.polyphony);
     j["filter"] = toJson (v.filter);
+
+    if (v.modulation)
+        j["modulation"] = toJson (*v.modulation);
+
     j["layers"] = toJson (v.layers);
     return j;
 }

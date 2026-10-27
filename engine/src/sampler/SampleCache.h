@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <tuple>
 
 namespace gk::sampler
 {
@@ -28,6 +29,10 @@ public:
     /** Throws std::runtime_error if the file can't be read. */
     std::shared_ptr<const Sample> load (const std::filesystem::path&);
 
+    /** The sample with its transients shaped (see shapeTransients), made once and shared while
+        it's in use. */
+    std::shared_ptr<const Sample> shaped (const std::shared_ptr<const Sample>&, float punch, float tail);
+
     void clear();
 
 private:
@@ -39,6 +44,8 @@ private:
 
     std::mutex mutex;
     std::map<std::filesystem::path, Entry> entries;
+    struct Shaped { std::weak_ptr<const Sample> source, shaped; };
+    std::map<std::tuple<const Sample*, float, float>, Shaped> shapedEntries;
     juce::AudioFormatManager formats;
 
     SampleCache();

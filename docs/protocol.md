@@ -62,7 +62,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `midi.devices` | | `{ outputs: [{ name, enabled, clock }], inputs }` |
 | `midi.setClock` | `output`, `enabled?` (true) | same as `midi.devices`; sends clock, start and stop so hardware follows GrooveKit |
 | `record.stop` | `group?` | `{ clips: [id], transport }`; each take becomes an audio clip with a sampler channel of its own (group "arrangement") (files in `<project>/recordings`) |
-| `audio.peaks` | `path` (absolute or relative to the project), `resolution?` (peaks a second, default 100) | `{ durationSeconds, sampleRate, channels, resolution, peaks: [0..1] }`, the highest level of each slice over all channels, for drawing waveforms |
+| `audio.peaks` | `path` (absolute or relative to the project), `resolution?` (peaks a second, default 100, at most 1000), `signed?` (also the lowest and highest values, and up to 48000 slices a second) | `{ durationSeconds, sampleRate, channels, resolution, peaks: [0..1], min?: [-1..0], max?: [0..1] }`, the highest level of each slice over all channels (and with `signed`, the lowest and highest values), for drawing waveforms |
 | `preview.play` / `preview.stop` | `path`, `gainDb?` (-6) | `{ playing }`; auditions a file on the audio device, independent of the song |
 | `audio.devices` | | `{ types: [{ type, outputs, inputs }], current: { type, output, input, bluetoothInput, sampleRate, bufferSize } }` |
 | `audio.setDevice` | `type?`, `output?`, `input?` (`""` for none), `sampleRate?`, `bufferSize?` | same as `audio.devices`. A Bluetooth headset's microphone (which switches it to call quality) is only opened when chosen as `input`; the engine closes one that macOS made the default |
@@ -77,7 +77,9 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `project.recent` | | `{ projects: [{ path, name, modified }], current }`: project folders opened lately, most recent first (`modified` in ms since 1970) |
 | `project.open` | `path` | `{ project }`; switches the engine (and every client) to that project folder, which must hold a song.json. Refused if another engine serves it |
 | `project.new` | `path` | `{ project }`; creates a project in a new or empty folder and switches to it |
-| `project.saveAs` | `path` | `{ project }`; copies the project folder (song, history, recordings, plugin states) to a new or empty folder and switches to the copy. Every change is already written to song.json as it's made, so there's no separate save |
+| `project.saveAs` | `path` | `{ project }`; copies the project folder (song, history, recordings, plugin states) to a new or empty folder and switches to the copy, saved |
+| `project.save` | | `{ saved, head }`; every change is already written to song.json as it's made: saving marks the history entry the song was saved at. Every client gets a `saved` notification with the same fields; the `snapshot` carries `saved` too, and the song has unsaved changes while `head` differs from it |
+| `project.revert` | | `{ saved, head }`; goes back to where the song was saved, as undo and redo steps (the changes since stay in the history, so they can be redone) |
 | `library.status` | | `{ folders, autoScan, progress: { running, filesFound, analysed, unchanged, failed, samples } }` |
 | `library.setAutoScan` | `enabled` | same as status; whether the engine scans for new and changed files when it starts |
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |

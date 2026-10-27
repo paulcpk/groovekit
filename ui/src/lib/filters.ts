@@ -12,11 +12,15 @@ export function resonanceForQ(q: number) {
   return Math.min(1, Math.max(0, Math.log(q / 0.7071) / Math.log(25 / 0.7071)));
 }
 
-export type SvfType = "off" | "lowpass" | "highpass" | "bandpass";
+export type SvfType = "off" | "lowpass" | "lowpass24" | "highpass" | "highpass24" | "bandpass" | "notch";
 
-/** Gain in dB of the sampler's state-variable filter (a bilinear-transformed 2-pole) at f Hz. */
-export function svfGainDb(type: SvfType, cutoff: number, q: number, f: number, sampleRate = SAMPLE_RATE) {
-  if (type === "off") return 0;
+/** The second stage's Q of the 24 dB/octave types (engine: sampler::Filter::resonantStageQ). */
+export function steepStageQ(resonance: number) {
+  return 1.3066 * Math.pow(25 / 1.3066, Math.min(1, Math.max(0, resonance)));
+}
+
+/** Gain in dB of one state-variable stage (a bilinear-transformed 2-pole) at f Hz. */
+function stageGainDb(type: "lowpass" | "highpass" | "bandpass" | "notch", cutoff: number, q: number, f: number, sampleRate: number) {
   const fc = Math.min(cutoff, sampleRate * 0.45);
   // The TPT filter matches the analog prototype at prewarped frequencies.
   const w = Math.tan((Math.PI * Math.min(f, sampleRate * 0.4999)) / sampleRate) / Math.tan((Math.PI * fc) / sampleRate);
@@ -24,8 +28,19 @@ export function svfGainDb(type: SvfType, cutoff: number, q: number, f: number, s
   const re = 1 - w * w;
   const im = k * w;
   const den = Math.hypot(re, im);
-  const num = type === "lowpass" ? 1 : type === "highpass" ? w * w : k * w;
+  const num = type === "lowpass" ? 1 : type === "highpass" ? w * w : type === "bandpass" ? k * w : Math.abs(1 - w * w);
   return 20 * Math.log10(Math.max(1e-9, num / den));
+}
+
+/** Gain in dB of the sampler's filter at f Hz: one stage, or for the 24 dB/octave types two
+    (a fixed one and a resonant one), as the engine runs it. */
+export function svfGainDb(type: SvfType, cutoff: number, resonance: number, f: number, sampleRate = SAMPLE_RATE) {
+  if (type === "off") return 0;
+  if (type === "lowpass24" || type === "highpass24") {
+    const t = type === "lowpass24" ? "lowpass" : "highpass";
+    return stageGainDb(t, cutoff, 0.5412, f, sampleRate) + stageGainDb(t, cutoff, steepStageQ(resonance), f, sampleRate);
+  }
+  return stageGainDb(type, cutoff, qForResonance(resonance), f, sampleRate);
 }
 
 /** Biquad coefficients (RBJ cookbook), normalised so a0 = 1. */

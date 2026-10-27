@@ -141,7 +141,7 @@
     },
 
     "UpdateInstrument": {
-      "description": "Changes a sampler's polyphony and filter. Its layers have their own commands.",
+      "description": "Changes a sampler's polyphony, filter and modulation (each replaced whole). Its layers have their own commands.",
       "type": "object",
       "required": ["type", "channel", "changes"],
       "additionalProperties": false,

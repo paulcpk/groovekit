@@ -1,6 +1,15 @@
 import { useEffect } from "react";
+import { create } from "zustand";
 import { engine, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
+
+/** When a note played from here (the typing keyboard, or pressing a sampler's wave) last started
+    and ended, so envelopes can show it running through them. */
+export const useNotePlayed = create<{ on?: number; off?: number }>(() => ({}));
+
+export function notePlayed(on: boolean) {
+  useNotePlayed.setState(on ? { on: performance.now(), off: undefined } : { off: performance.now() });
+}
 
 /** MIDI keyboards and the typing keyboard play the channel selected in the channel rack. */
 export function useLiveChannel() {
@@ -60,6 +69,7 @@ export function useTypingKeyboard() {
       e.stopImmediatePropagation();
       if (e.repeat || held.has(k)) return;
       held.set(k, note);
+      notePlayed(true);
       void engine.call("live.noteOn", { key: note, velocity: 100 }).catch(() => {});
     };
 
@@ -68,6 +78,7 @@ export function useTypingKeyboard() {
       const note = held.get(k);
       if (note === undefined) return;
       held.delete(k);
+      if (!held.size) notePlayed(false);
       void engine.call("live.noteOff", { key: note }).catch(() => {});
     };
 

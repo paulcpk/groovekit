@@ -4,6 +4,7 @@ import { execute, useEngine } from "@/state/engine";
 export function ProjectName() {
   const name = useEngine((s) => s.doc?.name);
   const folder = useEngine((s) => s.project);
+  const unsaved = useEngine((s) => s.saved !== undefined && s.saved !== s.head);
   const [editing, setEditing] = useState(false);
   const shown = name || folder?.split("/").pop() || "Untitled";
 
@@ -28,8 +29,11 @@ export function ProjectName() {
   }
 
   return (
-    <div className="max-w-[200px] cursor-text truncate text-sm text-dim hover:text-fg" title={folder} onDoubleClick={() => setEditing(true)}>
-      {shown}
+    <div className="flex min-w-0 items-center gap-1.5">
+      <div className="max-w-[200px] cursor-text truncate text-sm text-dim hover:text-fg" title={folder} onDoubleClick={() => setEditing(true)}>
+        {shown}
+      </div>
+      {unsaved && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-dim" title="Unsaved changes (⌘S saves)" />}
     </div>
   );
 }

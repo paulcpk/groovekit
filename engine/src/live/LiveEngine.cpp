@@ -259,7 +259,7 @@ void LiveEngine::rebuild()
         transport().stop (false, true);
 
     const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
-    auto next = compileProject (context.getEngine(), projectToPlay(), { projectDir, te::Edit::forEditing });
+    auto next = compileProject (context.getEngine(), projectToPlay(), { projectDir, te::Edit::forEditing, {}, liveChannel });
 
     // Tracktion puts recordings next to the Edit's file, but only if that folder exists
     // (otherwise they land in the working directory).
@@ -1451,6 +1451,20 @@ void LiveEngine::setLiveChannel (std::optional<Id> channel)
         return;
 
     liveChannel = std::move (channel);
+
+    // A sampler that only plays audio clips isn't loaded to play notes: load it.
+    if (liveChannel && ! compiled.channelTracks.contains (*liveChannel))
+    {
+        const auto& channels = session.getProject().channels;
+
+        if (std::any_of (channels.begin(), channels.end(), [&] (const Channel& c) { return c.id == *liveChannel; }))
+        {
+            needsRebuild = true;
+            triggerAsyncUpdate();
+            return;
+        }
+    }
+
     routeLiveInput();
 }
 

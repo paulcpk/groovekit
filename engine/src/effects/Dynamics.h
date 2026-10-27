@@ -113,7 +113,8 @@ private:
 //==============================================================================
 /** Multiband compressor: three or four bands split by Linkwitz-Riley crossovers (the bands sum
     back flat), each with its own compressor that can also lift quiet sounds (upward
-    compression), its own gain, and bypass, solo or mute. Measures each band for the UI. */
+    compression), its own gain and stereo width, and bypass, solo or mute; then a master
+    compressor on their sum and a ceiling no peak goes past. Measures each band for the UI. */
 class MultibandPlugin : public EffectPlugin
 {
 public:
@@ -129,13 +130,20 @@ public:
     static size_t bandParam (int band, int which)  { return static_cast<size_t> (globalParams + band * paramsPerBand + which); }
     enum BandParam { threshold, ratio, belowThreshold, belowRatio, attack, release, gain, mode };
 
+    /** The master section's parameters come after the bands' (so older songs' indices hold),
+        then each band's stereo width. */
+    enum MasterParam { masterMode = globalParams + maxBands * paramsPerBand, masterThreshold, masterRatio, masterAttack, masterRelease,
+                       masterGain, ceiling, lowCut, firstWidth };
+    static size_t widthParam (int band)             { return static_cast<size_t> (firstWidth + band); }
+
     juce::String getPluginType() override               { return xmlTypeName; }
     juce::String getShortName (int) override            { return "Multiband"; }
     void initialise (const tracktion::PluginInitialisationInfo&) override;
     void applyToBuffer (const tracktion::PluginRenderContext&) override;
 
-    /** { position, frames: [[inputDb, outputDb, then per band: inputDb, outputDb, gainDb], ...] },
-        a frame per 5 ms, always with four bands (an unused fourth reads -100, -100, 0). */
+    /** { position, frames: [[inputDb, outputDb, then per band: inputDb, outputDb, gainDb, then the
+        master's inputDb and gainDb (compressor and ceiling together)], ...] }, a frame per 5 ms,
+        always with four bands (an unused fourth reads -100, -100, 0). */
     model::Json readMeter (const model::Json& params) const override;
 
 private:
@@ -145,13 +153,17 @@ private:
     // all-pass, so the phases match). Three: split at low, then the rest at high.
     Crossover splitMid, splitLow, splitHigh, allpassLow, allpassHigh;
 
-    GainSmoother smoothers[maxBands];
+    GainSmoother smoothers[maxBands], masterSmoother;
     float rms[maxBands] {};
     float rmsCoefficient = 0;
+    Biquad lowCutFilter;
+    float lastLowCut = -1;
+    float ceilingGain = 1;
 
-    MeterHistory meter { 2 + 3 * maxBands };
+    static constexpr int frameSize = 4 + 3 * maxBands;
+    MeterHistory meter { frameSize };
     int hop = 240, hopCount = 0;
-    float hopValues[2 + 3 * maxBands] {};
+    float hopValues[frameSize] {};
 
     void resetHop();
 };

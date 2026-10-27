@@ -76,20 +76,70 @@
         "type": { "const": "sampler" },
         "polyphony": { "description": "Maximum simultaneous voices; the oldest voice is stolen.", "type": "integer", "minimum": 1, "maximum": 256, "default": 32 },
         "filter": { "description": "Filters every voice and audio clip, after the layer's volume envelope.", "$ref": "#/$defs/SamplerFilter" },
+        "modulation": { "$ref": "#/$defs/SamplerModulation" },
         "layers": { "type": "array", "items": { "$ref": "#/$defs/SamplerLayer" } }
       }
     },
 
     "SamplerFilter": {
-      "description": "A resonant 12 dB/octave filter per voice (and per audio clip), its cutoff moved by its own envelope.",
+      "description": "A resonant filter per voice (and per audio clip), its cutoff moved by its own envelope.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "type": { "type": "string", "enum": ["off", "lowpass", "highpass", "bandpass"], "default": "off" },
+        "type": {
+          "description": "lowpass and highpass are 12 dB/octave, lowpass24 and highpass24 steeper at 24; bandpass keeps a band around the cutoff, notch takes it out.",
+          "type": "string", "enum": ["off", "lowpass", "lowpass24", "highpass", "highpass24", "bandpass", "notch"], "default": "off"
+        },
         "cutoff": { "description": "Hz.", "type": "number", "minimum": 20, "maximum": 20000, "default": 20000 },
         "resonance": { "description": "0 is a gentle slope; towards 1 the cutoff rings.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
         "envelopeAmount": { "description": "Octaves the envelope moves the cutoff at its peak; negative moves it down.", "type": "number", "minimum": -10, "maximum": 10, "default": 0 },
         "envelope": { "description": "Shape of the cutoff movement; sustain is the share of the amount held.", "$ref": "#/$defs/Envelope" }
+      }
+    },
+
+    "SamplerModulation": {
+      "description": "Envelopes and LFOs that move a sampler's volume, cutoff, resonance, pan and pitch over each note. Notes only: audio clips keep the layer's volume envelope and the filter's cutoff envelope. Amounts are shares of each target's span: volume all of it, cutoff 5 octaves, resonance all of it, pan from centre to one side, pitch 24 semitones.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "volume": { "description": "Tremolo; the volume envelope is each layer's own.", "$ref": "#/$defs/LfoTarget" },
+        "cutoff": { "description": "Moves the filter's cutoff; its envelope is the filter's own (envelope and envelopeAmount).", "$ref": "#/$defs/LfoTarget" },
+        "resonance": { "$ref": "#/$defs/ModulationTarget" },
+        "pan": { "$ref": "#/$defs/ModulationTarget" },
+        "pitch": { "description": "An envelope amount of 0.5 drops or raises the pitch by 12 semitones, as in a pitched-down kick.", "$ref": "#/$defs/ModulationTarget" }
+      }
+    },
+
+    "LfoTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lfo": { "$ref": "#/$defs/Lfo" }
+      }
+    },
+
+    "ModulationTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "envelope": { "description": "Its shape; the amount sets how far it moves the target at its peak.", "$ref": "#/$defs/Envelope" },
+        "amount": { "description": "Share of the target's span the envelope moves it at its peak; negative moves it the other way, 0 is off.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "lfo": { "$ref": "#/$defs/Lfo" }
+      }
+    },
+
+    "Lfo": {
+      "description": "A low-frequency oscillator added to the target.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shape": { "type": "string", "enum": ["sine", "triangle", "square", "saw", "random"], "default": "sine" },
+        "amount": { "description": "Share of the target's span it swings either way; 0 is off.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "speed": { "description": "Cycles a second, when not synced.", "type": "number", "minimum": 0.01, "maximum": 50, "default": 4 },
+        "sync": { "description": "Beats per cycle (0.25 is a 16th, 4 a bar in 4/4) following the tempo, instead of speed.", "type": "number", "minimum": 0.0625, "maximum": 64 },
+        "delay": { "description": "Seconds after a note starts before it moves.", "type": "number", "minimum": 0, "maximum": 10, "default": 0 },
+        "attack": { "description": "Seconds it then takes to swing fully.", "type": "number", "minimum": 0, "maximum": 10, "default": 0 },
+        "retrigger": { "description": "Each note starts its cycle; false keeps one cycle running for every note.", "type": "boolean", "default": true }
       }
     },
 
@@ -118,6 +168,17 @@
         "start": { "description": "Seconds into the file where the part that plays begins.", "type": "number", "minimum": 0, "default": 0 },
         "end": { "description": "Seconds into the file where the part that plays ends; unset is the file's end.", "type": "number", "minimum": 0 },
         "reverse": { "description": "Plays the part between start and end backwards.", "type": "boolean", "default": false },
+        "loop": {
+          "description": "Notes only. forward loops the part that plays, pingPong plays it back and forth; a looping layer plays until its note ends, then releases.",
+          "type": "string", "enum": ["off", "forward", "pingPong"], "default": "off"
+        },
+        "fadeIn": { "description": "Seconds the part that plays fades in over (notes only).", "type": "number", "minimum": 0, "maximum": 10, "default": 0 },
+        "fadeOut": { "description": "Seconds it fades out over before its end (notes only; not while looping).", "type": "number", "minimum": 0, "maximum": 10, "default": 0 },
+        "normalize": { "description": "Brings the part that plays up (or down) to a peak of 0 dB before its gain (notes only).", "type": "boolean", "default": false },
+        "invert": { "description": "Flips the polarity (notes only).", "type": "boolean", "default": false },
+        "swapStereo": { "description": "Swaps left and right (notes only).", "type": "boolean", "default": false },
+        "punch": { "description": "Transient shaping (notes only): positive sharpens each hit's attack, negative softens it.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "tail": { "description": "Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
         "sourceTempo": {
           "description": "Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it.",
           "type": "number", "minimum": 20, "maximum": 999
@@ -144,14 +205,19 @@
     },
 
     "Envelope": {
-      "description": "Attack, decay, sustain, release. Times in seconds; sustain is a level from 0 to 1.",
+      "description": "Delay, attack, hold, decay, sustain, release. Times in seconds; sustain is a level from 0 to 1. The curves bend the attack, decay and release: 0 is straight, positive moves fast at first and then eases (the way sounds fade), negative starts slowly.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "delay": { "type": "number", "minimum": 0, "maximum": 30, "default": 0 },
         "attack": { "type": "number", "minimum": 0, "maximum": 30, "default": 0 },
+        "hold": { "type": "number", "minimum": 0, "maximum": 30, "default": 0 },
         "decay": { "type": "number", "minimum": 0, "maximum": 30, "default": 0 },
         "sustain": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
-        "release": { "type": "number", "minimum": 0, "maximum": 30, "default": 0.01 }
+        "release": { "type": "number", "minimum": 0, "maximum": 30, "default": 0.01 },
+        "attackCurve": { "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "decayCurve": { "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "releaseCurve": { "type": "number", "minimum": -1, "maximum": 1, "default": 0 }
       }
     },
 

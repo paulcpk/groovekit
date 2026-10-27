@@ -52,7 +52,10 @@ namespace
                           "Multiband compressor: three or four bands split at lowFreq, midFreq (four bands only) and highFreq, "
                           "each compressed on its own (bandNThresholdDb and bandNRatio pull loud parts down; bandNBelowDb and bandNBelowRatio "
                           "lift quiet parts up, for dense, upfront sound), with its own gain and a mode (on, bypass, solo or mute). "
-                          "With three bands, band1-3 are low, mid and high; with four, low, low mid, high mid and high.",
+                          "With three bands, band1-3 are low, mid and high; with four, low, low mid, high mid and high. bandNWidth sets each band's stereo width "
+                          "(0 mono, 100 as it is, 200 twice as wide; mono lows keep a club mix solid). Then the master: outputDb drives the sum into a master "
+                          "compressor (masterThresholdDb, masterRatio, masterAttackMs, masterReleaseMs, masterGainDb as make-up) and ceilingDb, a limit no "
+                          "peak passes. lowCutHz cuts the lows before it all (20 is off).",
                           {
                               { "bands", "", 0, 1, 0, "How many bands (an index into the choices).", "bands", nullptr, nullptr, { "3", "4" } },
                               { "lowFreq", "Hz", 20, 2000, 150, "Crossover between the low band and the next.", "lowFreq" },
@@ -82,6 +85,25 @@ namespace
             info.params.push_back ({ id ("GainDb"), "dB", -24, 24, 0, "The band's level after compression.", id ("GainDb") });
             info.params.push_back ({ id ("Mode"), "", 0, 3, 0, "on, bypass (uncompressed), solo (only soloed bands are heard) or mute (an index into the choices).",
                                      id ("Mode"), nullptr, nullptr, MultibandPlugin::modeNames() });
+        }
+
+        // After the bands, so the indices of songs made before the master section hold.
+        for (auto& param : std::vector<ParamInfo> {
+                 { "masterMode", "", 0, 1, 0, "on, or bypass (an index into the choices): the master compressor and ceiling.", "masterMode", nullptr, nullptr, { "on", "bypass" } },
+                 { "masterThresholdDb", "dB", -60, 0, -12, "Level above which the master compressor pulls the summed bands down.", "masterThresholdDb" },
+                 { "masterRatio", ":1", 1, 20, 1, "Master compression ratio; 1 leaves the sum alone.", "masterRatio" },
+                 { "masterAttackMs", "ms", 0.1, 200, 10, "How quickly the master compressor reacts.", "masterAttackMs" },
+                 { "masterReleaseMs", "ms", 10, 1000, 150, "How quickly the master compressor and the ceiling let go.", "masterReleaseMs" },
+                 { "masterGainDb", "dB", -24, 24, 0, "Make-up gain after the master compressor, before the ceiling.", "masterGainDb" },
+                 { "ceilingDb", "dB", -24, 0, 0, "No peak goes past this: louder ones are turned down at once.", "ceilingDb" },
+                 { "lowCutHz", "Hz", 20, 500, 20, "Cuts the lows before the bands (20 is off).", "lowCutHz" },
+             })
+            info.params.push_back (param);
+
+        for (int b = 0; b < MultibandPlugin::maxBands; ++b)
+        {
+            const auto id = keep ("band" + std::to_string (b + 1) + "Width");
+            info.params.push_back ({ id, "%", 0, 200, 100, "The band's stereo width: 0 mono, 100 as it is, 200 twice as wide.", id });
         }
 
         return info;

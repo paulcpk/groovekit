@@ -36,9 +36,20 @@ void SamplerEngine::prepare (double newSampleRate, int)
     for (auto& v : voices)
     {
         v.active = false;
-        v.envelope.setSampleRate (sampleRate);
-        v.filterEnvelope.setSampleRate (sampleRate);
+
+        for (auto* e : { &v.envelope, &v.filterEnvelope, &v.resonanceEnvelope, &v.panEnvelope, &v.pitchEnvelope })
+            e->setSampleRate (sampleRate);
     }
+}
+
+void SamplerEngine::setEnvelopes (Voice& v)
+{
+    const auto& m = config->modulation;
+    v.envelope.setShape (v.layer->envelope);
+    v.filterEnvelope.setShape (config->filter.envelope);
+    v.resonanceEnvelope.setShape (m.resonance.envelope);
+    v.panEnvelope.setShape (m.pan.envelope);
+    v.pitchEnvelope.setShape (m.pitch.envelope);
 }
 
 void SamplerEngine::setConfig (std::shared_ptr<const Config> newConfig)
@@ -71,7 +82,7 @@ void SamplerEngine::setConfig (std::shared_ptr<const Config> newConfig)
 
             auto& a = *v.layer;
             auto& b = config->layers[v.layerIndex];
-            return a.sample == b.sample && a.start == b.start && a.endFrame() == b.endFrame() && a.reverse == b.reverse;
+            return a.sample == b.sample && a.start == b.start && a.endFrame() == b.endFrame() && a.reverse == b.reverse && a.loop == b.loop;
         };
 
         for (auto& v : voices)
@@ -96,9 +107,8 @@ void SamplerEngine::setConfig (std::shared_ptr<const Config> newConfig)
             }
 
             v.layer = &config->layers[v.layerIndex];
-            v.envelope.setParameters (v.layer->envelope);
-            v.filterEnvelope.setParameters (config->filter.envelope);
-            v.samplesToCoefficients = 0;
+            setEnvelopes (v);
+            v.samplesToControls = 0;
         }
 
         released = std::move (retired);
@@ -169,11 +179,9 @@ void SamplerEngine::noteOff (int note)
 {
     for (auto& v : voices)
     {
-        if (v.active && v.note == note && ! v.layer->oneShot)
-        {
-            v.envelope.noteOff();
-            v.filterEnvelope.noteOff();
-        }
+        if (v.active && v.note == note && v.layer->releasesOnNoteOff())
+            for (auto* e : { &v.envelope, &v.filterEnvelope, &v.resonanceEnvelope, &v.panEnvelope, &v.pitchEnvelope })
+                e->noteOff();
     }
 }
 
@@ -188,33 +196,38 @@ void SamplerEngine::startVoice (const Layer& layer, int note, int velocity)
     auto* v = findFreeVoice();
 
     const auto semitones = (layer.pitchTracking ? note - layer.rootKey : 0) + layer.tuneSemitones;
-    const auto velocityGain = static_cast<float> (velocity) / 127.0f;
 
     v->layer = &layer;
     v->layerIndex = static_cast<size_t> (&layer - config->layers.data());
     v->note = note;
     v->age = nextAge++;
     v->position = 0;
-    v->increment = std::pow (2.0, semitones / 12.0) * layer.sample->sampleRate / sampleRate;
-    v->gainL = layer.gain * velocityGain * std::min (1.0f, 1.0f - layer.pan);
-    v->gainR = layer.gain * velocityGain * std::min (1.0f, 1.0f + layer.pan);
+    v->direction = 1;
+    v->baseIncrement = std::pow (2.0, semitones / 12.0) * layer.sample->sampleRate / sampleRate;
+    v->increment = v->baseIncrement;
+    v->velocityGain = static_cast<float> (velocity) / 127.0f;
     v->stealSamplesLeft = 0;
-    v->envelope.setParameters (layer.envelope);
-    v->envelope.reset();
-    v->envelope.noteOn();
-    v->filterEnvelope.setParameters (config->filter.envelope);
-    v->filterEnvelope.reset();
-    v->filterEnvelope.noteOn();
-    std::fill (&v->filterState[0][0], &v->filterState[0][0] + 4, 0.0f);
-    v->samplesToCoefficients = 0;
+    v->since = 0;
+    setEnvelopes (*v);
+
+    for (auto* e : { &v->envelope, &v->filterEnvelope, &v->resonanceEnvelope, &v->panEnvelope, &v->pitchEnvelope })
+    {
+        e->reset();
+        e->noteOn();
+    }
+
+    std::fill (std::begin (v->lfoPhase), std::end (v->lfoPhase), 0.0);
+    std::fill (&v->filterState[0][0], &v->filterState[0][0] + 8, 0.0f);
+    v->samplesToControls = 0;
+    v->controlsSet = false;
 
     // Where the played part cuts into the file (rather than starting or ending with it), a 1 ms
     // fade keeps the cut from clicking.
     const auto fileLength = layer.sample->audio.getNumSamples();
     const bool cutAtStart = layer.reverse ? layer.endFrame() < fileLength : layer.start > 0;
     const bool cutAtEnd = layer.reverse ? layer.start > 0 : layer.endFrame() < fileLength;
-    v->fadeInSamples = cutAtStart ? edgeFadeSamples : 0;
-    v->fadeOutSamples = cutAtEnd ? edgeFadeSamples : 0;
+    v->edgeFadeIn = cutAtStart ? edgeFadeSamples : 0;
+    v->edgeFadeOut = cutAtEnd ? edgeFadeSamples : 0;
     v->active = true;
 }
 
@@ -255,11 +268,65 @@ void SamplerEngine::renderVoices (juce::AudioBuffer<float>& buffer, int startSam
     for (auto& v : voices)
         if (v.active)
             renderVoice (v, left, right, numSamples);
+
+    // LFOs that every note shares keep running whether notes play or not.
+    const auto& m = config->modulation;
+    const LfoSettings* lfos[numLfos] { &m.volume, &m.cutoff, &m.resonance.lfo, &m.pan.lfo, &m.pitch.lfo };
+
+    for (int i = 0; i < numLfos; ++i)
+        sharedPhase[i] = std::fmod (sharedPhase[i] + lfos[i]->cyclesPerSecond (tempo) * numSamples / sampleRate, 1.0e6);
 }
 
-void SamplerEngine::updateFilter (Voice& v, float envelopeLevel)
+void SamplerEngine::updateControls (Voice& v)
 {
-    v.svf.setup (filterCutoff * std::exp2 (filterEnvelopeAmount * envelopeLevel), filterResonance, sampleRate);
+    const auto& m = config->modulation;
+    const auto& layer = *v.layer;
+    const LfoSettings* lfos[numLfos] { &m.volume, &m.cutoff, &m.resonance.lfo, &m.pan.lfo, &m.pitch.lfo };
+    float lfo[numLfos] {};
+
+    for (int i = 0; i < numLfos; ++i)
+    {
+        const auto& settings = *lfos[i];
+        const auto step = settings.cyclesPerSecond (tempo) * controlInterval / sampleRate;
+
+        if (settings.isOn())
+            lfo[i] = settings.amount * settings.fadeIn (v.since) * settings.wave (settings.retrigger ? v.lfoPhase[i] : sharedPhase[i]);
+
+        v.lfoPhase[i] += step;
+    }
+
+    const auto filterLevel = v.filterEnvelope.advance (controlInterval);
+    const auto resonanceLevel = v.resonanceEnvelope.advance (controlInterval);
+    const auto panLevel = v.panEnvelope.advance (controlInterval);
+    const auto pitchLevel = v.pitchEnvelope.advance (controlInterval);
+
+    if (config->filter.type != Filter::Type::off)
+    {
+        const auto octaves = filterEnvelopeAmount * filterLevel + lfo[cutoffLfo] * Modulation::cutoffOctaves;
+        const auto resonance = juce::jlimit (0.0f, 1.0f, filterResonance + m.resonance.amount * resonanceLevel + lfo[resonanceLfo]);
+        v.filter.setup (config->filter.type, filterCutoff * std::exp2 (octaves), resonance, sampleRate);
+    }
+
+    const auto semitones = (m.pitch.amount * pitchLevel + lfo[pitchLfo]) * Modulation::pitchSemitones;
+    v.increment = semitones == 0.0f ? v.baseIncrement : v.baseIncrement * std::exp2 (semitones / 12.0);
+
+    // Tremolo dips from full level by up to the amount, at the wave's low point (a negative
+    // amount turns the wave over).
+    const auto tremolo = 1.0f - 0.5f * (std::abs (m.volume.amount) * m.volume.fadeIn (v.since) - lfo[volumeLfo]);
+
+    const auto pan = juce::jlimit (-1.0f, 1.0f, layer.pan + m.pan.amount * panLevel + lfo[panLfo]);
+    const auto gain = layer.gain * v.velocityGain * tremolo;
+    const auto targetL = gain * std::min (1.0f, 1.0f - pan), targetR = gain * std::min (1.0f, 1.0f + pan);
+
+    if (! v.controlsSet)
+    {
+        v.gainL = targetL;
+        v.gainR = targetR;
+        v.controlsSet = true;
+    }
+
+    v.gainStepL = (targetL - v.gainL) / controlInterval;
+    v.gainStepR = (targetR - v.gainR) / controlInterval;
 }
 
 void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSamples)
@@ -268,21 +335,28 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
     auto& audio = layer.sample->audio;
     const auto fileLength = audio.getNumSamples();
     const auto end = layer.endFrame();
-    const auto length = end - layer.start;
-    const auto* srcL = audio.getReadPointer (0);
-    const auto* srcR = audio.getReadPointer (audio.getNumChannels() > 1 ? 1 : 0);
+    const auto length = static_cast<double> (end - layer.start);
+    const auto* srcL = audio.getReadPointer (layer.swapStereo && audio.getNumChannels() > 1 ? 1 : 0);
+    const auto* srcR = audio.getReadPointer (audio.getNumChannels() > 1 && ! layer.swapStereo ? 1 : 0);
     const auto filterType = config->filter.type;
+    const bool looping = layer.loop != Layer::Loop::off;
+    const auto secondsPerSample = 1.0 / sampleRate;
 
     for (int i = 0; i < numSamples; ++i)
     {
-        if (v.position >= length || ! v.envelope.isActive())
+        if ((! looping && v.position >= length) || ! v.envelope.isActive())
         {
             v.active = false;
             return;
         }
 
-        auto gain = v.envelope.getNextSample();
-        const auto filterLevel = v.filterEnvelope.getNextSample();
+        if (--v.samplesToControls <= 0)
+        {
+            updateControls (v);
+            v.samplesToControls = controlInterval;
+        }
+
+        auto gain = v.envelope.next();
 
         if (v.isStolen())
         {
@@ -295,31 +369,54 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
             }
         }
 
-        if (v.fadeInSamples > 0 && v.position < edgeFadeSamples)
-            gain *= static_cast<float> (v.position) / static_cast<float> (edgeFadeSamples);
+        // Fades over the part as it plays: the 1 ms ones where it cuts into the file, and the layer's own.
+        const auto position = v.position;
+        const auto remaining = length - position;
 
-        if (v.fadeOutSamples > 0 && length - v.position < edgeFadeSamples)
-            gain *= static_cast<float> ((length - v.position) / edgeFadeSamples);
+        if (v.edgeFadeIn > 0 && position < edgeFadeSamples)
+            gain *= static_cast<float> (position / edgeFadeSamples);
 
-        const auto at = layer.reverse ? end - 1 - v.position : layer.start + v.position;
+        if (layer.fadeIn > 0 && position < layer.fadeIn)
+            gain *= static_cast<float> (position / layer.fadeIn);
+
+        if (! looping)
+        {
+            if (v.edgeFadeOut > 0 && remaining < edgeFadeSamples)
+                gain *= static_cast<float> (remaining / edgeFadeSamples);
+
+            if (layer.fadeOut > 0 && remaining < layer.fadeOut)
+                gain *= static_cast<float> (remaining / layer.fadeOut);
+        }
+
+        const auto at = layer.reverse ? end - 1 - position : layer.start + position;
         auto l = interpolate (srcL, fileLength, at) * v.gainL * gain;
         auto r = interpolate (srcR, fileLength, at) * v.gainR * gain;
+        v.gainL += v.gainStepL;
+        v.gainR += v.gainStepR;
 
         if (filterType != Filter::Type::off)
         {
-            if (--v.samplesToCoefficients <= 0)
-            {
-                updateFilter (v, filterLevel);
-                v.samplesToCoefficients = 16;
-            }
-
-            l = v.svf.process (l, v.filterState[0], filterType);
-            r = v.svf.process (r, v.filterState[1], filterType);
+            l = v.filter.process (l, v.filterState[0], filterType);
+            r = v.filter.process (r, v.filterState[1], filterType);
         }
 
         left[i] += l;
         right[i] += r;
-        v.position += v.increment;
+        v.since += secondsPerSample;
+
+        // On through the part, round again if it loops (ping-pong turning at either end).
+        v.position += v.increment * v.direction;
+
+        if (layer.loop == Layer::Loop::forward && v.position >= length)
+        {
+            v.position = std::fmod (v.position, length);
+        }
+        else if (layer.loop == Layer::Loop::pingPong && (v.position >= length - 1 || v.position < 0))
+        {
+            v.direction = -v.direction;
+            v.position = v.position < 0 ? -v.position : 2 * (length - 1) - v.position;
+            v.position = juce::jlimit (0.0, std::max (0.0, length - 1), v.position);
+        }
     }
 }
 

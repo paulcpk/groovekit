@@ -9,6 +9,7 @@ import { Splitter } from "@/features/shell/Splitter";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { RecordDialog } from "@/features/record/RecordDialog";
 import { ProjectDialog } from "@/features/shell/ProjectDialog";
+import { SaveChangesDialog, useQuitGuard } from "@/features/shell/SaveChanges";
 import { ExportDialog } from "@/features/shell/ExportDialog";
 import { useLiveChannel, useTypingKeyboard } from "@/features/shell/liveInput";
 import { useAgentConversation } from "@/features/agent/AgentPanel";
@@ -29,6 +30,7 @@ export function App() {
   useLiveChannel();
   useAgentConversation();
   useTypingKeyboard();
+  useQuitGuard();
 
   return (
     <div className="flex h-full flex-col">
@@ -76,6 +78,7 @@ export function App() {
       <SettingsDialog />
       <RecordDialog />
       <ProjectDialog />
+      <SaveChangesDialog />
       <ExportDialog />
     </div>
   );

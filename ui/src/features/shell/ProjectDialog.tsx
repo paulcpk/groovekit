@@ -6,6 +6,7 @@ import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { call, engine, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
+import { confirmUnsaved } from "./SaveChanges";
 
 export interface RecentProject {
   path: string;
@@ -19,13 +20,17 @@ export function recentProjects() {
   return engine.call<{ projects: RecentProject[] }>("project.recent").then((r) => r.projects);
 }
 
-/** Opens a project folder; the engine switches every client over to it. */
-export function openProject(path: string) {
+/** Opens a project folder; the engine switches every client over to it. Unsaved changes in
+    this one are offered to be saved first. */
+export async function openProject(path: string) {
+  if (path !== useEngine.getState().project && !(await confirmUnsaved("open"))) return;
   return call("project.open", { path }).then(() => setUi({ projectDialog: undefined }));
 }
 
-/** Every change is written to the project folder as it's made; Save says so. */
-export function saveProject() {
+/** Every change is written to the project folder as it's made; saving marks the point the song
+    was saved at, which leaving without saving goes back to. */
+export async function saveProject() {
+  await call("project.save");
   const project = useEngine.getState().project;
   toast(project ? `Saved · ${project.replace(/^\/Users\/[^/]+/, "~")}` : "Saved");
 }
@@ -75,9 +80,10 @@ function NewProject({ saveAs = false }: { saveAs?: boolean }) {
   const [location, setLocation] = useState(project ? parentOf(project) : "");
   const [busy, setBusy] = useState(false);
 
-  const create = () => {
+  const create = async () => {
     const folder = name.trim();
     if (!folder || !location.trim()) return;
+    if (!saveAs && !(await confirmUnsaved("open"))) return;
     setBusy(true);
     call(saveAs ? "project.saveAs" : "project.new", { path: `${location.trim().replace(/\/$/, "")}/${folder}` })
       .then(() => setUi({ projectDialog: undefined }), () => {})
@@ -85,7 +91,7 @@ function NewProject({ saveAs = false }: { saveAs?: boolean }) {
   };
 
   return (
-    <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); create(); }}>
+    <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); void create(); }}>
       <label className="flex items-center gap-3 text-xs">
         <span className="w-16 text-dim">Name</span>
         <input data-autofocus value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.target.select()}

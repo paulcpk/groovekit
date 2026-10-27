@@ -13,14 +13,15 @@ export function stepKey(channel: Channel | undefined) {
   return 60;
 }
 
-/** A new sampler channel playing a sample; drums ignore pitch. */
+/** A new sampler channel playing a sample: its pitch follows the keys played, drums included
+    (they still play at their own pitch on the root key, which steps use). */
 export async function addSamplerChannel(doc: Project, sample: DraggedSample, index?: number) {
   const name = baseName(sample.path);
   const id = uniqueId(name, doc.channels);
   const drum = !sample.category || drumCategories.some((c) => sample.category!.toLowerCase().includes(c));
   const instrument: SamplerInstrument = {
     type: "sampler",
-    layers: [{ id: "l1", sample: sample.path, pitchTracking: !drum, mode: drum ? "oneShot" : "gate" }],
+    layers: [{ id: "l1", sample: sample.path, mode: drum ? "oneShot" : "gate" }],
   };
   await execute({ type: "addChannel", channel: { id, name, instrument }, ...(index !== undefined ? { index } : {}) }, { label: `Add channel ${name}` });
   setUi({ selectedChannel: id });

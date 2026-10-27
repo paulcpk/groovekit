@@ -6,10 +6,17 @@ namespace gk::sampler
 Filter toFilter (const model::SamplerFilter& f)
 {
     Filter filter;
-    filter.type = f.type == model::SamplerFilterType::lowpass  ? Filter::Type::lowpass
-                : f.type == model::SamplerFilterType::highpass ? Filter::Type::highpass
-                : f.type == model::SamplerFilterType::bandpass ? Filter::Type::bandpass
-                                                               : Filter::Type::off;
+    switch (f.type)
+    {
+        case model::SamplerFilterType::lowpass:     filter.type = Filter::Type::lowpass; break;
+        case model::SamplerFilterType::lowpass24:   filter.type = Filter::Type::lowpass24; break;
+        case model::SamplerFilterType::highpass:    filter.type = Filter::Type::highpass; break;
+        case model::SamplerFilterType::highpass24:  filter.type = Filter::Type::highpass24; break;
+        case model::SamplerFilterType::bandpass:    filter.type = Filter::Type::bandpass; break;
+        case model::SamplerFilterType::notch:       filter.type = Filter::Type::notch; break;
+        case model::SamplerFilterType::off:         filter.type = Filter::Type::off; break;
+    }
+
     filter.cutoff = static_cast<float> (f.cutoff);
     filter.resonance = static_cast<float> (f.resonance);
     filter.envelopeAmount = static_cast<float> (f.envelopeAmount);
@@ -17,9 +24,64 @@ Filter toFilter (const model::SamplerFilter& f)
     return filter;
 }
 
-juce::ADSR::Parameters toEnvelope (const model::Envelope& e)
+EnvelopeShape toEnvelope (const model::Envelope& e)
 {
-    return { static_cast<float> (e.attack), static_cast<float> (e.decay), static_cast<float> (e.sustain), static_cast<float> (e.release) };
+    const auto f = [] (double v) { return static_cast<float> (v); };
+    return { f (e.delay), f (e.attack), f (e.hold), f (e.decay), f (e.sustain), f (e.release), f (e.attackCurve), f (e.decayCurve), f (e.releaseCurve) };
+}
+
+namespace
+{
+    LfoSettings toLfo (const std::optional<model::Lfo>& from)
+    {
+        LfoSettings lfo;
+
+        if (! from)
+            return lfo;
+
+        using S = LfoSettings::Shape;
+        lfo.shape = from->shape == model::LfoShape::triangle ? S::triangle
+                  : from->shape == model::LfoShape::square   ? S::square
+                  : from->shape == model::LfoShape::saw      ? S::saw
+                  : from->shape == model::LfoShape::random   ? S::random
+                                                             : S::sine;
+        lfo.amount = static_cast<float> (from->amount);
+        lfo.speed = static_cast<float> (from->speed);
+        lfo.syncBeats = static_cast<float> (from->sync.value_or (0.0));
+        lfo.delay = static_cast<float> (from->delay);
+        lfo.attack = static_cast<float> (from->attack);
+        lfo.retrigger = from->retrigger;
+        return lfo;
+    }
+
+    Modulation::Target toTarget (const std::optional<model::ModulationTarget>& from)
+    {
+        Modulation::Target target;
+
+        if (from)
+        {
+            target.envelope = toEnvelope (from->envelope);
+            target.amount = static_cast<float> (from->amount);
+            target.lfo = toLfo (from->lfo);
+        }
+
+        return target;
+    }
+}
+
+Modulation toModulation (const std::optional<model::SamplerModulation>& from)
+{
+    Modulation m;
+
+    if (! from)
+        return m;
+
+    if (from->volume)   m.volume = toLfo (from->volume->lfo);
+    if (from->cutoff)   m.cutoff = toLfo (from->cutoff->lfo);
+    m.resonance = toTarget (from->resonance);
+    m.pan = toTarget (from->pan);
+    m.pitch = toTarget (from->pitch);
+    return m;
 }
 
 //==============================================================================
@@ -112,24 +174,9 @@ void AudioChannelPlugin::updateInstrument (const model::SamplerInstrument& instr
     setSettings (instrument, std::move (clips));
 }
 
-float AudioChannelPlugin::envelopeLevel (const juce::ADSR::Parameters& e, double since, double untilEnd)
-{
-    double level = e.sustain;
-
-    if (since < e.attack)
-        level = since / e.attack;
-    else if (since < e.attack + e.decay)
-        level = 1.0 - (1.0 - e.sustain) * (since - e.attack) / e.decay;
-
-    if (untilEnd < e.release)
-        level *= std::max (0.0, untilEnd) / e.release;
-
-    return static_cast<float> (level);
-}
-
 void AudioChannelPlugin::initialise (const tracktion::PluginInitialisationInfo&)
 {
-    std::fill (&filterState[0][0], &filterState[0][0] + 4, 0.0f);
+    std::fill (&filterState[0][0], &filterState[0][0] + 8, 0.0f);
 }
 
 void AudioChannelPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
@@ -172,17 +219,17 @@ void AudioChannelPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc
             continue;
 
         const auto since = t - clip->start, untilEnd = clip->end - t;
-        const auto gain = envelopeLevel (s->envelope, since, untilEnd);
+        const auto gain = s->envelope.levelAt (since, untilEnd);
         auto l = left[i] * gain * s->gainL;
         auto r = (stereo ? right[i] : left[i]) * gain * s->gainR;
 
         if (filtering)
         {
             if (i % 16 == 0)
-                svf.setup (f.cutoff * std::exp2 (f.envelopeAmount * envelopeLevel (f.envelope, since, untilEnd)), f.resonance, sampleRate);
+                filterStages.setup (f.type, f.cutoff * std::exp2 (f.envelopeAmount * f.envelope.levelAt (since, untilEnd)), f.resonance, sampleRate);
 
-            l = svf.process (l, filterState[0], f.type);
-            r = svf.process (r, filterState[1], f.type);
+            l = filterStages.process (l, filterState[0], f.type);
+            r = filterStages.process (r, filterState[1], f.type);
         }
 
         left[i] = l;

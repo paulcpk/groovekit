@@ -1,4 +1,5 @@
 #include "SampleCache.h"
+#include "Modulation.h"
 
 namespace gk::sampler
 {
@@ -44,10 +45,36 @@ std::shared_ptr<const Sample> SampleCache::load (const std::filesystem::path& pa
     return sample;
 }
 
+std::shared_ptr<const Sample> SampleCache::shaped (const std::shared_ptr<const Sample>& sample, float punch, float tail)
+{
+    if (punch == 0.0f && tail == 0.0f)
+        return sample;
+
+    const auto key = std::make_tuple (sample.get(), punch, tail);
+
+    {
+        std::lock_guard lock (mutex);
+
+        if (auto it = shapedEntries.find (key); it != shapedEntries.end() && it->second.source.lock() == sample)
+            if (auto found = it->second.shaped.lock())
+                return found;
+    }
+
+    auto made = std::make_shared<Sample>();
+    made->sampleRate = sample->sampleRate;
+    made->audio = shapeTransients (sample->audio, sample->sampleRate, punch, tail);
+
+    std::lock_guard lock (mutex);
+    std::erase_if (shapedEntries, [] (const auto& entry) { return entry.second.shaped.expired(); });
+    shapedEntries[key] = { sample, made };
+    return made;
+}
+
 void SampleCache::clear()
 {
     std::lock_guard lock (mutex);
     entries.clear();
+    shapedEntries.clear();
 }
 
 } // namespace gk::sampler

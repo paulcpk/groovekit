@@ -67,6 +67,8 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
       style={{ left, width: Math.max(3, width), height, background: `color-mix(in srgb, ${color} 22%, #18181b)` }}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
+        // The keyboards play the sample of the clip last touched.
+        if (clip.type === "audio") setUi({ selectedChannel: clip.channel });
         const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
         const edge = x > width - 6 && width > 14 ? "right" : x < 5 && width > 14 ? "left" : "body";
         onPointerDown(e, clip, edge);

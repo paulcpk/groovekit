@@ -54,6 +54,8 @@ interface EngineState {
   project?: string;
   doc?: Project;
   head: number | null;
+  /** The history entry the song was last saved at; changes since are unsaved. */
+  saved?: number | null;
   transport: Transport;
   levels: Levels;
   changes: ChangeEvent[];
@@ -121,7 +123,8 @@ function onNotification(method: string, params: any) {
       const previous = get().project;
       const switched = params.project !== undefined && previous !== undefined && params.project !== previous;
 
-      set({ doc: params.document, head: params.head ?? null, ...(params.project ? { project: params.project } : {}) });
+      set({ doc: params.document, head: params.head ?? null, saved: params.saved !== undefined ? params.saved : params.head ?? null,
+        ...(params.project ? { project: params.project } : {}) });
 
       if (switched) {
         set({ changes: [], touchedAt: {}, levels: { inserts: {}, channels: {} }, transport: { playing: false, recording: false, position: 0, seconds: 0, mode: "song" }, previewing: undefined });
@@ -154,6 +157,10 @@ function onNotification(method: string, params: any) {
       set({ doc, head: params.head ?? null, changes: [change, ...get().changes].slice(0, 200), touchedAt });
       break;
     }
+
+    case "saved":
+      set({ saved: params.saved ?? null, head: params.head ?? null });
+      break;
 
     case "transport":
       set({ transport: params });
@@ -214,6 +221,12 @@ export interface Toast {
 
 export const useToasts = create<{ toasts: Toast[] }>(() => ({ toasts: [] }));
 let nextToast = 1;
+
+/** Whether the song changed since it was last saved. */
+export function hasUnsavedChanges() {
+  const { status, saved, head } = get();
+  return status === "connected" && saved !== undefined && saved !== head;
+}
 
 export function toast(message: string, tone: Toast["tone"] = "info") {
   const id = nextToast++;

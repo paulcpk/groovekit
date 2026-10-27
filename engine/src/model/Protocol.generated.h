@@ -218,7 +218,7 @@ inline Json toJson (const RemoveChannel& v)
     return j;
 }
 
-/** Changes a sampler's polyphony and filter. Its layers have their own commands. */
+/** Changes a sampler's polyphony, filter and modulation (each replaced whole). Its layers have their own commands. */
 struct UpdateInstrument
 {
     Id channel;

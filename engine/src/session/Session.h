@@ -66,6 +66,20 @@ public:
     const std::vector<model::HistoryEntry>& getHistory() const   { return entries; }
     std::optional<int64_t> getHead() const          { return head; }
 
+    /** Every change is written as it's made; saving marks the point the song was saved at, which
+        closing without saving goes back to. A project from before saves were marked counts as
+        saved where it was opened. */
+    void markSaved();
+    std::optional<int64_t> getSavedHead() const     { return savedHead; }
+    bool hasUnsavedChanges() const                  { return head != savedHead; }
+
+    /** Goes back (or forward, along another branch) to where the song was last saved. The
+        changes since stay in the history, so they can be redone. */
+    void revertToSaved();
+
+    /** Marks a copy of the project in another folder as saved at this session's head. */
+    void markCopySaved (const std::filesystem::path& dir) const;
+
     using Listener = std::function<void (const Change&)>;
     int addListener (Listener);
     void removeListener (int id);
@@ -76,7 +90,7 @@ private:
     std::optional<std::filesystem::path> projectDir;
 
     std::vector<model::HistoryEntry> entries;   // entry id n is at index n - 1
-    std::optional<int64_t> head;
+    std::optional<int64_t> head, savedHead;
 
     std::map<int, Listener> listeners;
     int nextListenerId = 1;
@@ -85,6 +99,7 @@ private:
 
     const model::HistoryEntry& getEntry (int64_t id) const     { return entries.at (static_cast<size_t> (id - 1)); }
     std::optional<int64_t> findRedoTarget() const;
+    std::vector<int64_t> pathToRoot (std::optional<int64_t> from) const;
     void step (const model::HistoryEntry&, bool forward);
     void reparse();
     void notify (const Change&);

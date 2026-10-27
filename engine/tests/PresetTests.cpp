@@ -29,6 +29,12 @@ TEST_CASE ("Factory presets name real parameters, in range")
                     model::Envelope envelope;
                     CHECK_NOTHROW (readValue (reader, preset["envelope"], envelope));
                 }
+
+                if (preset.contains ("modulation"))
+                {
+                    model::SamplerModulation modulation;
+                    CHECK_NOTHROW (readValue (reader, preset["modulation"], modulation));
+                }
             }
 
             continue;

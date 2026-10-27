@@ -44,6 +44,7 @@ target_sources(gk_engine PRIVATE
     src/render/Stretch.cpp
     src/sampler/AudioChannelPlugin.cpp
     src/sampler/SampleCache.cpp
+    src/sampler/Modulation.cpp
     src/sampler/SamplerEngine.cpp
     src/sampler/SamplerPlugin.cpp
     src/session/Chats.cpp

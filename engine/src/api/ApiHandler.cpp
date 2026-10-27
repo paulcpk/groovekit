@@ -237,7 +237,7 @@ void ApiHandler::setBroadcast (Send b)
 
 std::string ApiHandler::getSnapshotMessage() const
 {
-    Json params { { "document", session.getDocument() }, { "head", headJson (session.getHead()) } };
+    Json params { { "document", session.getDocument() }, { "head", headJson (session.getHead()) }, { "saved", headJson (session.getSavedHead()) } };
 
     if (auto dir = session.getProjectDir())
         params["project"] = dir->string();
@@ -482,8 +482,10 @@ Json ApiHandler::peaks (const Json& params)
         if (auto dir = session.getProjectDir())
             path = *dir / path;
 
-    const auto resolution = std::clamp (optionalNumber (params, "resolution").value_or (100.0), 1.0, 1000.0);
-    const auto key = path.string() + "@" + std::to_string (resolution);
+    // Sampler windows ask for the wave itself: its lowest and highest value per slice, finer.
+    const bool withSigns = params.value ("signed", false);
+    const auto resolution = std::clamp (optionalNumber (params, "resolution").value_or (100.0), 1.0, withSigns ? 48000.0 : 1000.0);
+    const auto key = path.string() + "@" + std::to_string (resolution) + (withSigns ? "+" : "");
     std::error_code ec;
     const auto modified = std::filesystem::last_write_time (path, ec);
 
@@ -496,17 +498,29 @@ Json ApiHandler::peaks (const Json& params)
     const auto audio = analysis::loadAudio (path);
     const auto& buffer = audio.buffer;
     const auto perPeak = std::max (1, static_cast<int> (std::round (audio.sampleRate / resolution)));
-    auto values = Json::array();
+    auto values = Json::array(), lows = Json::array(), highs = Json::array();
+    const auto rounded = [] (float v) { return std::round (std::clamp (v, -1.0f, 1.0f) * 1000.0f) / 1000.0f; };
 
     for (int start = 0; start < buffer.getNumSamples(); start += perPeak)
     {
         const auto n = std::min (perPeak, buffer.getNumSamples() - start);
-        float peak = 0;
+        float peak = 0, low = 0, high = 0;
 
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            peak = std::max (peak, buffer.getMagnitude (ch, start, n));
+        {
+            const auto range = buffer.findMinMax (ch, start, n);
+            low = std::min (low, range.getStart());
+            high = std::max (high, range.getEnd());
+            peak = std::max (peak, std::max (-range.getStart(), range.getEnd()));
+        }
 
-        values.push_back (std::round (std::min (peak, 1.0f) * 1000.0f) / 1000.0f);
+        values.push_back (rounded (peak));
+
+        if (withSigns)
+        {
+            lows.push_back (rounded (low));
+            highs.push_back (rounded (high));
+        }
     }
 
     Json result { { "durationSeconds", buffer.getNumSamples() / audio.sampleRate },
@@ -514,6 +528,12 @@ Json ApiHandler::peaks (const Json& params)
                   { "channels", buffer.getNumChannels() },
                   { "resolution", audio.sampleRate / perPeak },
                   { "peaks", std::move (values) } };
+
+    if (withSigns)
+    {
+        result["min"] = std::move (lows);
+        result["max"] = std::move (highs);
+    }
 
     // Waveforms are asked for again on every redraw of a song; keep a few dozen.
     if (peaksCache.size() > 64)
@@ -1261,6 +1281,23 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
     if (method == "project.importFile" || method == "project.importData" || method == "project.collectSamples")
         return importIntoProject (method, params);
 
+    // Every change is written as it's made; saving marks where the song was saved, which
+    // closing without saving goes back to.
+    if (method == "project.save" || method == "project.revert")
+    {
+        if (method == "project.save")
+            session.markSaved();
+        else
+            session.revertToSaved();
+
+        Json state { { "saved", headJson (session.getSavedHead()) }, { "head", headJson (session.getHead()) } };
+
+        if (broadcast)
+            broadcast (notification ("saved", state).dump());
+
+        return state;
+    }
+
     if (method != "project.open" && method != "project.new" && method != "project.saveAs")
         throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 
@@ -1301,6 +1338,9 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
 
             if (ec)
                 throw RpcError (operationFailed, "Can't copy the project to " + dir.string() + ": " + ec.message());
+
+            // The copy is the song as it is now, saved.
+            session.markCopySaved (dir);
         }
     }
 

@@ -176,7 +176,7 @@ function ProjectMenu() {
         <DropdownItem onSelect={() => setUi({ projectDialog: "new" })}>New project… <span className="ml-auto text-2xs text-faint">⌘N</span></DropdownItem>
         <DropdownItem onSelect={() => void browseForProject()}>Open project… <span className="ml-auto text-2xs text-faint">⌘O</span></DropdownItem>
         <DropdownSeparator />
-        <DropdownItem onSelect={saveProject}>Save <span className="ml-auto text-2xs text-faint">⌘S</span></DropdownItem>
+        <DropdownItem onSelect={() => void saveProject()}>Save <span className="ml-auto text-2xs text-faint">⌘S</span></DropdownItem>
         <DropdownItem onSelect={() => setUi({ projectDialog: "saveAs" })}>Save as… <span className="ml-auto text-2xs text-faint">⇧⌘S</span></DropdownItem>
         <DropdownSeparator />
         {inDesktopApp && <DropdownItem onSelect={() => void importAudio()}>Import audio…</DropdownItem>}

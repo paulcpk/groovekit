@@ -15,6 +15,7 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
     config->polyphony = instrument.polyphony;
 
     config->filter = toFilter (instrument.filter);
+    config->modulation = toModulation (instrument.modulation);
 
     for (auto& l : instrument.layers)
     {
@@ -24,7 +25,8 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
             path = projectDir / path;
 
         Layer layer;
-        layer.sample = SampleCache::getInstance().load (path);
+        auto& cache = SampleCache::getInstance();
+        layer.sample = cache.shaped (cache.load (path), static_cast<float> (l.punch), static_cast<float> (l.tail));
         layer.rootKey = l.rootKey;
         layer.keyLow = l.keyRange.low;
         layer.keyHigh = l.keyRange.high;
@@ -42,6 +44,28 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
         layer.start = toFrame (l.start);
         layer.end = l.end ? toFrame (*l.end) : frames;
         layer.reverse = l.reverse;
+        layer.loop = l.loop == model::SamplerLayerLoop::forward  ? Layer::Loop::forward
+                   : l.loop == model::SamplerLayerLoop::pingPong ? Layer::Loop::pingPong
+                                                                 : Layer::Loop::off;
+        layer.fadeIn = toFrame (l.fadeIn);
+        layer.fadeOut = toFrame (l.fadeOut);
+        layer.swapStereo = l.swapStereo;
+
+        if (l.invert)
+            layer.gain = -layer.gain;
+
+        // Normalized: the part that plays peaks at 0 dB.
+        if (l.normalize && layer.end > layer.start)
+        {
+            float peak = 0;
+
+            for (int c = 0; c < layer.sample->audio.getNumChannels(); ++c)
+                peak = std::max (peak, layer.sample->audio.getMagnitude (c, layer.start, layer.end - layer.start));
+
+            if (peak > 1.0e-6f)
+                layer.gain /= peak;
+        }
+
         config->layers.push_back (std::move (layer));
     }
 
@@ -133,6 +157,7 @@ void SamplerPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
 
     samplerEngine.setFilterControls (filterControls.cutoff->getCurrentValue(), filterControls.resonance->getCurrentValue(),
                                      filterControls.envelopeAmount->getCurrentValue());
+    samplerEngine.setTempo (edit.tempoSequence.getBpmAt (fc.editTime.getStart()));
     samplerEngine.process (*fc.destBuffer, fc.bufferStartSample, fc.bufferNumSamples, events);
 }
 

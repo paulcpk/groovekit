@@ -247,10 +247,12 @@ namespace
         }
 
         /** A sampler only loads its samples to play notes when it might get some: a channel the
-            rack lists, or one with notes. A long recording that only audio clips play stays on disk. */
+            rack lists, the one the keyboards play, or one with notes. A long recording that only
+            audio clips play stays on disk. */
         bool playsNotes (const Channel& channel) const
         {
-            if (! std::holds_alternative<SamplerInstrument> (channel.instrument) || channel.group == ChannelGroup::rack)
+            if (! std::holds_alternative<SamplerInstrument> (channel.instrument) || channel.group == ChannelGroup::rack
+                 || channel.id == options.liveChannel)
                 return true;
 
             return std::any_of (project.patterns.begin(), project.patterns.end(), [&] (const Pattern& p)

@@ -23,6 +23,18 @@ namespace
         return s;
     }
 
+    std::shared_ptr<const Sample> toneSample (int length, float hz)
+    {
+        auto s = std::make_shared<Sample>();
+        s->sampleRate = rate;
+        s->audio.setSize (1, length);
+
+        for (int i = 0; i < length; ++i)
+            s->audio.setSample (0, i, 0.5f * std::sin (juce::MathConstants<float>::twoPi * hz * static_cast<float> (i) / static_cast<float> (rate)));
+
+        return s;
+    }
+
     std::shared_ptr<const Sample> constantSample (int length, float value)
     {
         auto s = std::make_shared<Sample>();
@@ -39,7 +51,7 @@ namespace
     {
         Layer l;
         l.sample = std::move (sample);
-        l.envelope = { 0.0f, 0.0f, 1.0f, 0.0f };
+        l.envelope = { .sustain = 1.0f, .release = 0.0f };
         return l;
     }
 
@@ -205,7 +217,7 @@ TEST_CASE ("The envelope shapes the attack and release")
     Config config;
     auto l = layer (constantSample (48000, 1.0f));
     l.oneShot = false;
-    l.envelope = { 0.01f, 0.0f, 1.0f, 0.01f }; // 480 samples each
+    l.envelope = { .attack = 0.01f, .sustain = 1.0f, .release = 0.01f }; // 480 samples each
     config.layers.push_back (l);
     Harness h (config);
 
@@ -322,4 +334,222 @@ TEST_CASE ("New settings for the same samples keep notes playing")
     CHECK (std::abs (h.out.getSample (0, 0) - h.out.getSample (0, 1)) < 0.01f);
     CHECK (h.out.getSample (0, 200) == 0.0f);
     CHECK (h.engine.getNumActiveVoices() == 0);
+}
+
+TEST_CASE ("Envelopes have a delay, a hold and curves")
+{
+    EnvelopeShape shape { .delay = 0.01f, .attack = 0.01f, .hold = 0.01f, .decay = 0.01f, .sustain = 0.5f, .release = 0.01f };
+
+    CHECK (shape.levelBeforeRelease (0.005) == 0.0f);
+    CHECK (shape.levelBeforeRelease (0.015) == Approx (0.5f));
+    CHECK (shape.levelBeforeRelease (0.025) == 1.0f);
+    CHECK (shape.levelBeforeRelease (0.035) == Approx (0.75f));
+    CHECK (shape.levelBeforeRelease (1.0) == 0.5f);
+
+    // Over an audio clip, the release ends where the clip does.
+    CHECK (shape.levelAt (1.0, 0.005) == Approx (0.25f));
+
+    SECTION ("the generator follows the same shape, sample by sample")
+    {
+        EnvelopeGenerator g;
+        g.setSampleRate (rate);
+        g.setShape (shape);
+        g.noteOn();
+
+        for (int i = 0; i < 720; ++i)
+            g.next();
+
+        CHECK (g.next() == Approx (0.5f).margin (0.01f));
+
+        for (int i = 0; i < 2000; ++i)
+            g.next();
+
+        CHECK (g.getLevel() == 0.5f);
+        g.noteOff();
+
+        for (int i = 0; i < 240; ++i)
+            g.next();
+
+        CHECK (g.next() == Approx (0.25f).margin (0.01f));
+
+        for (int i = 0; i < 300; ++i)
+            g.next();
+
+        CHECK (! g.isActive());
+    }
+
+    SECTION ("a positive curve rises fast and then eases, a negative one starts slowly")
+    {
+        shape.attackCurve = 0.5f;
+        CHECK (shape.levelBeforeRelease (0.015) > 0.7f);
+        shape.attackCurve = -0.5f;
+        CHECK (shape.levelBeforeRelease (0.015) < 0.3f);
+    }
+
+    SECTION ("without an attack, the first sample is at full level")
+    {
+        EnvelopeGenerator g;
+        g.setSampleRate (rate);
+        g.setShape ({ .sustain = 1.0f });
+        g.noteOn();
+        CHECK (g.next() == 1.0f);
+    }
+}
+
+TEST_CASE ("The steeper filters cut more, and the notch takes out its frequency")
+{
+    auto rms = [] (Harness& h) { return h.out.getRMSLevel (0, 2400, 2400); };
+    auto play = [&] (Filter::Type type, float cutoff)
+    {
+        Config config;
+        config.layers.push_back (layer (toneSample (4800, 6000)));
+        config.filter.type = type;
+        config.filter.cutoff = cutoff;
+        Harness h (config);
+        h.run (4800, { Harness::on (0, 60) });
+        return rms (h);
+    };
+
+    const auto gentle = play (Filter::Type::lowpass, 1000), steep = play (Filter::Type::lowpass24, 1000);
+    CHECK (steep < gentle / 10);
+    CHECK (play (Filter::Type::highpass24, 1000) == Approx (0.3536f).margin (0.01f));
+    CHECK (play (Filter::Type::highpass24, 20000) < 0.01f);
+    CHECK (play (Filter::Type::notch, 6000) < 0.02f);
+}
+
+TEST_CASE ("Modulation moves the pitch, pan and volume of each note")
+{
+    SECTION ("a pitch envelope at half its amount plays an octave up")
+    {
+        Config config;
+        config.layers.push_back (layer (rampSample (1000)));
+        config.modulation.pitch.amount = 0.5f;
+        config.modulation.pitch.envelope = { .sustain = 1.0f };
+        Harness h (config);
+
+        h.run (512, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 1) == Approx (0.003f));
+        CHECK (h.out.getSample (0, 100) == Approx (0.201f));
+    }
+
+    SECTION ("a square LFO on the pan swings between the sides")
+    {
+        Config config;
+        config.layers.push_back (layer (constantSample (4800, 0.5f)));
+        config.modulation.pan.lfo = { .shape = LfoSettings::Shape::square, .amount = 1.0f, .speed = 100.0f };
+        Harness h (config);
+
+        h.run (480, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 100) == Approx (0.0f).margin (0.001f));
+        CHECK (h.out.getSample (1, 100) == Approx (0.5f));
+        CHECK (h.out.getSample (0, 300) == Approx (0.5f));
+        CHECK (h.out.getSample (1, 300) == Approx (0.0f).margin (0.001f));
+    }
+
+    SECTION ("tremolo dips the volume by its amount")
+    {
+        Config config;
+        config.layers.push_back (layer (constantSample (4800, 0.5f)));
+        config.modulation.volume = { .shape = LfoSettings::Shape::square, .amount = 0.5f, .speed = 100.0f };
+        Harness h (config);
+
+        h.run (480, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 100) == Approx (0.5f));
+        CHECK (h.out.getSample (0, 300) == Approx (0.25f));
+    }
+
+    SECTION ("an LFO waits for its delay")
+    {
+        Config config;
+        config.layers.push_back (layer (constantSample (4800, 0.5f)));
+        config.modulation.volume = { .shape = LfoSettings::Shape::square, .amount = 1.0f, .speed = 100.0f, .delay = 0.01f };
+        Harness h (config);
+
+        h.run (480, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 300) == Approx (0.5f));
+    }
+}
+
+TEST_CASE ("Layers loop, fade and swap their sides")
+{
+    SECTION ("a forward loop goes round until the note ends")
+    {
+        Config config;
+        auto l = layer (rampSample (100));
+        l.loop = Layer::Loop::forward;
+        config.layers.push_back (l);
+        Harness h (config);
+
+        h.run (256, { Harness::on (0, 60), Harness::off (200, 60) });
+        CHECK (h.out.getSample (0, 150) == Approx (0.051f));
+        CHECK (h.out.getSample (0, 210) == 0.0f);
+    }
+
+    SECTION ("a ping-pong loop turns at the end")
+    {
+        Config config;
+        auto l = layer (rampSample (100));
+        l.loop = Layer::Loop::pingPong;
+        config.layers.push_back (l);
+        Harness h (config);
+
+        h.run (128, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 99) == Approx (0.100f));
+        CHECK (h.out.getSample (0, 105) == Approx (0.094f));
+    }
+
+    SECTION ("fades in and out over the part that plays")
+    {
+        Config config;
+        auto l = layer (constantSample (1000, 1.0f));
+        l.fadeIn = 100;
+        l.fadeOut = 100;
+        config.layers.push_back (l);
+        Harness h (config);
+
+        h.run (1024, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 50) == Approx (0.5f));
+        CHECK (h.out.getSample (0, 500) == 1.0f);
+        CHECK (h.out.getSample (0, 950) == Approx (0.5f));
+    }
+
+    SECTION ("left and right swap")
+    {
+        auto s = std::make_shared<Sample>();
+        s->sampleRate = rate;
+        s->audio.setSize (2, 100);
+        s->audio.clear();
+
+        for (int i = 0; i < 100; ++i)
+            s->audio.setSample (1, i, 0.5f);
+
+        Config config;
+        auto l = layer (s);
+        l.swapStereo = true;
+        config.layers.push_back (l);
+        Harness h (config);
+
+        h.run (16, { Harness::on (0, 60) });
+        CHECK (h.out.getSample (0, 8) == 0.5f);
+        CHECK (h.out.getSample (1, 8) == 0.0f);
+    }
+}
+
+TEST_CASE ("Transient shaping sharpens hits or brings up their tails")
+{
+    // A 200 Hz hit that dies away.
+    juce::AudioBuffer<float> hit (1, 24000);
+
+    for (int i = 0; i < hit.getNumSamples(); ++i)
+    {
+        const auto t = static_cast<float> (i) / static_cast<float> (rate);
+        hit.setSample (0, i, 0.8f * std::exp (-t / 0.08f) * std::sin (juce::MathConstants<float>::twoPi * 200.0f * t));
+    }
+
+    const auto attackToTail = [] (const juce::AudioBuffer<float>& b) { return b.getMagnitude (0, 0, 240) / b.getRMSLevel (0, 4800, 4800); };
+    const auto original = attackToTail (hit);
+
+    CHECK (attackToTail (shapeTransients (hit, rate, 1.0f, 0.0f)) > original * 1.5f);
+    CHECK (attackToTail (shapeTransients (hit, rate, -1.0f, 0.0f)) < original / 1.5f);
+    CHECK (attackToTail (shapeTransients (hit, rate, 0.0f, 1.0f)) < original / 1.5f);
 }

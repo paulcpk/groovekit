@@ -49,7 +49,7 @@ export interface RemoveChannel {
   channel: Id;
 }
 
-/** Changes a sampler's polyphony and filter. Its layers have their own commands. */
+/** Changes a sampler's polyphony, filter and modulation (each replaced whole). Its layers have their own commands. */
 export interface UpdateInstrument {
   type: "updateInstrument";
   channel: Id;

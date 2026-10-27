@@ -55,8 +55,6 @@ public:
 
     FilterControls filterControls { *this };
 
-    /** The envelope's level at a point of a note: since its start, and until its end. */
-    static float envelopeLevel (const juce::ADSR::Parameters&, double since, double untilEnd);
 
     juce::String getName() const override               { return getPluginName(); }
     juce::String getPluginType() override               { return xmlTypeName; }
@@ -74,21 +72,22 @@ private:
     struct Settings
     {
         float gainL = 1, gainR = 1;
-        juce::ADSR::Parameters envelope;
+        EnvelopeShape envelope;
         Filter filter;
         std::vector<Clip> clips;
     };
 
     juce::SpinLock settingsLock;
     std::shared_ptr<const Settings> settings;
-    float filterState[2][2] {};
-    Svf svf;
+    float filterState[2][4] {};
+    FilterStages filterStages;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioChannelPlugin)
 };
 
-/** The sampler filter's settings from the model. */
+/** The sampler filter's and modulation's settings from the model. */
 Filter toFilter (const model::SamplerFilter&);
-juce::ADSR::Parameters toEnvelope (const model::Envelope&);
+EnvelopeShape toEnvelope (const model::Envelope&);
+Modulation toModulation (const std::optional<model::SamplerModulation>&);
 
 } // namespace gk::sampler

@@ -152,6 +152,12 @@ void MultibandPlugin::initialise (const tracktion::PluginInitialisationInfo& inf
     for (auto& s : smoothers)
         s.gainDb = 0;
 
+    masterSmoother.gainDb = 0;
+    ceilingGain = 1;
+    lastLowCut = -1;
+
+    lowCutFilter.reset();
+
     std::fill (std::begin (rms), std::end (rms), 0.0f);
     rmsCoefficient = GainSmoother::coefficient (10.0f, info.sampleRate);
     hop = MeterHistory::hopSamples (info.sampleRate);
@@ -188,6 +194,31 @@ void MultibandPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
     const auto knee = value (6);
     const bool rmsDetect = choice (7) == 1;
 
+    // The master: a compressor on the sum, then the ceiling (caught at once, let go over the
+    // master's release).
+    const bool masterOn = choice (masterMode) == 0;
+    const GainComputer masterCurve { value (masterThreshold), value (masterRatio), knee, -100.0f, 1.0f };
+    masterSmoother.setTimes (value (masterAttack), value (masterRelease), sampleRate);
+    const auto masterMakeup = dbToGain (value (masterGain));
+    const auto ceilingLevel = dbToGain (value (ceiling));
+    const auto ceilingRelease = std::exp (-1.0f / (value (masterRelease) * 0.001f * static_cast<float> (sampleRate)));
+
+    // A low cut on what comes in (20 Hz is off).
+    const auto lowCutHz = value (lowCut);
+    const bool cutting = lowCutHz > 20.5f;
+
+    if (cutting && lowCutHz != lastLowCut)
+    {
+        lowCutFilter.setHighpass (lowCutHz, 0.7071, sampleRate);
+
+        lastLowCut = lowCutHz;
+    }
+
+    float widths[maxBands] {};
+
+    for (int b = 0; b < maxBands; ++b)
+        widths[b] = value (widthParam (b)) / 100.0f;
+
     GainComputer curves[maxBands];
     float makeups[maxBands] {};
     int modes[maxBands] {};
@@ -211,6 +242,10 @@ void MultibandPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
     {
         float bands[maxBands][2] {};
         float in[2] { left[i] * input, right[i] * input };
+
+        if (cutting)
+            for (int ch = 0; ch < 2; ++ch)
+                in[ch] = lowCutFilter.process (in[ch], ch);
 
         for (int ch = 0; ch < 2; ++ch)
         {
@@ -256,8 +291,10 @@ void MultibandPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
 
             if (heard)
             {
-                out[0] += bands[b][0] * gain;
-                out[1] += bands[b][1] * gain;
+                // The band's stereo width: its sides turned up or down around its middle.
+                const auto mid = 0.5f * (bands[b][0] + bands[b][1]), side = 0.5f * (bands[b][0] - bands[b][1]) * widths[b];
+                out[0] += (mid + side) * gain;
+                out[1] += (mid - side) * gain;
             }
 
             auto* v = hopValues + 2 + 3 * b;
@@ -267,16 +304,42 @@ void MultibandPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
         }
 
         hopValues[0] = std::max (hopValues[0], std::max (std::abs (in[0]), std::abs (in[1])));
-        left[i] = out[0] * output;
-        right[i] = out[1] * output;
+        out[0] *= output;
+        out[1] *= output;
+        const auto sumPeak = std::max (std::abs (out[0]), std::abs (out[1]));
+        auto masterDb = 0.0f;
+
+        if (masterOn)
+        {
+            const auto compDb = masterSmoother.process (masterCurve.gainDb (toMeterDb (sumPeak)));
+            auto gain = dbToGain (compDb) * masterMakeup;
+            const auto peak = sumPeak * gain;
+
+            // The ceiling: down at once to keep the peak under it, back up gently.
+            const auto needed = peak > ceilingLevel ? ceilingLevel / peak : 1.0f;
+            ceilingGain = needed < ceilingGain ? needed : needed + ceilingRelease * (ceilingGain - needed);
+            gain *= ceilingGain;
+            out[0] *= gain;
+            out[1] *= gain;
+            masterDb = compDb + toMeterDb (ceilingGain);
+        }
+
+        left[i] = out[0];
+        right[i] = out[1];
         hopValues[1] = std::max (hopValues[1], std::max (std::abs (left[i]), std::abs (right[i])));
+        hopValues[2 + 3 * maxBands] = std::max (hopValues[2 + 3 * maxBands], sumPeak);
+        hopValues[3 + 3 * maxBands] = std::min (hopValues[3 + 3 * maxBands], masterDb);
 
         if (++hopCount >= hop)
         {
-            float frame[2 + 3 * maxBands];
+            float frame[frameSize];
 
-            for (int k = 0; k < 2 + 3 * maxBands; ++k)
-                frame[k] = (k >= 2 && (k - 2) % 3 == 2) ? hopValues[k] : toMeterDb (hopValues[k]);
+            // Levels in dB; the gain changes (each band's third value, and the master's last) as they are.
+            for (int k = 0; k < frameSize; ++k)
+            {
+                const bool isGain = (k >= 2 && k < 2 + 3 * maxBands && (k - 2) % 3 == 2) || k == frameSize - 1;
+                frame[k] = isGain ? hopValues[k] : toMeterDb (hopValues[k]);
+            }
 
             meter.push (frame);
             hopCount = 0;

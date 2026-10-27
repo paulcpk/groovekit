@@ -74,7 +74,10 @@ struct CompileOptions
     tracktion::Edit::EditRole role = tracktion::Edit::forRendering;
 
     /** Where time-stretched copies of audio clips are kept. Empty means the default. */
-    std::filesystem::path cacheDir;
+    std::filesystem::path cacheDir {};
+
+    /** The channel the keyboards play: its sampler is loaded even without notes. */
+    std::optional<model::Id> liveChannel {};
 };
 
 /** Which inserts are heard: all of them, or with some soloed, those with the inserts feeding them

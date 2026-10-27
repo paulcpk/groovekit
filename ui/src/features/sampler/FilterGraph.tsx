@@ -1,8 +1,8 @@
 import type { AutomationTarget, SamplerFilter } from "@groovekit/schema/project";
-import { useState } from "react";
 import { Knob } from "@/components/controls";
 import { startDrag } from "@/lib/drag";
-import { formatHz, freqToX, qForResonance, resonanceForQ, svfGainDb, xToFreq } from "@/lib/filters";
+import { useHeld } from "@/lib/held";
+import { formatHz, freqToX, svfGainDb, xToFreq, type SvfType } from "@/lib/filters";
 import { cn } from "@/lib/cn";
 import { Automatable } from "@/features/playlist/Automatable";
 
@@ -10,7 +10,16 @@ type Filter = Required<Omit<SamplerFilter, "envelope">>;
 
 const W = 460, H = 150, TOP_DB = 30, BOTTOM_DB = -36;
 // Where the cutoff starts when a filter is first switched on, rather than wide open.
-const DEFAULT_CUTOFF = { off: 20000, lowpass: 2000, highpass: 200, bandpass: 1000 };
+const DEFAULT_CUTOFF: Record<SvfType, number> = { off: 20000, lowpass: 2000, lowpass24: 2000, highpass: 200, highpass24: 200, bandpass: 1000, notch: 1000 };
+const TYPES: { type: SvfType; label: string; title: string }[] = [
+  { type: "off", label: "Off", title: "No filter" },
+  { type: "lowpass", label: "LP", title: "Low-pass, 12 dB/octave" },
+  { type: "lowpass24", label: "LP 24", title: "Low-pass, 24 dB/octave: steeper" },
+  { type: "highpass", label: "HP", title: "High-pass, 12 dB/octave" },
+  { type: "highpass24", label: "HP 24", title: "High-pass, 24 dB/octave: steeper" },
+  { type: "bandpass", label: "BP", title: "Band-pass: keeps a band around the cutoff" },
+  { type: "notch", label: "Notch", title: "Notch: takes out a band around the cutoff" },
+];
 const GRID_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
 
 /** The sampler filter's response, drawn from the same maths as the engine. Drag the point:
@@ -20,40 +29,33 @@ export function FilterGraph({ filter, color, channel, onChange, onCommit }: {
   filter: SamplerFilter | undefined; color: string; channel?: string;
   onChange: (f: Partial<SamplerFilter>) => void; onCommit: (f: Partial<SamplerFilter>) => void;
 }) {
-  const saved: Filter = { type: "off", cutoff: 20000, resonance: 0, envelopeAmount: 0, ...filter };
-  const [live, setLive] = useState<Partial<Filter> | null>(null);
-  const f: Filter = { ...saved, ...live };
+  const [f, hold] = useHeld<Filter>({ type: "off", cutoff: 20000, resonance: 0, envelopeAmount: 0, ...withoutEnvelope(filter) });
   const off = f.type === "off";
-  const q = qForResonance(f.resonance);
 
   const y = (db: number) => ((TOP_DB - Math.min(TOP_DB, Math.max(BOTTOM_DB, db))) / (TOP_DB - BOTTOM_DB)) * H;
   const curve = (cutoff: number) => {
     let d = "";
-    for (let px = 0; px <= W; px += 2) d += `${px ? "L" : "M"} ${px} ${y(svfGainDb(f.type, cutoff, q, xToFreq(px / W)))} `;
+    for (let px = 0; px <= W; px += 2) d += `${px ? "L" : "M"} ${px} ${y(svfGainDb(f.type, cutoff, f.resonance, xToFreq(px / W)))} `;
     return d;
   };
   const peakCutoff = Math.min(20000, Math.max(20, f.cutoff * Math.pow(2, f.envelopeAmount)));
   const nodeX = freqToX(f.cutoff) * W;
-  const nodeY = y(20 * Math.log10(q));
+  // The point sits on the curve at the cutoff (the resonance peak, for the pass types).
+  const nodeY = y(f.type === "notch" ? 0 : svfGainDb(f.type, f.cutoff, f.resonance, f.cutoff));
 
   const set = (change: Partial<Filter>, commit: boolean) => {
-    if (commit) {
-      setLive(null);
-      onCommit(change);
-    } else {
-      setLive((l) => ({ ...l, ...change }));
-      onChange(change);
-    }
+    hold({ ...f, ...change });
+    (commit ? onCommit : onChange)(change);
   };
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-1">
-        {(["off", "lowpass", "highpass", "bandpass"] as const).map((type) => (
-          <button key={type} type="button"
+        {TYPES.map(({ type, label, title }) => (
+          <button key={type} type="button" title={title}
             className={cn("h-6 rounded-[4px] px-2.5 text-xs", f.type === type ? "bg-accent text-black" : "bg-control text-dim hover:text-fg")}
             onClick={() => set({ type, ...(f.type === "off" && f.cutoff >= 19000 ? { cutoff: DEFAULT_CUTOFF[type] } : {}) }, true)}>
-            {{ off: "Off", lowpass: "Low-pass", highpass: "High-pass", bandpass: "Band-pass" }[type]}
+            {label}
           </button>
         ))}
       </div>
@@ -72,11 +74,11 @@ export function FilterGraph({ filter, color, channel, onChange, onCommit }: {
               onPointerDown={(e) => {
                 const svg = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
                 const scale = W / svg.width;
-                const x0 = nodeX, y0 = nodeY;
+                const x0 = nodeX, r0 = f.resonance;
                 let last: Partial<Filter> = {};
                 startDrag(e, (dx, dy) => {
-                  const db = TOP_DB - ((y0 + dy * scale) / H) * (TOP_DB - BOTTOM_DB);
-                  last = { cutoff: Math.round(xToFreq((x0 + dx * scale) / W)), resonance: Math.round(resonanceForQ(Math.pow(10, db / 20)) * 100) / 100 };
+                  const resonance = Math.min(1, Math.max(0, r0 - (dy * scale) / 100));
+                  last = { cutoff: Math.round(xToFreq((x0 + dx * scale) / W)), resonance: Math.round(resonance * 100) / 100 };
                   set(last, false);
                 }, (_dx, _dy, _e, moved) => moved && set(last, true), "grabbing");
               }}>
@@ -104,6 +106,11 @@ export function FilterGraph({ filter, color, channel, onChange, onCommit }: {
       </div>
     </div>
   );
+}
+
+function withoutEnvelope(filter: SamplerFilter | undefined) {
+  const { envelope: _, ...rest } = filter ?? {};
+  return rest;
 }
 
 /** A knob that, on a channel's filter, can be automated. */

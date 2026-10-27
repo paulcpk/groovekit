@@ -293,6 +293,36 @@ TEST_CASE ("Sessions persist the song and history to their folder")
     CHECK (s->getProject().tempo == 110);
 }
 
+TEST_CASE ("Saving marks where the song was saved, and not saving goes back there")
+{
+    auto dir = test::tempDir() / "session-saved";
+    std::filesystem::remove_all (dir);
+
+    {
+        auto s = Session::open (dir);
+        CHECK_FALSE (s->hasUnsavedChanges());
+        run (*s, { R"({ "type": "setTempo", "tempo": 100 })" });
+        CHECK (s->hasUnsavedChanges());
+        s->markSaved();
+        CHECK_FALSE (s->hasUnsavedChanges());
+
+        // Changes after an undo, on another branch.
+        run (*s, { R"({ "type": "setTempo", "tempo": 110 })" });
+        s->undo();
+        s->undo();
+        run (*s, { R"({ "type": "setTempo", "tempo": 140 })" });
+        CHECK (s->hasUnsavedChanges());
+    }
+
+    // The saved point outlives the session; going back to it crosses over to its branch.
+    auto s = Session::open (dir);
+    CHECK (s->hasUnsavedChanges());
+    s->revertToSaved();
+    CHECK (s->getProject().tempo == 100);
+    CHECK (s->getHead() == 1);
+    CHECK_FALSE (s->hasUnsavedChanges());
+}
+
 TEST_CASE ("Random command sequences undo back to the start")
 {
     std::mt19937 rng (1234);

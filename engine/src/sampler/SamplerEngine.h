@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Modulation.h"
 #include "SampleCache.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -14,36 +15,50 @@ namespace gk::sampler
 /** One playable layer, already resolved from the project model. */
 struct Layer
 {
-    std::shared_ptr<const Sample> sample;
+    enum class Loop { off, forward, pingPong };
+
+    std::shared_ptr<const Sample> sample;   // with its transients shaped, if asked
     int rootKey = 60;
     int keyLow = 0, keyHigh = 127;
     int velocityLow = 1, velocityHigh = 127;
     bool pitchTracking = true;
     double tuneSemitones = 0;   // transpose plus fine tune
-    float gain = 1.0f;          // linear
+    float gain = 1.0f;          // linear, with normalizing and polarity
     float pan = 0;              // -1..1, balance law: centre leaves both channels at unity
     bool oneShot = true;
-    juce::ADSR::Parameters envelope { 0.0f, 0.0f, 1.0f, 0.01f };
+    EnvelopeShape envelope { .release = 0.01f };
     /** The part of the sample that plays, in frames: [start, end); a negative end is the sample's end. */
     int start = 0, end = -1;
     bool reverse = false;
+    Loop loop = Loop::off;
+    int fadeIn = 0, fadeOut = 0;    // frames of the sample
+    bool swapStereo = false;
 
-    int endFrame() const    { return end < 0 ? sample->audio.getNumSamples() : end; }
+    int endFrame() const        { return end < 0 ? sample->audio.getNumSamples() : end; }
+
+    /** A looping layer plays until its note ends, like a gated one. */
+    bool releasesOnNoteOff() const  { return ! oneShot || loop != Loop::off; }
 };
 
-/** A resonant 12 dB/octave state-variable filter per voice, its cutoff moved by its own envelope. */
+/** A resonant state-variable filter per voice (12 or 24 dB/octave), its cutoff moved by its own envelope. */
 struct Filter
 {
-    enum class Type { off, lowpass, highpass, bandpass };
+    enum class Type { off, lowpass, lowpass24, highpass, highpass24, bandpass, notch };
 
     Type type = Type::off;
     float cutoff = 20000.0f;      // Hz
     float resonance = 0;          // 0..1
     float envelopeAmount = 0;     // octaves at the envelope's peak
-    juce::ADSR::Parameters envelope { 0.0f, 0.0f, 1.0f, 0.01f };
+    EnvelopeShape envelope { .release = 0.01f };
 
     /** Q from resonance: 0.71 (no peak) at 0 up to 25 at 1. The UI draws the curve with the same mapping. */
     static float qFor (float resonance)     { return 0.7071f * std::pow (25.0f / 0.7071f, juce::jlimit (0.0f, 1.0f, resonance)); }
+
+    /** The 24 dB/octave types are two stages: a fixed one (Q 0.54) and one with this Q (1.31, a
+        flat Butterworth response, up to 25). */
+    static float resonantStageQ (float resonance)   { return 1.3066f * std::pow (25.0f / 1.3066f, juce::jlimit (0.0f, 1.0f, resonance)); }
+
+    static bool isSteep (Type t)            { return t == Type::lowpass24 || t == Type::highpass24; }
 };
 
 /** The TPT state-variable filter (Zavalishin): coefficients for one cutoff, applied to a channel's
@@ -52,11 +67,11 @@ struct Svf
 {
     float a1 = 1, a2 = 0, a3 = 0, k = 1.4142f;
 
-    void setup (float cutoff, float resonance, double sampleRate)
+    void setup (float cutoff, float q, double sampleRate)
     {
         const auto fc = juce::jlimit (16.0f, static_cast<float> (sampleRate * 0.45), cutoff);
         const auto g = std::tan (juce::MathConstants<float>::pi * fc / static_cast<float> (sampleRate));
-        k = 1.0f / Filter::qFor (resonance);
+        k = 1.0f / q;
         a1 = 1.0f / (1.0f + g * (g + k));
         a2 = g * a1;
         a3 = g * a2;
@@ -72,20 +87,68 @@ struct Svf
 
         switch (type)
         {
-            case Filter::Type::lowpass:   return v2;
-            case Filter::Type::highpass:  return in - k * v1 - v2;
-            case Filter::Type::bandpass:  return k * v1;
-            case Filter::Type::off:       break;
+            case Filter::Type::lowpass:
+            case Filter::Type::lowpass24:   return v2;
+            case Filter::Type::highpass:
+            case Filter::Type::highpass24:  return in - k * v1 - v2;
+            case Filter::Type::bandpass:    return k * v1;
+            case Filter::Type::notch:       return in - k * v1;
+            case Filter::Type::off:         break;
         }
 
         return in;
     }
 };
 
+/** One channel's filter: one stage, or two for the 24 dB/octave types. */
+struct FilterStages
+{
+    Svf first, second;
+
+    void setup (Filter::Type type, float cutoff, float resonance, double sampleRate)
+    {
+        if (Filter::isSteep (type))
+        {
+            first.setup (cutoff, 0.5412f, sampleRate);
+            second.setup (cutoff, Filter::resonantStageQ (resonance), sampleRate);
+        }
+        else
+        {
+            first.setup (cutoff, Filter::qFor (resonance), sampleRate);
+        }
+    }
+
+    /** state holds four values: two integrators a stage. */
+    float process (float in, float* state, Filter::Type type) const
+    {
+        const auto out = first.process (in, state, type);
+        return Filter::isSteep (type) ? second.process (out, state + 2, type) : out;
+    }
+};
+
+/** Envelopes and LFOs moving a sampler's volume, cutoff, resonance, pan and pitch (amounts are
+    shares of each one's span; see the model). The volume envelope is each layer's, the cutoff
+    envelope the filter's. */
+struct Modulation
+{
+    struct Target
+    {
+        EnvelopeShape envelope;
+        float amount = 0;
+        LfoSettings lfo;
+    };
+
+    LfoSettings volume, cutoff;
+    Target resonance, pan, pitch;
+
+    static constexpr float cutoffOctaves = 5, pitchSemitones = 24;
+};
+
 struct Config
 {
     std::vector<Layer> layers;
     Filter filter;
+    Modulation modulation;
     int polyphony = 32;
 };
 
@@ -107,6 +170,9 @@ public:
 
     static constexpr int maxVoices = 256;
     static constexpr double stealFadeSeconds = 0.003;
+    /** Modulation (envelopes other than volume, LFOs, pan and pitch) moves every this many samples,
+        gains gliding in between. */
+    static constexpr int controlInterval = 16;
 
     SamplerEngine();
 
@@ -127,23 +193,35 @@ public:
         before process; setConfig goes back to the config's values. */
     void setFilterControls (float cutoff, float resonance, float envelopeAmount);
 
+    /** The tempo synced LFOs follow. Call on the audio thread, before process. */
+    void setTempo (double bpm)      { tempo = bpm; }
+
     int getNumActiveVoices() const;
 
 private:
+    /** The LFOs, in the order of their phases. */
+    enum Lfo { volumeLfo, cutoffLfo, resonanceLfo, panLfo, pitchLfo, numLfos };
+
     struct Voice
     {
         const Layer* layer = nullptr;
         size_t layerIndex = 0;
         int note = 0;
         uint64_t age = 0;
-        double position = 0;
-        double increment = 1;
-        float gainL = 0, gainR = 0;
-        juce::ADSR envelope, filterEnvelope;
-        float filterState[2][2] {};   // per channel: the SVF's two integrators
-        Svf svf;
-        int samplesToCoefficients = 0;
-        int fadeInSamples = 0, fadeOutSamples = 0;
+        double position = 0;        // frames into the part that plays, in the order it plays
+        double baseIncrement = 1;   // frames a sample at the note's pitch
+        double increment = 1;       // with the pitch moved
+        int direction = 1;          // ping-pong loops play back and forth
+        float velocityGain = 1;
+        float gainL = 0, gainR = 0, gainStepL = 0, gainStepR = 0;
+        EnvelopeGenerator envelope, filterEnvelope, resonanceEnvelope, panEnvelope, pitchEnvelope;
+        double lfoPhase[numLfos] {};
+        double since = 0;           // seconds since the note started
+        float filterState[2][4] {}; // per channel: two integrators for each of two stages
+        FilterStages filter;
+        int samplesToControls = 0;
+        bool controlsSet = false;
+        int edgeFadeIn = 0, edgeFadeOut = 0;
         bool active = false;
         int stealSamplesLeft = 0;   // > 0 while fading out after being stolen
 
@@ -160,6 +238,9 @@ private:
     int edgeFadeSamples = 48;
     uint64_t nextAge = 0;
     float filterCutoff = 20000.0f, filterResonance = 0, filterEnvelopeAmount = 0;
+    double tempo = 120;
+    /** The phases of LFOs that don't restart with each note. */
+    double sharedPhase[numLfos] {};
 
     void noteOn (int note, int velocity);
     void noteOff (int note);
@@ -168,7 +249,8 @@ private:
     void stealOldestVoice();
     void renderVoices (juce::AudioBuffer<float>&, int startSample, int numSamples);
     void renderVoice (Voice&, float* left, float* right, int numSamples);
-    void updateFilter (Voice&, float envelopeLevel);
+    void updateControls (Voice&);
+    void setEnvelopes (Voice&);
 };
 
 } // namespace gk::sampler

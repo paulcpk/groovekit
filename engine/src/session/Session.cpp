@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 namespace gk
@@ -266,6 +267,57 @@ bool Session::redo (bool wholeGroup)
     return true;
 }
 
+std::vector<int64_t> Session::pathToRoot (std::optional<int64_t> from) const
+{
+    std::vector<int64_t> path;
+
+    for (auto at = from; at; at = getEntry (*at).parent)
+        path.push_back (*at);
+
+    return path;
+}
+
+void Session::markSaved()
+{
+    savedHead = head;
+    appendToLog ({ { "saved", head ? Json (*head) : Json() } });
+}
+
+void Session::markCopySaved (const std::filesystem::path& dir) const
+{
+    std::ofstream out (dir / historyFileName, std::ios::app);
+    out << Json { { "saved", head ? Json (*head) : Json() } }.dump() << "\n";
+}
+
+void Session::revertToSaved()
+{
+    // Back to the entry both paths share, then forward along the saved one.
+    const auto fromHead = pathToRoot (head);
+    const auto fromSaved = pathToRoot (savedHead);
+    const std::set<int64_t> onSavedPath (fromSaved.begin(), fromSaved.end());
+
+    for (auto id : fromHead)
+    {
+        if (onSavedPath.contains (id))
+            break;
+
+        step (getEntry (id), false);
+    }
+
+    std::vector<int64_t> forward;
+
+    for (auto id : fromSaved)
+    {
+        if (id == head)
+            break;
+
+        forward.push_back (id);
+    }
+
+    for (auto it = forward.rbegin(); it != forward.rend(); ++it)
+        step (getEntry (*it), true);
+}
+
 void Session::reparse()
 {
     // History only replays patches that were valid when recorded, so this can't fail
@@ -302,6 +354,7 @@ void Session::loadHistory()
 
     std::string line;
     int lineNumber = 0;
+    bool savedMarked = false;
 
     while (std::getline (in, line))
     {
@@ -330,6 +383,11 @@ void Session::loadHistory()
             {
                 head = record["head"].is_null() ? std::nullopt : std::optional (record["head"].get<int64_t>());
             }
+            else if (record.contains ("saved"))
+            {
+                savedHead = record["saved"].is_null() ? std::nullopt : std::optional (record["saved"].get<int64_t>());
+                savedMarked = true;
+            }
         }
         catch (const std::exception& e)
         {
@@ -339,6 +397,9 @@ void Session::loadHistory()
 
     if (head && *head > static_cast<int64_t> (entries.size()))
         throw std::runtime_error (file.string() + ": head points past the last entry");
+
+    if (! savedMarked || (savedHead && *savedHead > static_cast<int64_t> (entries.size())))
+        savedHead = head;
 }
 
 void Session::appendToLog (const Json& record)

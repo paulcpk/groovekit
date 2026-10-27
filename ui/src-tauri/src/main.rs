@@ -5,6 +5,9 @@
 // Claude), the app joins it, and both see each other's changes. Otherwise the app starts its own,
 // bundled as a sidecar, which quits when the app does. The app opens the project opened last;
 // opening another one switches the engine over (project.open), so the app stays with that engine.
+//
+// Quitting (Cmd+Q, or closing the window) asks the UI first, which offers to save unsaved changes
+// and then calls quit. If the UI doesn't answer (it may have crashed), the app quits anyway.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -12,6 +15,7 @@ use serde::Deserialize;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -160,11 +164,72 @@ async fn engine_url(state: tauri::State<'_, Arc<Engine>>) -> Result<String, Stri
         .map_err(|e| e.to_string())?
 }
 
+/// Whether the UI took the last request to quit.
+#[derive(Default)]
+struct Quitting {
+    acknowledged: AtomicBool,
+}
+
+/// Asks the UI to quit (it may ask to save first). Unanswered for 2 seconds, the app quits.
+fn request_quit(app: &tauri::AppHandle) {
+    use tauri::{Emitter, Manager};
+    let quitting = app.state::<Arc<Quitting>>().inner().clone();
+    quitting.acknowledged.store(false, Ordering::SeqCst);
+    let _ = app.emit("quit-requested", ());
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(2));
+        if !quitting.acknowledged.load(Ordering::SeqCst) {
+            app.exit(0);
+        }
+    });
+}
+
+#[tauri::command]
+fn quit_acknowledged(state: tauri::State<'_, Arc<Quitting>>) {
+    state.acknowledged.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(Engine::default()))
-        .invoke_handler(tauri::generate_handler![engine_url])
+        .manage(Arc::new(Quitting::default()))
+        .invoke_handler(tauri::generate_handler![engine_url, quit_acknowledged, quit])
+        .setup(|app| {
+            // The standard menu, with Quit asking the UI first rather than quitting outright.
+            use tauri::menu::{Menu, MenuItem};
+            let handle = app.handle();
+            let menu = Menu::default(handle)?;
+            #[cfg(target_os = "macos")]
+            if let Some(app_menu) = menu.items()?.first().and_then(|item| item.as_submenu().cloned()) {
+                let count = app_menu.items()?.len();
+                if count > 0 {
+                    app_menu.remove_at(count - 1)?;
+                }
+                app_menu.append(&MenuItem::with_id(handle, "quit", "Quit GrooveKit", true, Some("CmdOrCtrl+Q"))?)?;
+            }
+            app.set_menu(menu)?;
+            Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == "quit" {
+                request_quit(app);
+            }
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                use tauri::Manager;
+                api.prevent_close();
+                request_quit(window.app_handle());
+            }
+        })
         .build(tauri::generate_context!())
         .expect("couldn't build the app")
         .run(|app, event| {

@@ -185,6 +185,50 @@ TEST_CASE ("The multiband's solo and mute pick bands")
     CHECK (run ({ { "band3Mode", 1 }, { "band3ThresholdDb", -40 } }, 12000) > -10); // bypassed: not compressed
 }
 
+TEST_CASE ("The multiband's master compresses the sum, and no peak passes its ceiling")
+{
+    const auto run = [] (std::map<std::string, double> params, double hz = 1000, float amplitude = 0.9f)
+    {
+        // The bands leave the tone alone, so only the master acts.
+        for (auto band : { "band1Ratio", "band2Ratio", "band3Ratio" })
+            params.emplace (band, 1);
+
+        Harness h (BuiltinEffectKind::multiband, params);
+        auto b = sine (hz, amplitude, 48000);
+        h.process (b);
+        return b;
+    };
+
+    // A master at 4:1 over -20 dB brings a -1 dB tone down by about 14 dB.
+    CHECK (peakDb (run ({ { "masterThresholdDb", -20 }, { "masterRatio", 4 } }), 24000) == Approx (-15.0f).margin (1.5f));
+
+    // Driven 12 dB over a -6 dB ceiling, the tone stays at it.
+    const auto limited = run ({ { "outputDb", 12 }, { "ceilingDb", -6 } });
+    CHECK (peakDb (limited, 0) <= -5.99f);
+    CHECK (peakDb (limited, 24000) > -6.5f);
+
+    // Bypassed, the master leaves the sum alone.
+    CHECK (peakDb (run ({ { "masterMode", 1 }, { "masterThresholdDb", -40 }, { "masterRatio", 10 } }), 24000) == Approx (-0.9f).margin (0.3f));
+
+    // The low cut takes out 30 Hz.
+    CHECK (rmsDb (run ({ { "lowCutHz", 200 } }, 30), 24000) < -25);
+}
+
+TEST_CASE ("The multiband narrows or widens each band")
+{
+    // A tone louder on the left: with the low band at width 0 it comes out the same on both sides.
+    Harness mono (BuiltinEffectKind::multiband, { { "band1Width", 0 }, { "band1Ratio", 1 } });
+    auto lows = sine (30, 0.5f, 48000, 0.1f);
+    mono.process (lows);
+    CHECK (peakDb (lows, 24000, 0) == Approx (peakDb (lows, 24000, 1)).margin (0.3f));
+
+    // The highs, untouched, keep their sides.
+    Harness kept (BuiltinEffectKind::multiband, { { "band1Width", 0 }, { "band3Ratio", 1 } });
+    auto highs = sine (8000, 0.5f, 48000, 0.1f);
+    kept.process (highs);
+    CHECK (peakDb (highs, 24000, 0) - peakDb (highs, 24000, 1) > 10);
+}
+
 TEST_CASE ("The bitcrusher quantises and holds")
 {
     // 3 bits: steps of a quarter. 4.8 kHz at 48 kHz: a new value every ten samples.

@@ -11,28 +11,34 @@ import { font, gainChangeDb, useCanvas, useGlide, useMeterStream } from "./live"
 
 const STRIP_H = 118, LANE_H = 62, LABEL_W = 148, CURVE_W = 58;
 const FLOOR = -60, GR_RANGE = 24;
-const RED = "#ef6f6c", LIFT = "#5fe0c4", LABEL = "#5b5b64";
+const RED = "#ef6f6c", LIFT = "#5fe0c4", LABEL = "#5b5b64", MASTER = "#9fe870", CEILING = "#ff9a5c";
 const COLORS = { 3: ["#c47ef0", "#f2a33a", "#58b7d6"], 4: ["#c47ef0", "#f2a33a", "#6fd08c", "#58b7d6"] } as const;
 const NAMES = { 3: ["Low", "Mid", "High"], 4: ["Low", "Low mid", "High mid", "High"] } as const;
 const MODES = ["on", "bypass", "solo", "mute"] as const;
 
-/** Meter frame layout (MultibandPlugin::readMeter): input, output, then per band input, output, gain. */
+/** Meter frame layout (MultibandPlugin::readMeter): input, output, then per band input, output,
+    gain, then the master's input and gain. */
 const bandIn = (b: number) => 2 + 3 * b, bandOut = (b: number) => 3 + 3 * b, bandGain = (b: number) => 4 + 3 * b;
+const OUT = 1, MASTER_IN = 14, MASTER_GAIN = 15;
+const isLevel = (i: number) => (i < 14 ? i < 2 || (i - 2) % 3 !== 2 : i === MASTER_IN);
 
 /** The multiband compressor. On top, the spectrum split into its bands, with the crossovers to
     drag and each band's gain change; below, a lane per band with the last three seconds of it
     scrolling past (what goes in, faint, and what comes out), its thresholds to drag, its gain
     change hanging from the top and its curve with the sound riding it; then the selected band's
-    controls and the global ones. */
+    controls and the global ones. The master lane at the bottom shows the summed bands going
+    into the master compressor and the ceiling. */
 export function MultibandEditor(props: EditorProps) {
   const p = useParams(props);
   const [dragged, setDragged] = useState<Record<string, number>>({});
-  const [selected, setSelected] = useState(1);
+  const [selected, setSelected] = useState<number | "master">(1);
   const v = (id: string) => dragged[id] ?? p(id);
   const count = Math.round(v("bands")) === 1 ? 4 : 3;
   const colors = COLORS[count], names = NAMES[count];
-  const sel = Math.min(selected, count - 1);
-  const stream = useMeterStream(props.insert.id, props.effect.id, 14, (i) => i < 2 || (i - 2) % 3 !== 2);
+  const master = selected === "master";
+  const sel = master ? count - 1 : Math.min(selected, count - 1);
+  const stream = useMeterStream(props.insert.id, props.effect.id, 16, isLevel);
+  const masterOn = Math.round(v("masterMode")) === 0;
   const spectrum = useEffectSpectrum(props.insert.id, props.effect.id);
   const glide = useGlide();
   const control = useLiveControl<Record<string, number>>((params) => ({ type: "updateEffect", insert: props.insert.id, effect: props.effect.id, changes: { params } }), "Multiband");
@@ -77,7 +83,7 @@ export function MultibandEditor(props: EditorProps) {
     for (let b = 0; b < count; b++) {
       const x0 = x(bounds[b]), x1 = x(bounds[b + 1]), mid = (x0 + x1) / 2;
       const on = heard(b);
-      g.fillStyle = colors[b] + (b === sel ? "26" : "12");
+      g.fillStyle = colors[b] + (b === sel && !master ? "26" : "12");
       g.fillRect(x0, 0, x1 - x0, h);
       g.fillStyle = colors[b] + (on ? "" : "55");
       g.fillRect(x0 + 1, 0, x1 - x0 - 2, 3);
@@ -126,7 +132,7 @@ export function MultibandEditor(props: EditorProps) {
 
   //==============================================================================
   const lanes = useCanvas((g, w, h, _now, dt) => {
-    const laneH = h / count;
+    const laneH = h / (count + 1);
     const waveW = w - CURVE_W - 12;
     const n = Math.floor(waveW / 1.5);   // frames shown: 1.5 px each, about three seconds
 
@@ -142,7 +148,7 @@ export function MultibandEditor(props: EditorProps) {
 
       // Pulses with the band's level, for a little life on the selected lane.
       pulse.current[b] = glide(`p${b}`, Math.max(0, (stream.value(0, bandOut(b)) + 40) / 40), dt, 120);
-      if (b === sel) {
+      if (b === sel && !master) {
         g.fillStyle = color + "14";
         g.fillRect(0, y0, w, laneH);
       }
@@ -235,7 +241,103 @@ export function MultibandEditor(props: EditorProps) {
         g.fillRect(0, y0, w, 1);
       }
     }
+
+    drawMaster(g, w, count * laneH, laneH, dt);
   });
+
+  /** The master lane: the summed bands going in (faint) and what comes out, the master's
+      threshold and the ceiling, the gain they take off hanging from the top, and the curve. */
+  const drawMaster = (g: CanvasRenderingContext2D, w: number, y0: number, laneH: number, dt: number) => {
+    const waveW = w - CURVE_W - 12, n = Math.floor(waveW / 1.5);
+    const cy = y0 + laneH / 2, half = laneH / 2 - 5;
+    const amp = (db: number) => Math.min(1, Math.pow(10, Math.max(FLOOR, db) / 40)) * half;
+    const threshold = glide("mt", v("masterThresholdDb"), dt), ceiling = glide("mc", v("ceilingDb"), dt);
+
+    g.fillStyle = "#26262b";
+    g.fillRect(0, y0, w, 1);
+    if (master) {
+      g.fillStyle = MASTER + "14";
+      g.fillRect(0, y0, w, laneH);
+    }
+
+    g.save();
+    g.beginPath(); g.rect(0, y0, waveW, laneH); g.clip();
+    g.globalAlpha = masterOn ? 1 : 0.4;
+    const shape = (index: number) => {
+      g.beginPath();
+      for (let i = 0; i < n; i++) g.lineTo(waveW - i * 1.5, cy - amp(stream.value(i, index)));
+      for (let i = n - 1; i >= 0; i--) g.lineTo(waveW - i * 1.5, cy + amp(stream.value(i, index)));
+      g.closePath();
+    };
+    shape(MASTER_IN);
+    g.fillStyle = "rgba(141,141,150,0.16)";
+    g.fill();
+    shape(OUT);
+    const fill = g.createLinearGradient(0, cy - half, 0, cy + half);
+    fill.addColorStop(0, MASTER + "30");
+    fill.addColorStop(0.5, MASTER + "c0");
+    fill.addColorStop(1, MASTER + "30");
+    g.fillStyle = fill;
+    g.fill();
+
+    g.lineWidth = 1;
+    if (v("masterRatio") > 1.01) {
+      g.setLineDash([5, 4]);
+      g.strokeStyle = "#f0f0f3aa";
+      for (const s of [-1, 1]) {
+        g.beginPath(); g.moveTo(0, cy + s * amp(threshold)); g.lineTo(waveW, cy + s * amp(threshold)); g.stroke();
+      }
+      g.setLineDash([]);
+    }
+    // The ceiling: a solid line nothing crosses.
+    g.strokeStyle = CEILING;
+    g.shadowColor = CEILING;
+    g.shadowBlur = 6;
+    for (const s of [-1, 1]) {
+      g.beginPath(); g.moveTo(0, cy + s * amp(ceiling)); g.lineTo(waveW, cy + s * amp(ceiling)); g.stroke();
+    }
+    g.shadowBlur = 0;
+
+    if (masterOn) {
+      g.beginPath();
+      let any = false;
+      for (let i = 0; i < n; i++) {
+        const d = Math.max(0, -stream.value(i, MASTER_GAIN));
+        if (d > 0.3) any = true;
+        g.lineTo(waveW - i * 1.5, y0 + 2 + (Math.min(GR_RANGE, d) / GR_RANGE) * (laneH - 4));
+      }
+      if (any) {
+        g.strokeStyle = RED;
+        g.lineWidth = 1.3;
+        g.stroke();
+      }
+    }
+    g.restore();
+
+    // The master's curve: the compressor, then flat at the ceiling.
+    const s = Math.min(CURVE_W - 4, laneH - 10), qx = w - CURVE_W - 2 + (CURVE_W - s) / 2, qy = cy - s / 2;
+    const curve = { threshold, ratio: glide("mr", v("masterRatio"), dt), knee: glide("knee", v("kneeDb"), dt), below: -100, belowRatio: 1 };
+    const makeup = glide("mg", v("masterGainDb"), dt);
+    const cpx = (db: number) => qx + ((db - FLOOR) / -FLOOR) * s, cpy = (db: number) => qy + s - ((Math.max(FLOOR, Math.min(0, db)) - FLOOR) / -FLOOR) * s;
+    const through = (db: number) => (masterOn ? Math.min(ceiling, db + gainChangeDb(db, curve) + makeup) : db);
+    g.fillStyle = "#0b0b0d";
+    g.beginPath(); g.roundRect(qx, qy, s, s, 3); g.fill();
+    g.strokeStyle = "#232328";
+    g.beginPath(); g.moveTo(qx, qy + s); g.lineTo(qx + s, qy); g.stroke();
+    g.beginPath();
+    for (let db = FLOOR; db <= 0; db += 1) g.lineTo(cpx(db), cpy(through(db)));
+    g.strokeStyle = masterOn ? MASTER : LABEL;
+    g.lineWidth = 1.5;
+    g.stroke();
+    const inDb = stream.value(0, MASTER_IN);
+    if (inDb > FLOOR + 1 && masterOn) {
+      const dx = cpx(Math.min(0, inDb)), dy = cpy(inDb + stream.value(0, MASTER_GAIN));
+      g.fillStyle = MASTER + "55";
+      g.beginPath(); g.arc(dx, dy, 4, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#fff";
+      g.beginPath(); g.arc(dx, dy, 2.2, 0, Math.PI * 2); g.fill();
+    }
+  };
 
   //==============================================================================
   const dragCrossover = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -268,11 +370,11 @@ export function MultibandEditor(props: EditorProps) {
 
   const dragLane = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const laneH = r.height / count;
-    const b = Math.min(count - 1, Math.floor((e.clientY - r.top) / laneH));
-    setSelected(b);
+    const laneH = r.height / (count + 1);
+    const b = Math.min(count, Math.floor((e.clientY - r.top) / laneH));
+    setSelected(b === count ? "master" : b);
     if (e.clientX - r.left > r.width - CURVE_W - 12) return;
-    const id = `band${b + 1}ThresholdDb`;
+    const id = b === count ? "masterThresholdDb" : `band${b + 1}ThresholdDb`;
     const t0 = v(id);
     const upper = e.clientY - r.top < b * laneH + laneH / 2;
     const half = laneH / 2 - 5;
@@ -303,12 +405,12 @@ export function MultibandEditor(props: EditorProps) {
       </div>
 
       <div className="flex overflow-hidden rounded-md bg-[#0c0c0e] ring-1 ring-line">
-        <div className="flex shrink-0 flex-col border-r border-line transition-[height] duration-300" style={{ width: LABEL_W, height: count * LANE_H }}>
+        <div className="flex shrink-0 flex-col border-r border-line transition-[height] duration-300" style={{ width: LABEL_W, height: (count + 1) * LANE_H }}>
           {names.map((name, b) => (
             <div key={b} onPointerDown={() => setSelected(b)}
-              className={cn("flex min-h-0 flex-1 cursor-pointer flex-col justify-center gap-1 px-2.5 transition-colors", b > 0 && "border-t border-[#26262b]", b === sel ? "bg-raised" : "hover:bg-raised/50")}>
+              className={cn("flex min-h-0 flex-1 cursor-pointer flex-col justify-center gap-1 px-2.5 transition-colors", b > 0 && "border-t border-[#26262b]", b === sel && !master ? "bg-raised" : "hover:bg-raised/50")}>
               <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full transition-shadow" style={{ background: colors[b], boxShadow: b === sel ? `0 0 8px ${colors[b]}` : undefined }} />
+                <span className="h-2 w-2 rounded-full transition-shadow" style={{ background: colors[b], boxShadow: b === sel && !master ? `0 0 8px ${colors[b]}` : undefined }} />
                 <span className={cn("whitespace-nowrap text-xs font-medium", heard(b) ? "text-fg" : "text-faint")}>{name}</span>
                 <span className="ml-auto flex gap-0.5">
                   <ToggleChip label="S" title="Solo: hear only soloed bands" on={mode(b) === "solo"} onClick={() => setMode(b, "solo")} />
@@ -319,40 +421,65 @@ export function MultibandEditor(props: EditorProps) {
               <div className="text-2xs text-faint tabular">{b === 0 ? `below ${formatHz(bounds[1])}` : b === count - 1 ? `above ${formatHz(bounds[b])}` : `${formatHz(bounds[b])} – ${formatHz(bounds[b + 1])}`}</div>
             </div>
           ))}
+          <div onPointerDown={() => setSelected("master")}
+            className={cn("flex min-h-0 flex-1 cursor-pointer flex-col justify-center gap-1 border-t border-line px-2.5 transition-colors", master ? "bg-raised" : "hover:bg-raised/50")}>
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full transition-shadow" style={{ background: MASTER, boxShadow: master ? `0 0 8px ${MASTER}` : undefined }} />
+              <span className={cn("text-xs font-medium", masterOn ? "text-fg" : "text-faint")}>Master</span>
+              <span className="ml-auto flex gap-0.5">
+                <ToggleChip label="B" title="Bypass the master compressor and the ceiling" tone="dim" on={!masterOn} onClick={() => set({ masterMode: masterOn ? 1 : 0 }, true)} />
+              </span>
+            </div>
+            <div className="text-2xs text-faint tabular">ceiling {v("ceilingDb").toFixed(1)} dB</div>
+          </div>
         </div>
         <canvas ref={lanes} className="block min-w-0 flex-1 cursor-ns-resize select-none transition-[height] duration-300"
-          style={{ height: count * LANE_H }} onPointerDown={(e) => e.button === 0 && dragLane(e)} />
+          style={{ height: (count + 1) * LANE_H }} onPointerDown={(e) => e.button === 0 && dragLane(e)} />
       </div>
 
       <div className="flex gap-2">
-        <div className="flex flex-1 flex-col gap-2 rounded-md bg-raised px-3 py-2.5" style={{ boxShadow: `inset 3px 0 0 ${colors[sel]}` }}>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-medium" style={{ color: colors[sel] }}>{names[sel]} band</span>
-            <span className="text-2xs text-faint">pulls down above the threshold; lifts below “Below” when its ratio is over 1:1</span>
+        {master ? (
+          <div className="flex flex-1 flex-col gap-2 rounded-md bg-raised px-3 py-2.5" style={{ boxShadow: `inset 3px 0 0 ${MASTER}` }}>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-medium" style={{ color: MASTER }}>Master</span>
+              <span className="text-2xs text-faint">the summed bands: compressed above the threshold, and never past the ceiling</span>
+            </div>
+            <div className="flex flex-wrap items-start justify-between gap-y-2">
+              {([["inputDb", "Pre"], ["lowCutHz", "Low cut"], ["masterThresholdDb", "Threshold"], ["masterRatio", "Ratio"], ["masterAttackMs", "Attack"],
+                ["masterReleaseMs", "Release"], ["masterGainDb", "Gain"], ["outputDb", "Post"]] as const).map(([id, name]) => (
+                <ParamKnob key={id} insert={props.insert} effect={props.effect} id={id} name={name} color={MASTER} />
+              ))}
+              <ParamKnob insert={props.insert} effect={props.effect} id="ceilingDb" name="Ceiling" color={CEILING} />
+            </div>
           </div>
-          <div className="flex flex-wrap items-start justify-between gap-y-2">
-            {(["ThresholdDb", "Ratio", "BelowDb", "BelowRatio", "AttackMs", "ReleaseMs", "GainDb"] as const).map((suffix) => (
-              <ParamKnob key={`${sel}${suffix}`} insert={props.insert} effect={props.effect} id={`band${sel + 1}${suffix}`} color={colors[sel]}
-                name={{ ThresholdDb: "Threshold", Ratio: "Ratio", BelowDb: "Below", BelowRatio: "Below ratio", AttackMs: "Attack", ReleaseMs: "Release", GainDb: "Gain" }[suffix]} />
-            ))}
+        ) : (
+          <div className="flex flex-1 flex-col gap-2 rounded-md bg-raised px-3 py-2.5" style={{ boxShadow: `inset 3px 0 0 ${colors[sel]}` }}>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-medium" style={{ color: colors[sel] }}>{names[sel]} band</span>
+              <span className="text-2xs text-faint">pulls down above the threshold; lifts below “Below” when its ratio is over 1:1</span>
+            </div>
+            <div className="flex flex-wrap items-start justify-between gap-y-2">
+              {(["ThresholdDb", "Ratio", "BelowDb", "BelowRatio", "AttackMs", "ReleaseMs", "GainDb", "Width"] as const).map((suffix) => (
+                <ParamKnob key={`${sel}${suffix}`} insert={props.insert} effect={props.effect} id={`band${sel + 1}${suffix}`} color={colors[sel]}
+                  name={{ ThresholdDb: "Threshold", Ratio: "Ratio", BelowDb: "Below", BelowRatio: "Below ratio", AttackMs: "Attack", ReleaseMs: "Release", GainDb: "Gain", Width: "Width" }[suffix]} />
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="flex w-[244px] shrink-0 flex-col gap-2 rounded-md bg-raised px-3 py-2.5">
+        )}
+        <div className="flex w-[200px] shrink-0 flex-col gap-2 rounded-md bg-raised px-3 py-2.5">
           <div className="flex items-center justify-between text-xs">
             <span className="font-medium text-dim">All bands</span>
             <div className="flex gap-0.5 rounded-[4px] bg-control p-0.5">
               {[3, 4].map((c, i) => (
                 <button key={c} type="button" onClick={() => set({ bands: i }, true)}
-                  className={cn("h-5 rounded-[3px] px-2 text-2xs transition-colors", count === c ? "bg-accent text-black" : "text-dim hover:text-fg")}>{c} bands</button>
+                  className={cn("h-5 rounded-[3px] px-2 text-2xs transition-colors", count === c ? "bg-accent text-black" : "text-dim hover:text-fg")}>{c}</button>
               ))}
             </div>
           </div>
-          <div className="flex items-start justify-between">
-            <ParamKnob insert={props.insert} effect={props.effect} id="inputDb" name="Input" />
+          <div className="flex items-start justify-around">
             <ParamKnob insert={props.insert} effect={props.effect} id="kneeDb" name="Knee" />
-            <ParamKnob insert={props.insert} effect={props.effect} id="outputDb" name="Output" />
+            <ParamKnob insert={props.insert} effect={props.effect} id="detect" name="Detection" />
           </div>
-          <ParamKnob insert={props.insert} effect={props.effect} id="detect" name="Detection" />
         </div>
       </div>
     </div>

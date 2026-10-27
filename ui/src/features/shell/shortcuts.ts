@@ -108,7 +108,7 @@ export function useShortcuts() {
       } else if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (e.shiftKey) setUi({ projectDialog: "saveAs" });
-        else saveProject();
+        else void saveProject();
       } else if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
         setUi({ projectDialog: "new" });
