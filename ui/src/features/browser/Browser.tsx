@@ -1,4 +1,4 @@
-import { AudioLines, Check, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, Play, RefreshCw, Repeat, Search, Sparkles, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { AudioLines, Check, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, Headphones, Play, RefreshCw, Repeat, Search, Sparkles, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
@@ -114,6 +114,27 @@ function NowPreviewing() {
 }
 
 const STYLE_KEY = "groovekit.browser.style";
+const AUTOPLAY_KEY = "groovekit.browser.autoplay";
+
+/** Whether moving through samples with the arrow keys plays each one, remembered between sessions. */
+function useAutoPlay() {
+  const [on, setOn] = useState(() => {
+    try {
+      return localStorage.getItem(AUTOPLAY_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    setOn(!on);
+    try {
+      localStorage.setItem(AUTOPLAY_KEY, on ? "0" : "1");
+    } catch {
+      // Storage can be unavailable; the switch still holds for now.
+    }
+  };
+  return [on, toggle] as const;
+}
 
 function loadStyle() {
   try {
@@ -139,6 +160,7 @@ export function Browser() {
   const [cursor, setCursor] = useState(0);
   const [version, setVersion] = useState(0);
   const { playing, preview } = usePreview();
+  const [autoPlay, toggleAutoPlay] = useAutoPlay();
 
   // Ranking by sound needs the models and a heard library; a removed style no longer applies.
   const style = listening && chosenStyle && styles.some((s) => s.name === chosenStyle) ? chosenStyle : undefined;
@@ -195,14 +217,22 @@ export function Browser() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === "ArrowDown") setCursor((c) => Math.min(results.length - 1, c + 1));
-              if (e.key === "ArrowUp") setCursor((c) => Math.max(0, c - 1));
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                const next = Math.max(0, Math.min(results.length - 1, cursor + (e.key === "ArrowDown" ? 1 : -1)));
+                setCursor(next);
+                if (autoPlay && next !== cursor && results[next]) preview(results[next]);
+              }
               if (e.key === "Enter" && results[cursor]) preview(results[cursor]);
             }}
             placeholder={soundQuery ? "Describe a sound: dusty warm chord stab" : size ? `Search ${size.toLocaleString()} samples` : "Search samples"}
             className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-faint"
           />
           {query && <button type="button" onClick={() => setQuery("")} className="text-faint hover:text-fg"><X size={12} /></button>}
+          <button type="button" onClick={toggleAutoPlay}
+            title={autoPlay ? "Auto-play is on: the arrow keys play each sample they land on. Click to turn it off." : "Auto-play: play each sample as the arrow keys land on it"}
+            className={cn("shrink-0", autoPlay ? "text-accent" : "text-faint hover:text-fg")}>
+            <Headphones size={12} />
+          </button>
         </div>
         <div className="flex flex-wrap gap-1">
           {categories.map((c) => (
@@ -232,7 +262,7 @@ export function Browser() {
       </div>
 
       {!filtering ? (
-        <FolderTree playing={playing} preview={preview} />
+        <FolderTree playing={playing} preview={preview} autoPlay={autoPlay} />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {results.length === 0 ? (
@@ -275,7 +305,7 @@ function loadExpanded(): Set<string> {
 }
 
 /** The library as the folders it's kept in, opened one level at a time. */
-function FolderTree({ playing, preview }: { playing?: string; preview: (s: Sample) => void }) {
+function FolderTree({ playing, preview, autoPlay }: { playing?: string; preview: (s: Sample) => void; autoPlay: boolean }) {
   const connected = useEngine((s) => s.status === "connected");
   const scanning = useEngine((s) => s.libraryProgress?.running);
   const [listings, setListings] = useState<Map<string, Listing>>(new Map());
@@ -354,6 +384,8 @@ function FolderTree({ playing, preview }: { playing?: string; preview: (s: Sampl
   const moveTo = (i: number) => {
     const index = Math.max(0, Math.min(rows.length - 1, i));
     setCursor(index);
+    const row = rows[index];
+    if (autoPlay && index !== cursor && row?.kind === "sample") preview(row.sample);
     const el = box.current;
     if (!el) return;
     if (index * ROW_H < el.scrollTop) el.scrollTop = index * ROW_H;
