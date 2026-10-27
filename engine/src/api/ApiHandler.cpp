@@ -7,6 +7,7 @@
 #include "compiler/EditGraveyard.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
+#include "listening/Listening.h"
 #include "live/AudioDevices.h"
 #include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
@@ -109,9 +110,21 @@ namespace
     }
 }
 
-ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l, LiveEngine* le, PluginCatalog* p)
-    : session (s), context (c), library (l), live (le), plugins (p)
+ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l, LiveEngine* le, PluginCatalog* p, listening::Listening* li)
+    : session (s), context (c), library (l), live (le), plugins (p), listening (li)
 {
+    // Progress comes from download, indexing and analysis threads: broadcast from the message
+    // thread. (A handler for another project replaces this observer.)
+    if (listening != nullptr)
+        listening->setObserver ([this, alive = alive] (const Json& status)
+        {
+            juce::MessageManager::callAsync ([this, alive, status]
+            {
+                if (*alive && broadcast)
+                    broadcast (notification ("listening", status).dump());
+            });
+        });
+
     if (live != nullptr)
         live->onTransportChange = [this] (const LiveEngine::TransportState& t)
         {
@@ -407,6 +420,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
     if (method.starts_with ("voice."))
         return callVoice (method, params);
 
+    if (method.starts_with ("listening.") || method.starts_with ("styles."))
+        return callListening (method, params);
+
     if (method.starts_with ("presets."))
     {
         const auto folder = presetsFolder.empty() ? EngineContext::getAppDataFolder() / "presets" : presetsFolder;
@@ -641,6 +657,31 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
         if (auto v = optionalNumber (params, "minDuration"))    q.minDuration = v;
         if (auto v = optionalNumber (params, "maxDuration"))    q.maxDuration = v;
 
+        if (listening != nullptr)
+        {
+            listening::Listening::SoundQuery sound;
+            sound.sound = params.value ("sound", "");
+            sound.like = params.value ("like", "");
+            sound.style = params.value ("style", "");
+
+            if (params.contains ("role"))
+            {
+                sound.role = listening::roleFromName (readParam<std::string> (params, "role"));
+
+                if (! sound.role)
+                    throw RpcError (invalidParams, "role must be kick, hats, drums, bass, music, kickHit, hatHit or percHit");
+            }
+
+            try
+            {
+                return listening->search (q, sound);
+            }
+            catch (const std::runtime_error& e)
+            {
+                throw RpcError (operationFailed, e.what());
+            }
+        }
+
         auto results = Json::array();
 
         for (auto& e : library->search (q))
@@ -695,7 +736,54 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
         }
 
         auto entry = library->find (path);
-        return library::SampleLibrary::toJson (entry ? *entry : library::SampleLibrary::analyseFile (path), true);
+        auto result = library::SampleLibrary::toJson (entry ? *entry : library::SampleLibrary::analyseFile (path), true);
+
+        // What it sounds like in words, and how it fits a style, once GrooveKit can listen.
+        if (listening != nullptr && listening->getModels().getStatus().ready && listening->getIndex().size() > 0)
+        {
+            const auto embedding = listening->getIndex().embedFile (path);
+            result["sounds"] = listening->describe (embedding, 5);
+
+            if (params.contains ("style"))
+            {
+                auto profile = listening->getStyles().get (readParam<std::string> (params, "style"));
+
+                if (profile == nullptr)
+                    throw RpcError (invalidParams, "No style named \"" + params["style"].get<std::string>() + "\" (styles.list)");
+
+                const auto role = listening::roleOf (result.value ("category", "other"), result.value ("loop", false));
+                result["fit"] = std::lround (listening->fitPercent (*profile, role, embedding));
+            }
+        }
+
+        return result;
+    }
+
+    if (method == "rate")
+    {
+        if (listening == nullptr)
+            throw RpcError (operationFailed, "listening isn't available");
+
+        const auto path = readParam<std::string> (params, "path");
+        const auto key = library->find (path) ? library->find (path)->path : path;
+        std::optional<bool> fits;
+
+        if (params.contains ("fits") && ! params["fits"].is_null())
+            fits = readParam<bool> (params, "fits");
+
+        listening->getTaste().rate (key, params.value ("style", ""), fits);
+        return { { "path", key }, { "style", params.value ("style", "") }, { "fits", fits ? Json (*fits) : Json() } };
+    }
+
+    if (method == "ratings")
+    {
+        auto list = Json::array();
+
+        if (listening != nullptr)
+            for (auto& r : listening->getTaste().all())
+                list.push_back ({ { "path", r.path }, { "style", r.style }, { "fits", r.fits } });
+
+        return { { "ratings", list } };
     }
 
     throw RpcError (methodNotFound, "unknown method \"library." + method + "\"");
@@ -1494,6 +1582,161 @@ Json ApiHandler::captureState (const std::string& key, const std::string& origin
     return { { "state", name }, { "bytes", data.getSize() }, { "changed", true } };
 }
 
+Json ApiHandler::callListening (const std::string& method, const Json& params)
+{
+    if (listening == nullptr)
+        throw RpcError (operationFailed, "listening isn't available in this engine");
+
+    try
+    {
+        if (method == "listening.status")
+            return listening->getStatus();
+
+        if (method == "listening.download")
+        {
+            listening->download();
+            return listening->getStatus();
+        }
+
+        if (method == "listening.index")
+        {
+            listening->startIndexing();
+            return listening->getStatus();
+        }
+
+        if (method == "styles.list")
+        {
+            auto list = Json::array();
+
+            for (auto& name : listening->getStyles().names())
+                if (auto profile = listening->getStyles().get (name))
+                {
+                    auto m = profile->measurements();
+                    list.push_back ({ { "name", profile->name }, { "folder", profile->folder.string() }, { "tracks", profile->tracks.size() },
+                                      { "tempo", m.value ("tempo", Json()) } });
+                }
+
+            return { { "styles", list }, { "progress", listening->getStatus()["styles"] } };
+        }
+
+        if (method == "styles.add")
+        {
+            const auto name = listening->addStyle (readParam<std::string> (params, "path"), params.value ("name", ""));
+            return { { "name", name }, { "progress", listening->getStatus()["styles"] } };
+        }
+
+        if (method == "styles.remove")
+        {
+            listening->getStyles().remove (readParam<std::string> (params, "name"));
+            return { { "removed", params["name"] } };
+        }
+
+        auto style = [&]
+        {
+            auto profile = listening->getStyles().get (readParam<std::string> (params, "name"));
+
+            if (profile == nullptr)
+                throw RpcError (invalidParams, "No style named \"" + params["name"].get<std::string>() + "\" (styles.list)");
+
+            return profile;
+        };
+
+        if (method == "styles.describe")
+            return listening->describeStyle (*style());
+
+        if (method == "styles.compare")
+            return compareToStyle (params);
+    }
+    catch (const RpcError&)
+    {
+        throw;
+    }
+    catch (const std::runtime_error& e)
+    {
+        throw RpcError (operationFailed, e.what());
+    }
+
+    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+Json ApiHandler::compareToStyle (const Json& params)
+{
+    auto profile = listening->getStyles().get (readParam<std::string> (params, "name"));
+
+    if (profile == nullptr)
+        throw RpcError (invalidParams, "No style named \"" + params["name"].get<std::string>() + "\" (styles.list)");
+
+    if (! listening->getModels().getStatus().ready)
+        throw RpcError (operationFailed, "The listening models aren't downloaded yet (listening.download)");
+
+    RenderOptions options;
+
+    if (auto v = optionalNumber (params, "start"))  options.start = static_cast<model::Ticks> (*v);
+    if (auto v = optionalNumber (params, "end"))    options.end = static_cast<model::Ticks> (*v);
+
+    const auto& project = session.getProject();
+    const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+    const auto workDir = projectDir / "renders" / "listening";
+    std::filesystem::create_directories (workDir);
+
+    // Which part each channel mostly plays, from its first sample's category: a hint for acting
+    // on the comparison, which hears the mix itself split into parts.
+    auto partOf = [&] (const model::Channel& c)
+    {
+        if (auto* sampler = std::get_if<model::SamplerInstrument> (&c.instrument); sampler != nullptr && ! sampler->layers.empty())
+        {
+            std::filesystem::path sample = sampler->layers.front().sample;
+
+            if (sample.is_relative())
+                sample = projectDir / sample;
+
+            std::string category = "other";
+
+            if (auto entry = library != nullptr ? library->find (sample) : std::nullopt)
+                category = entry->classification.category;
+            else
+                try { category = library::SampleLibrary::analyseFile (sample).classification.category; } catch (const std::exception&) {}
+
+            const auto role = listening::roleOf (category, true);
+            return role == listening::Role::kick || role == listening::Role::hats ? listening::Role::drums : role;
+        }
+
+        return juce::String (c.name).containsIgnoreCase ("bass") ? listening::Role::bass : listening::Role::music;
+    };
+
+    std::map<listening::Role, std::vector<std::string>> parts;
+
+    for (auto& c : project.channels)
+        if (! c.mute)
+            parts[partOf (c)].push_back (c.id);
+
+    const auto file = workDir / "mix.wav";
+    auto compiled = compileProject (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering });
+    renderToWav (compiled, project, file, options);
+
+    Json result;
+
+    try
+    {
+        result = listening->compare (*profile, file, project.tempo, project.swing);
+    }
+    catch (...)
+    {
+        std::filesystem::remove (file);
+        throw;
+    }
+
+    std::filesystem::remove (file);
+
+    auto partsJson = Json::object();
+
+    for (auto& [role, channels] : parts)
+        partsJson[listening::roleName (role)] = channels;
+
+    result["channels"] = partsJson;
+    return result;
+}
+
 void ApiHandler::startLibraryScan()
 {
     library->startScan ([this, alive = alive] (const library::SampleLibrary::Progress& p)
@@ -1501,11 +1744,17 @@ void ApiHandler::startLibraryScan()
         Json params { { "running", p.running }, { "filesFound", p.filesFound }, { "analysed", p.analysed },
                       { "unchanged", p.unchanged }, { "failed", p.failed } };
 
-        // Called on the scan thread: broadcast from the message thread.
+        // Called on the scan thread: broadcast from the message thread. New samples are then heard.
         juce::MessageManager::callAsync ([this, alive, params]
         {
-            if (*alive && broadcast)
+            if (! *alive)
+                return;
+
+            if (broadcast)
                 broadcast (notification ("libraryProgress", params).dump());
+
+            if (listening != nullptr && ! params.value ("running", true))
+                listening->startIndexing();
         });
     });
 }

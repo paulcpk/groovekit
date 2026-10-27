@@ -85,6 +85,10 @@ Both find the engine serving the project (for example the one Claude Code's MCP 
 
 Songs are JSON files described by [schema/project.schema.json](schema/project.schema.json). The examples in [tests/songs](tests/songs) double as render tests.
 
+### Listening
+
+File names say little about how a sample sounds, so GrooveKit can listen. In the Browser, under Listening, download the listening models once (about 400 MB) and GrooveKit hears every sample in your library. Then add a style: a folder of tracks you love. GrooveKit splits them into drums, bass and the rest and learns what each part sounds like, and how the tracks move (tempo, swing, density) and balance. The Browser can then rank samples by how well they fit the style, search by describing a sound ("dusty warm chord stab"), and find sounds like one you picked; thumbs up or down teaches it your taste. The agent does the same: it builds songs from sounds that fit the style and compares the result with your references to see what's off. Everything runs on your Mac.
+
 ## Repository layout
 
 - `engine/` — C++ engine: model, commands and history, API server, compiler to Tracktion, sampler, mixer, effects, renderer, analysis, CLI
@@ -97,7 +101,7 @@ Songs are JSON files described by [schema/project.schema.json](schema/project.sc
 
 GrooveKit runs on your Mac and sends nothing anywhere by itself: no account, analytics, telemetry or update checks, and the engine only accepts connections from your own computer.
 
-The agent is the exception, when you use it. The agent panel in the app sends your messages, and what the agent reads of the song to carry them out (track and sample names, notes, mix settings, sample file paths, analysis results), to Anthropic's API with your own key; the key and the conversation are stored on your Mac. Voice messages are transcribed on your Mac by Whisper (whisper.cpp); only the text is sent, like a typed message. The speech model is downloaded once from Hugging Face, when you first use the microphone and agree to it. With Claude Code or another MCP client, the same goes to whichever AI provider that client uses. See [groovekit.org/privacy](https://groovekit.org/privacy/).
+The agent is the exception, when you use it. The agent panel in the app sends your messages, and what the agent reads of the song to carry them out (track and sample names, notes, mix settings, sample file paths, analysis results), to Anthropic's API with your own key; the key and the conversation are stored on your Mac. Voice messages are transcribed on your Mac by Whisper (whisper.cpp); only the text is sent, like a typed message. The speech model is downloaded once from Hugging Face, when you first use the microphone and agree to it. Listening (hearing your samples and reference tracks) also runs on your Mac: its models are downloaded once, from Hugging Face and GitHub, when you ask for them, and your audio isn't sent anywhere. Search results the agent reads include words for how samples sound. With Claude Code or another MCP client, the same goes to whichever AI provider that client uses. See [groovekit.org/privacy](https://groovekit.org/privacy/).
 
 ## License
 

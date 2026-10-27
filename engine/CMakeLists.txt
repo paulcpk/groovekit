@@ -16,6 +16,16 @@ target_sources(gk_engine PRIVATE
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp
     src/library/SampleLibrary.cpp
+    src/listening/Clap.cpp
+    src/listening/Download.cpp
+    src/listening/Groove.cpp
+    src/listening/Listening.cpp
+    src/listening/Models.cpp
+    src/listening/Ort.cpp
+    src/listening/Separator.cpp
+    src/listening/SoundIndex.cpp
+    src/listening/Styles.cpp
+    src/listening/Taste.cpp
     src/live/AudioDevices.cpp
     src/live/LiveEngine.cpp
     src/live/MidiClock.cpp
@@ -43,6 +53,7 @@ target_sources(gk_engine PRIVATE
     src/voice/Transcriber.cpp)
 
 target_include_directories(gk_engine PUBLIC src)
+target_include_directories(gk_engine SYSTEM PUBLIC "${onnxruntime_SOURCE_DIR}/include")
 
 target_sources(gk_engine PRIVATE "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
 target_include_directories(gk_engine PRIVATE "${rubberband_SOURCE_DIR}")

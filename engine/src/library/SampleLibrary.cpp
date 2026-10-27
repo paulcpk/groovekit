@@ -377,6 +377,18 @@ size_t SampleLibrary::size() const
     return entries.size();
 }
 
+std::vector<SampleEntry> SampleLibrary::getSamples() const
+{
+    std::lock_guard lock (mutex);
+    std::vector<SampleEntry> samples;
+    samples.reserve (entries.size());
+
+    for (auto& [path, e] : entries)
+        samples.push_back (e);
+
+    return samples;
+}
+
 std::optional<SampleEntry> SampleLibrary::find (const fs::path& path) const
 {
     std::lock_guard lock (mutex);

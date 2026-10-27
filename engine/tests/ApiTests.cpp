@@ -3,6 +3,7 @@
 #include "api/ApiHandler.h"
 #include "analysis/Analysis.h"
 #include "library/SampleLibrary.h"
+#include "listening/Listening.h"
 #include "session/RecentProjects.h"
 
 #include <fstream>
@@ -155,6 +156,113 @@ TEST_CASE ("The API searches the sample library")
     CHECK_THAT (r["error"]["message"].get<std::string>(), ContainsSubstring ("full path"));
 
     CHECK (call ("library.status", Json::object())["result"]["progress"]["samples"] == 2);
+}
+
+namespace
+{
+    /** Ten seconds of a kick on every beat at 140 BPM over a held saw bass, at 44.1 kHz. */
+    void writeTrack (const std::filesystem::path& file, double bassHz)
+    {
+        const int rate = 44100, length = 10 * rate;
+        juce::AudioBuffer<float> buffer (2, length);
+
+        for (int i = 0; i < length; ++i)
+        {
+            const auto t = static_cast<double> (i) / rate;
+            const auto beat = std::fmod (t, 60.0 / 140.0);
+            const auto kick = std::sin (2.0 * juce::MathConstants<double>::pi * (50.0 + 150.0 * std::exp (-beat * 30.0)) * beat) * std::exp (-beat * 12.0);
+            const auto bass = 0.25 * (2.0 * std::fmod (t * bassHz, 1.0) - 1.0);
+
+            for (int c = 0; c < 2; ++c)
+                buffer.setSample (c, i, static_cast<float> (0.6 * kick + bass));
+        }
+
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (juce::File (file.string())),
+                                                                              rate, 2, 16, {}, 0));
+        writer->writeFromAudioSampleBuffer (buffer, 0, length);
+    }
+}
+
+TEST_CASE ("The API listens to samples and styles once the models are there")
+{
+    auto root = test::tempDir() / "api-listening";
+    std::filesystem::remove_all (root);
+    std::filesystem::create_directories (root / "samples");
+    std::filesystem::copy_file (test::fixture ("kick.wav"), root / "samples" / "Deep Kick.wav");
+    std::filesystem::copy_file (test::fixture ("bass_a2.wav"), root / "samples" / "Sub A.wav");
+
+    library::SampleLibrary library (root / "library.json");
+    library.addFolder (root / "samples");
+    library.startScan();
+    library.waitForScan();
+
+    // Without the models: plain searches work, listening says what it needs.
+    listening::Listening::Files files { root / "no-models", root / "sounds.bin", root / "styles", root / "taste.json" };
+    listening::Listening without (library, files);
+    Session session (Session::createEmptyProject());
+    ApiHandler handler (session, test::getEngineContext(), &library, nullptr, nullptr, &without);
+
+    Json response;
+    ApiHandler::Client client;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+
+    auto call = [&] (ApiHandler& h, const std::string& method, Json params)
+    {
+        h.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        return response;
+    };
+
+    CHECK (call (handler, "listening.status", Json::object())["result"]["models"]["ready"] == false);
+    CHECK (call (handler, "library.search", { { "query", "kick" } })["result"]["results"].size() == 1);
+    CHECK_THAT (call (handler, "library.search", { { "style", "Techno" } })["error"]["message"].get<std::string>(), ContainsSubstring ("listening models"));
+    CHECK_THAT (call (handler, "styles.add", { { "path", root.string() } })["error"]["message"].get<std::string>(), ContainsSubstring ("downloaded"));
+    CHECK (call (handler, "styles.list", Json::object())["result"]["styles"].empty());
+
+    // Verdicts are kept, under the library's name for the file.
+    auto kick = (root / "samples" / "Deep Kick.wav").string();
+    CHECK (call (handler, "library.rate", { { "path", kick }, { "style", "Techno" }, { "fits", false } })["result"]["fits"] == false);
+    CHECK (call (handler, "library.ratings", Json::object())["result"]["ratings"].size() == 1);
+
+    // With the models (on a Mac that has downloaded them): samples are heard, and a style learnt.
+    if (! listening::Models (listening::Models::getDefaultFolder()).getStatus().ready)
+        SKIP ("The listening models aren't downloaded");
+
+    files.models = listening::Models::getDefaultFolder();
+    listening::Listening with (library, files);
+    ApiHandler heard (session, test::getEngineContext(), &library, nullptr, nullptr, &with);
+
+    with.startIndexing();
+
+    for (int i = 0; i < 600 && (with.getIndex().size() < 2 || with.getIndex().getProgress().running); ++i)
+        juce::Thread::sleep (100);
+
+    INFO (with.getStatus().dump());
+    REQUIRE (with.getIndex().size() == 2);
+
+    auto r = call (heard, "library.search", { { "sound", "a deep low bass note" } });
+    REQUIRE (r["result"]["results"].size() == 2);
+    CHECK (r["result"]["results"][0]["match"].is_number());
+    CHECK (r["result"]["results"][0]["sounds"].size() == 3);
+
+    std::filesystem::create_directories (root / "refs");
+    writeTrack (root / "refs" / "one.wav", 55);
+    writeTrack (root / "refs" / "two.wav", 49);
+    CHECK (call (heard, "styles.add", { { "path", (root / "refs").string() }, { "name", "Synthetic" } })["result"]["name"] == "Synthetic");
+    with.getStyles().wait();
+
+    auto style = call (heard, "styles.describe", { { "name", "Synthetic" } })["result"];
+    REQUIRE (style["tracks"] == 2);
+    CHECK (std::abs (style["tempo"]["median"].get<double>() - 140.0) < 1.5);
+    CHECK (style["sounds"].contains ("kick"));
+
+    r = call (heard, "library.search", { { "style", "Synthetic" } });
+    REQUIRE (r["result"]["results"].size() == 2);
+    CHECK (r["result"]["results"][0]["fit"].is_number());
+
+    // The kick that doesn't fit Techno still has a verdict only there.
+    r = call (heard, "library.search", { { "style", "Synthetic" }, { "query", "kick" } });
+    CHECK_FALSE (r["result"]["results"][0].contains ("rating"));
 }
 
 TEST_CASE ("Mix analysis finds sources that mask each other")

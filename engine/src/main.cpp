@@ -4,6 +4,7 @@
 #include "compiler/EditCompiler.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
+#include "listening/Listening.h"
 #include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
 #include "render/Render.h"
@@ -193,6 +194,21 @@ Add --verbose to see engine log messages.
         if (library.getAutoScan())
             library.startScan();
 
+        // Hearing what the samples sound like, once the listening models are downloaded. With
+        // their own library index (tests), the sound index, styles and verdicts go beside it.
+        gk::listening::Listening::Files listeningFiles;
+
+        if (auto index = args.get ("--library"))
+        {
+            const std::filesystem::path base (*index);
+            listeningFiles.soundIndex = std::filesystem::path (base).replace_extension (".sounds.bin");
+            listeningFiles.styles = std::filesystem::path (base).replace_extension (".styles");
+            listeningFiles.taste = std::filesystem::path (base).replace_extension (".taste.json");
+        }
+
+        gk::listening::Listening listening (library, listeningFiles);
+        listening.startIndexing();
+
         const auto pid = static_cast<int> (getpid());
         const auto registration = engineRegistry() / (std::to_string (pid) + ".json");
         const auto recents = gk::EngineContext::getAppDataFolder() / "recent.json";
@@ -227,7 +243,7 @@ Add --verbose to see engine log messages.
             if (audio)
                 w.live->openDefaultAudioDevice();
 
-            w.handler = std::make_unique<gk::ApiHandler> (*w.session, context, &library, w.live.get(), &plugins);
+            w.handler = std::make_unique<gk::ApiHandler> (*w.session, context, &library, w.live.get(), &plugins, &listening);
             w.handler->onOpenProject = openProject;
             return w;
         };

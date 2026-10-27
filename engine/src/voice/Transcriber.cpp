@@ -1,5 +1,7 @@
 #include "Transcriber.h"
 
+#include "listening/Download.h"
+
 #include <juce_core/juce_core.h>
 #include <cstdlib>
 #include <whisper.h>
@@ -94,62 +96,18 @@ void Transcriber::download (std::function<void (const Status&)> onProgress)
                 onProgress (now);
         };
 
-        auto partial = modelFile;
-        partial += ".download";
         std::string error;
 
         try
         {
-            std::filesystem::create_directories (modelFile.parent_path());
-            auto stream = juce::URL (modelUrl).createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-                                                                      .withConnectionTimeoutMs (15000)
-                                                                      .withNumRedirectsToFollow (5));
-            if (stream == nullptr)
-                throw std::runtime_error ("Couldn't reach the download server. Check your connection.");
-
-            const juce::File target (partial.string());
-            target.deleteFile();
-            juce::FileOutputStream out (target);
-
-            if (! out.openedOk())
-                throw std::runtime_error ("Couldn't write " + partial.string());
-
-            std::vector<char> buffer (1 << 16);
-            int64_t written = 0;
-            auto lastReport = juce::Time::getMillisecondCounter();
-
-            while (! stream->isExhausted() && ! stopping)
+            downloadFile (modelUrl, modelFile, modelSize, [&] (int64_t written)
             {
-                const auto read = stream->read (buffer.data(), static_cast<int> (buffer.size()));
-
-                if (read <= 0)
-                    break;
-
-                out.write (buffer.data(), static_cast<size_t> (read));
-                written += read;
-
-                if (juce::Time::getMillisecondCounter() - lastReport > 200)
-                {
-                    lastReport = juce::Time::getMillisecondCounter();
-                    report ([&] (Status& s) { s.progress = static_cast<double> (written) / static_cast<double> (modelSize); });
-                }
-            }
-
-            out.flush();
-
-            if (stopping)
-                throw std::runtime_error ("Stopped");
-
-            if (written != modelSize)
-                throw std::runtime_error ("The download broke off. Try again.");
-
-            std::filesystem::rename (partial, modelFile);
+                report ([&] (Status& s) { s.progress = static_cast<double> (written) / static_cast<double> (modelSize); });
+            }, stopping);
         }
         catch (const std::exception& e)
         {
             error = e.what();
-            std::error_code ec;
-            std::filesystem::remove (partial, ec);
         }
 
         report ([&] (Status& s)

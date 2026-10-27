@@ -9,13 +9,16 @@ class EngineContext;
 class LiveEngine;
 class PluginCatalog;
 namespace library { class SampleLibrary; }
+namespace listening { class Listening; }
 
 /** JSON-RPC 2.0 over any message transport. Lives on the message thread.
 
     Requests: execute, undo, redo, get, getSummary, getHistory, render, analyze, analyzeMix, master,
-    listEffects, hello, library.*, plugins.*, and with a live engine transport.*, record.* and audio.*.
+    listEffects, hello, library.*, plugins.*, listening.*, styles.*, and with a live engine
+    transport.*, record.* and audio.*.
     Notifications to clients: "snapshot" on connect, "patch" after every change from any client,
-    "libraryProgress" and "pluginScanProgress" while scanning, "transport" while playing, "levels"
+    "libraryProgress" and "pluginScanProgress" while scanning, "listening" while listening models
+    download, the library is heard or a style is analysed, "transport" while playing, "levels"
     while there's signal.
     See docs/protocol.md.
 */
@@ -30,7 +33,8 @@ public:
         Send send;
     };
 
-    ApiHandler (Session&, EngineContext&, library::SampleLibrary* = nullptr, LiveEngine* = nullptr, PluginCatalog* = nullptr);
+    ApiHandler (Session&, EngineContext&, library::SampleLibrary* = nullptr, LiveEngine* = nullptr, PluginCatalog* = nullptr,
+                listening::Listening* = nullptr);
     ~ApiHandler();
 
     /** Opens another project folder in place of this session (see project.open and project.new).
@@ -62,6 +66,7 @@ private:
     library::SampleLibrary* library;
     LiveEngine* live;
     PluginCatalog* plugins;
+    listening::Listening* listening;
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
     Send broadcast;
     int listenerId = 0;
@@ -78,6 +83,8 @@ private:
     model::Json callPlugins (const std::string& method, const model::Json& params, Client&);
     model::Json callProject (const std::string& method, const model::Json& params);
     model::Json callVoice (const std::string& method, const model::Json& params);
+    model::Json callListening (const std::string& method, const model::Json& params);
+    model::Json compareToStyle (const model::Json& params);
     model::Json importIntoProject (const std::string& method, const model::Json& params);
     void startLibraryScan();
 };

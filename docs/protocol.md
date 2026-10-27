@@ -17,6 +17,8 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 
 `kind` is `execute`, `undo` or `redo`. For undo, `ops` are the entry's inverse.
 
+While the listening models download, the library is heard or a style is analysed, `listening` notifications carry the same status as `listening.status`.
+
 While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second. While there's signal, `levels` notifications (`{ inserts: { id: [left, right] }, channels: { id: peak } }`, linear peaks since the last one) arrive at the same rate, and once more when it stops. When "Automate" is pressed in the bar above a plugin's window, a `createAutomation` notification (`{ target, value }`) asks the UI to make the automation clip.
 
 A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<pid>.json` (`{ url, port, pid, project }`, rewritten when it opens another project), so other clients can connect to it rather than start another engine on the same project; an engine refuses to serve a project another one serves.
@@ -79,9 +81,19 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `library.setAutoScan` | `enabled` | same as status; whether the engine scans for new and changed files when it starts |
 | `library.addFolder` / `library.removeFolder` | `path`, `scan?` (default true) | same as status |
 | `library.scan` | | progress; `libraryProgress` notifications follow |
-| `library.search` | `query?`, `category?`, `loop?`, `tempo?`, `key?`, `minDuration?`, `maxDuration?`, `limit?` | `{ results: [{ path, description, category, loop, tempo?, key?, durationSeconds, rootKey? }], librarySize }` |
+| `library.search` | `query?`, `category?`, `loop?`, `tempo?`, `key?`, `minDuration?`, `maxDuration?`, `limit?`; to rank by how samples sound (needs the listening models): `style?`, `sound?` (words), `like?` (a path), `role?` (`kick`, `hats`, `drums`, `bass`, `music`, `kickHit`, `hatHit` or `percHit`, if not the sample's category's) | `{ results: [{ path, description, category, loop, tempo?, key?, durationSeconds, rootKey?, sounds?, fit?, match?, rating? }], librarySize, heard? }`. `sounds` are words for what a sample sounds like; `fit` is its fit to the style in its part (0 an average library sample in that part, 100 as close as the style's tracks are to each other); `match` the share of the library it beats for likeness to the words or sample (0-100); `rating` the user's verdict for the style. Ranked results only include samples the index has heard |
 | `library.list` | `path?` | `{ folders: [{ path, name, samples }], samples: [...] }`: the indexed subfolders (with how many samples are below each) and samples directly in a folder, in Finder order; without `path`, the library folders |
-| `library.describe` | `path` | the entry with full `features` and `classification` |
+| `library.describe` | `path`, `style?` | the entry with full `features` and `classification`, plus `sounds` (words) and with `style` its `fit` once GrooveKit can listen |
+| `library.rate` | `path`, `fits` (true, false or null to forget), `style?` (none: any style) | `{ path, style, fits }`; the verdict ranks the sample, and samples that sound almost the same, up or down in searches with that style. Kept in `<app data>/taste.json` |
+| `library.ratings` | | `{ ratings: [{ path, style, fits }] }` |
+| `listening.status` | | `{ models: { ready, downloading, progress, totalBytes, error? }, index: { running, total, embedded, failed, samples, librarySize }, styles: { running, names, style?, tracks?, analysed?, failed?, error? } }` |
+| `listening.download` | | the status; downloads the listening models (ONNX Runtime, CLAP and htdemucs, about 400 MB) once into `<app data>/models/listening`, then hears the library. `listening` notifications follow |
+| `listening.index` | | the status; hears library samples that haven't been yet (the engine also does this when it starts and after scans) |
+| `styles.list` | | `{ styles: [{ name, folder, tracks, tempo? }], progress }` |
+| `styles.add` | `path` (a folder of reference tracks), `name?` (default: the folder's) | `{ name, progress }`; analyses the tracks in the background (separated into drums, bass and the rest, about 15 s a track), saving the style after each. Adding a folder again only analyses new and changed tracks |
+| `styles.remove` | `name` | `{ removed }` |
+| `styles.describe` | `name` | `{ name, folder, tracks, trackNames, tempo: { median, min, max }, swing, onsetsPerBeat, lufs, balance (ten bands, dB of the mix), levels (each part against the mix, dB), sounds: { part: words } }` |
+| `styles.compare` | `name`, `start?`, `end?` (ticks) | `{ style, parts: { part: { fit, sounds, referencesSound } }, tempo, groove: { swing?, hitsPerBeat }, referencesGroove, loudness, balance, levels, channels, notes }`: renders the mix and hears it as the style's tracks were heard (split into drums, bass and the rest), then compares part by part; `channels` lists which channels mostly play which part (by their first sample's category), and `notes` name the biggest differences first |
 
 ## Commands
 

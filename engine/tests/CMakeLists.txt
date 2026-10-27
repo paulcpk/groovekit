@@ -4,6 +4,7 @@ add_executable(gk_tests
     ApiTests.cpp
     LibraryTests.cpp
     LimiterTests.cpp
+    ListeningTests.cpp
     LiveTests.cpp
     ModelTests.cpp
     PluginTests.cpp

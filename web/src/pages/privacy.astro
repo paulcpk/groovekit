@@ -49,6 +49,17 @@ const link = "font-medium text-fg underline decoration-accent underline-offset-4
       </section>
 
       <section>
+        <h2>Listening</h2>
+        <p>
+          GrooveKit can hear your sample library and the reference tracks you add as styles, so it can pick sounds by
+          how they sound. That runs entirely on your Mac. Its models are downloaded once, from Hugging Face and GitHub,
+          when you ask for them, and your audio is never sent anywhere. What GrooveKit hears is kept on your Mac as
+          numbers and words, not as audio. The agent reads those words and fit scores in search results, as it reads
+          sample names.
+        </p>
+      </section>
+
+      <section>
         <h2>The agent</h2>
         <p>
           Only when you use the agent does data leave your Mac, and then it goes to the AI provider you chose, not to
@@ -64,6 +75,7 @@ const link = "font-medium text-fg underline decoration-accent underline-offset-4
             recording isn’t sent anywhere, only the text, like a typed message. The speech model is downloaded once,
             from Hugging Face, when you first use the microphone and agree to it.
           </li>
+
           <li>
             <span class="text-fg">Claude Code or another MCP client</span> sends the same kinds of data to whichever
             AI provider that client uses, under its terms.

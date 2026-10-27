@@ -16,6 +16,8 @@ Sounds: search_samples finds samples in the user's library by words, category, l
 
 Plugins: the user's VST3/AU plugins are listed by plugins (scan first if the list is empty). describe_plugin gives a pluginRef and parameter names; use it in a channel instrument {"type":"plugin","plugin":pluginRef} or an insert effect {"type":"plugin","id":...,"plugin":pluginRef}, set "params" by name (normalized 0-1), and automate them with automation clips (an instrument's: scope channel with param its parameter id or name; an effect's: scope effect). A sampler channel's filterCutoff, filterResonance and filterEnvelopeAmount are automatable too, like any channel's volume and pan. Every insert effect, built-in or plugin, has a mix from 0 (the dry signal) to 1 (only the effect): mix reverbs and delays in rather than adding sends for everything; it is automatable as the effect parameter "mix".
 
+Listening: GrooveKit can hear its sample library and the user's reference tracks (once its listening models are downloaded, a 400 MB download the user starts in the Browser). Choose sounds by how they sound, never by their names: two files called "stab" can have nothing in common. A style is a folder of reference tracks the user loves (styles); styles describe gives its tempo range, swing, loudness, the levels of drums, bass and music against the mix, and words for what each part sounds like. search_samples with style ranks the library by fit to that style for each sample's part (category), 0 being an average sample of the user's library and 100 as close as the references are to each other: build from the top (fit 50 and above), use sound (words like "dusty warm chord stab") to steer within the style, and like (a path) to find sounds that belong with one you chose, so the kit hangs together. Results say in words what each sample sounds like. After arranging, compare_to_style renders the song and reports how far each part is from the references and what differs most (tempo, swing, busy or sparse drums, balance, levels); fix the biggest differences and compare again. When the user says a sound fits or doesn't, record it with rate_sample: their verdicts steer later searches.
+
 Recording: the record tool captures hardware like the user's Digitakt II per track into clips, with GrooveKit as MIDI clock master. After a recording, each take is an audio clip with its own sampler channel; cut (updateClip offset/length), copy and arrange them like any other.
 
 Workflow: get_summary to see the song, get_schema once for exact shapes, edit_project to change it (commands apply atomically; errors name the offending field), render to hear it as numbers (LUFS, peak, onsets), then adjust and re-render. Every edit is undoable; edits made close together form one group that undo reverts in one step.`;
@@ -358,9 +360,13 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "search_samples",
     {
-      description: "Searches the user's sample library. Every word in query must match the file name, its folders or its category. Results give the path, a description of the sound, category, loop, tempo, key, duration and rootKey (detected pitch) where known.",
+      description: "Searches the user's sample library. Every word in query must match the file name, its folders or its category. With style, sound or like (needs the listening models), results are ranked by how they sound: fit (to the style, for each sample's part: 0 an average library sample, 100 as close as the style's references are to each other) and match (to the words or the sample: the share of the library it beats, 0-100); combine them with the filters, e.g. category and loop. Results give the path, a description of the sound, sounds (words for what it sounds like), category, loop, tempo, key, duration, rootKey (detected pitch) where known, and the user's rating.",
       inputSchema: {
-        query: z.string().optional().describe("Words, e.g. \"dark kick\" or \"vinyl hat\""),
+        query: z.string().optional().describe("Words in the file name or folders, e.g. \"kick\" or \"vinyl\""),
+        style: z.string().optional().describe("A style name (styles list): rank by fit to it"),
+        sound: z.string().optional().describe("What it should sound like, in words, e.g. \"dusty warm chord stab\" or \"rumbling distorted kick\""),
+        like: z.string().optional().describe("Path of a sample (or any audio file) it should sound like"),
+        role: z.enum(["kick", "hats", "drums", "bass", "music", "kickHit", "hatHit", "percHit"]).optional().describe("The part to judge fit for, if not the sample's category (loops: kick, hats, drums, bass, music; one-shots: kickHit, hatHit, percHit)"),
         category: z.enum(["kick", "snare", "clap", "hat", "cymbal", "tom", "perc", "bass", "synth", "vocal", "fx", "drums", "other"]).optional(),
         loop: z.boolean().optional().describe("true for loops only, false for one-shots only"),
         tempo: z.number().optional().describe("BPM; also matches half and double time"),
@@ -377,11 +383,65 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "describe_sample",
     {
-      description: "Full measurements of one audio file: duration, loudness, attack and decay, spectral centroid and band energy (sub, low, mid, high), detected pitch, onset count and tempo, plus its classification. Works for files outside the library too.",
-      inputSchema: { path: z.string() },
+      description: "Full measurements of one audio file: duration, loudness, attack and decay, spectral centroid and band energy (sub, low, mid, high), detected pitch, onset count and tempo, plus its classification and, once GrooveKit can listen, words for what it sounds like and (with style) its fit. Works for files outside the library too.",
+      inputSchema: { path: z.string(), style: z.string().optional().describe("A style name: also give its fit") },
       annotations: { readOnlyHint: true },
     },
-    ({ path }) => attempt(() => engine.call("library.describe", { path }))
+    ({ path, style }) => attempt(() => engine.call("library.describe", { path, ...(style ? { style } : {}) }))
+  );
+
+  server.registerTool(
+    "styles",
+    {
+      description: "The user's styles: folders of reference tracks GrooveKit has listened to. list (with listening status: models, library indexing, a running analysis), describe (tempo range, swing, onsets per beat, loudness, spectral balance, each part's level against the mix, and words for what each part sounds like), add (analyses a folder of tracks in the background, about 15 s per track; adding it again picks up new tracks), remove. download fetches the listening models (about 400 MB): only when the user has agreed to it.",
+      inputSchema: {
+        action: z.enum(["list", "describe", "add", "remove", "download"]),
+        name: z.string().optional().describe("The style, for describe and remove; for add, a name (default: the folder's)"),
+        path: z.string().optional().describe("Folder of reference tracks, for add"),
+      },
+    },
+    ({ action, name, path }) =>
+      attempt(async () => {
+        if (action === "download") return engine.call("listening.download", {});
+        if (action === "add") return engine.call("styles.add", { path, ...(name ? { name } : {}) });
+        if (action === "list") return { ...((await engine.call("styles.list", {})) as object), listening: await engine.call("listening.status", {}) };
+        return engine.call(`styles.${action}`, { name });
+      })
+  );
+
+  server.registerTool(
+    "compare_to_style",
+    {
+      description: "Listens to the song against a style: renders the mix and hears it exactly as the style's references were heard (six stretches split into drums, bass and the rest), then reports each part's fit to the references with words for how both sound (mix, drums, kick, hats, bass, music, and single kick, hat and percussion hits), tempo, swing and hits per beat of the hats, loudness, spectral balance and each part's level against the mix, with notes on the biggest differences, most important first. channels says which channels mostly play which part. Takes up to a minute.",
+      inputSchema: {
+        style: z.string(),
+        startBar: z.number().min(1).optional(),
+        endBar: z.number().min(1).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ style, startBar, endBar }) =>
+      attempt(async () => {
+        await engine.connect();
+        return engine.call("styles.compare", {
+          name: style,
+          ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
+          ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
+        });
+      })
+  );
+
+  server.registerTool(
+    "rate_sample",
+    {
+      description: "Records the user's verdict on a sample: it fits (true) or doesn't (false) a style (or any style without one); null forgets it. Later searches with that style rank it, and sounds like it, up or down.",
+      inputSchema: {
+        path: z.string(),
+        fits: z.boolean().nullable(),
+        style: z.string().optional(),
+      },
+    },
+    ({ path, fits, style }) => attempt(() => engine.call("library.rate", { path, fits, ...(style ? { style } : {}) }))
   );
 
   server.registerTool(

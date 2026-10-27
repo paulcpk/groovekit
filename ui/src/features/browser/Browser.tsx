@@ -1,6 +1,7 @@
-import { ChevronRight, Folder, FolderOpen, FolderPlus, Play, RefreshCw, Repeat, Search, Square, X } from "lucide-react";
+import { AudioLines, Check, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, Play, RefreshCw, Repeat, Search, Sparkles, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton } from "@/components/controls";
+import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { endSampleDrag, startSampleDrag, type DraggedSample } from "@/features/playlist/geometry";
 import { addSamplerChannel } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
@@ -9,6 +10,7 @@ import { previewSample, stopPreview } from "@/features/shell/actions";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { call, engine, useEngine } from "@/state/engine";
+import { addStyle, canListen, downloadModels, rateSample, removeStyle, useListeningStatus, type ListeningStatus } from "./listening";
 
 interface Sample {
   path: string;
@@ -19,6 +21,12 @@ interface Sample {
   key?: string;
   durationSeconds: number;
   rootKey?: number;
+  /** Ranked by sound: fit to the style (0 an average library sample, 100 like the references), match to the words or sample (0-100). */
+  fit?: number;
+  match?: number;
+  rating?: "fits" | "doesn't fit";
+  /** What it sounds like, in words. */
+  sounds?: string[];
 }
 
 const categories = ["kick", "snare", "clap", "hat", "cymbal", "tom", "perc", "drums", "bass", "synth", "vocal", "fx"];
@@ -32,10 +40,23 @@ function addChannel(s: Sample) {
   if (doc) void addSamplerChannel(doc, dragged(s));
 }
 
-/** One sample: click to hear it, drag it to the playlist or channel rack, double-click for a channel. */
-function SampleRow({ sample: s, depth = 0, selected, playing, onClick }: {
+/** How well a sample fits the style: up to about 100 for as close as the references are to each other. */
+function Fit({ fit }: { fit: number }) {
+  return (
+    <span title={`Fit to the style: ${fit} (0 is an average sample of your library, 100 as close as your reference tracks are to each other)`}
+      className={cn("w-7 shrink-0 text-right text-2xs tabular", fit >= 60 ? "text-ok" : fit >= 30 ? "text-fg" : fit >= 0 ? "text-dim" : "text-faint")}>
+      {fit}
+    </span>
+  );
+}
+
+/** One sample: click to hear it, drag it to the playlist or channel rack, double-click for a channel.
+    With a style, it can be marked as fitting or not; any sample can lead to sounds like it. */
+function SampleRow({ sample: s, depth = 0, selected, playing, onClick, style, onRate, onSimilar }: {
   sample: Sample; depth?: number; selected: boolean; playing: boolean; onClick: () => void;
+  style?: string; onRate?: (fits: boolean | null) => void; onSimilar?: () => void;
 }) {
+  const sounds = s.sounds?.length ? `\nSounds ${s.sounds.join(", ")}` : "";
   return (
     <div
       draggable
@@ -43,7 +64,7 @@ function SampleRow({ sample: s, depth = 0, selected, playing, onClick }: {
       onDragEnd={endSampleDrag}
       onClick={onClick}
       onDoubleClick={() => addChannel(s)}
-      title={`${s.path}\nDrag to the playlist or channel rack. Double-click adds a channel.`}
+      title={`${s.path}${sounds}\nDrag to the playlist or channel rack. Double-click adds a channel.`}
       className={cn("group flex cursor-grab items-center gap-1.5 pr-2 text-xs", selected ? "bg-control" : "hover:bg-raised")}
       style={{ height: ROW_H, paddingLeft: 8 + depth * 14 }}
     >
@@ -55,6 +76,19 @@ function SampleRow({ sample: s, depth = 0, selected, playing, onClick }: {
       {s.key && <span className="shrink-0 text-2xs text-faint">{s.key}</span>}
       {/* In the tree, the folders say what kind of sound it is; names get the room. */}
       {depth === 0 && <span className="shrink-0 rounded-[2px] bg-bg px-1 text-[9px] text-dim">{s.category}</span>}
+      {onSimilar && (
+        <button type="button" title="Find sounds like this" onClick={(e) => { e.stopPropagation(); onSimilar(); }}
+          className="shrink-0 text-faint opacity-0 hover:text-agent group-hover:opacity-100"><Sparkles size={11} /></button>
+      )}
+      {style && onRate && (
+        <span className={cn("flex shrink-0 items-center gap-0.5", !s.rating && "opacity-0 group-hover:opacity-100")}>
+          <button type="button" title={`Fits ${style}`} onClick={(e) => { e.stopPropagation(); onRate(s.rating === "fits" ? null : true); }}
+            className={cn(s.rating === "fits" ? "text-ok" : "text-faint hover:text-fg")}><ThumbsUp size={11} /></button>
+          <button type="button" title={`Doesn't fit ${style}`} onClick={(e) => { e.stopPropagation(); onRate(s.rating === "doesn't fit" ? null : false); }}
+            className={cn(s.rating === "doesn't fit" ? "text-rec" : "text-faint hover:text-fg")}><ThumbsDown size={11} /></button>
+        </span>
+      )}
+      {s.fit !== undefined && <Fit fit={s.fit} />}
     </div>
   );
 }
@@ -79,38 +113,83 @@ function NowPreviewing() {
   );
 }
 
+const STYLE_KEY = "groovekit.browser.style";
+
+function loadStyle() {
+  try {
+    return localStorage.getItem(STYLE_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function Browser() {
   const connected = useEngine((s) => s.status === "connected");
   const progress = useEngine((s) => s.libraryProgress);
+  const { status, styles } = useListeningStatus();
+  const listening = canListen(status);
   const [query, setQuery] = useState("");
+  const [bySound, setBySound] = useState(false);
   const [category, setCategory] = useState<string>();
   const [loops, setLoops] = useState<boolean | undefined>();
+  const [chosenStyle, setChosenStyle] = useState(loadStyle);
+  const [like, setLike] = useState<Sample>();
   const [results, setResults] = useState<Sample[]>([]);
   const [size, setSize] = useState<number>();
   const [cursor, setCursor] = useState(0);
+  const [version, setVersion] = useState(0);
   const { playing, preview } = usePreview();
+
+  // Ranking by sound needs the models and a heard library; a removed style no longer applies.
+  const style = listening && chosenStyle && styles.some((s) => s.name === chosenStyle) ? chosenStyle : undefined;
+  const soundQuery = listening && bySound;
+  const likePath = listening ? like?.path : undefined;
   // With nothing to search for, the library shows as its folders.
-  const filtering = query.trim() !== "" || category !== undefined || loops !== undefined;
+  const filtering = query.trim() !== "" || category !== undefined || loops !== undefined || !!style || !!likePath;
+
+  const chooseStyle = (name?: string) => {
+    setChosenStyle(name);
+    try {
+      if (name) localStorage.setItem(STYLE_KEY, name);
+      else localStorage.removeItem(STYLE_KEY);
+    } catch {
+      // Storage can be unavailable; the choice still holds for now.
+    }
+  };
 
   useEffect(() => {
     if (!connected) return;
     const timer = setTimeout(() => {
+      const words = query.trim();
       engine.call<{ results: Sample[]; librarySize: number }>("library.search", {
-        query, limit: 200, ...(category ? { category } : {}), ...(loops !== undefined ? { loop: loops } : {}),
+        limit: 200,
+        ...(soundQuery ? (words ? { sound: words } : {}) : { query }),
+        ...(category ? { category } : {}),
+        ...(loops !== undefined ? { loop: loops } : {}),
+        ...(style ? { style } : {}),
+        ...(likePath ? { like: likePath } : {}),
       }).then((r) => {
         setResults(r.results);
         setSize(r.librarySize);
         setCursor(0);
       }, () => {});
-    }, 150);
+    }, soundQuery ? 350 : 150);
     return () => clearTimeout(timer);
-  }, [connected, query, category, loops, progress?.running]);
+  }, [connected, query, soundQuery, category, loops, style, likePath, version, progress?.running, status?.index.running]);
+
+  const rate = (s: Sample, fits: boolean | null) => {
+    if (style) void rateSample(s.path, style, fits).then(() => setVersion((v) => v + 1));
+  };
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-col gap-2 border-b border-line p-2">
         <div className="flex h-7 items-center gap-1.5 rounded-[4px] bg-bg px-2">
-          <Search size={12} className="text-faint" />
+          <button type="button" disabled={!listening} onClick={() => setBySound(!bySound)}
+            title={!listening ? "Searching by sound needs GrooveKit to listen first (below)" : soundQuery ? "Searching by how samples sound: describe it. Click to search names." : "Searching names. Click to describe how it should sound."}
+            className={cn("shrink-0", soundQuery ? "text-agent" : "text-faint hover:text-fg disabled:hover:text-faint")}>
+            {soundQuery ? <AudioLines size={12} /> : <Search size={12} />}
+          </button>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -120,7 +199,7 @@ export function Browser() {
               if (e.key === "ArrowUp") setCursor((c) => Math.max(0, c - 1));
               if (e.key === "Enter" && results[cursor]) preview(results[cursor]);
             }}
-            placeholder={size ? `Search ${size.toLocaleString()} samples` : "Search samples"}
+            placeholder={soundQuery ? "Describe a sound: dusty warm chord stab" : size ? `Search ${size.toLocaleString()} samples` : "Search samples"}
             className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-faint"
           />
           {query && <button type="button" onClick={() => setQuery("")} className="text-faint hover:text-fg"><X size={12} /></button>}
@@ -138,6 +217,18 @@ export function Browser() {
             <Repeat size={9} /> {loops === true ? "loops" : loops === false ? "one-shots" : "all"}
           </button>
         </div>
+        {listening && (
+          <div className="flex min-w-0 items-center gap-1">
+            <StylePicker style={style} styles={styles.map((s) => s.name)} onChange={chooseStyle} />
+            {like && (
+              <span className="flex h-5 min-w-0 items-center gap-1 rounded-[3px] bg-control pl-1.5 pr-1 text-2xs text-dim" title={like.path}>
+                <Sparkles size={9} className="shrink-0 text-agent" />
+                <span className="min-w-0 truncate">like {fileName(like.path)}</span>
+                <button type="button" title="Stop finding sounds like it" onClick={() => setLike(undefined)} className="shrink-0 text-faint hover:text-fg"><X size={10} /></button>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {!filtering ? (
@@ -148,6 +239,7 @@ export function Browser() {
             <Empty>{size === 0 ? "The library is empty. Add a folder below." : "No samples match."}</Empty>
           ) : results.map((s, i) => (
             <SampleRow key={s.path} sample={s} selected={i === cursor} playing={playing === s.path}
+              style={style} onRate={(fits) => rate(s, fits)} onSimilar={listening ? () => setLike(s) : undefined}
               onClick={() => {
                 setCursor(i);
                 preview(s);
@@ -157,6 +249,7 @@ export function Browser() {
       )}
 
       <NowPreviewing />
+      <Listening status={status} />
       <LibraryFolders />
     </div>
   );
@@ -378,6 +471,108 @@ function LibraryFolders() {
             className="h-6 min-w-0 flex-1 rounded-[3px] bg-bg px-1.5 text-xs text-fg outline-none ring-1 ring-accent" />
           <Button size="sm" type="submit">Add</Button>
         </form>
+      )}
+    </div>
+  );
+}
+
+/** Ranks the browser by fit to one of the user's styles, or adds one. */
+function StylePicker({ style, styles, onChange }: { style?: string; styles: string[]; onChange: (name?: string) => void }) {
+  const add = () => {
+    if (!inDesktopApp) return;
+    void pickFolder("Choose a folder of reference tracks").then((path) => {
+      if (path) void addStyle(path).then((r) => onChange(r.name));
+    });
+  };
+
+  return (
+    <Dropdown>
+      <DropdownTrigger asChild>
+        <button type="button" title="Rank samples by how well they fit a style: a folder of reference tracks GrooveKit has listened to"
+          className={cn("flex h-5 shrink-0 items-center gap-1 rounded-[3px] px-1.5 text-2xs", style ? "bg-agent text-black" : "bg-control text-dim hover:text-fg")}>
+          <AudioLines size={9} /> {style ?? "Style"} <ChevronDown size={9} />
+        </button>
+      </DropdownTrigger>
+      <DropdownContent>
+        <DropdownLabel>Rank by fit to</DropdownLabel>
+        {styles.map((name) => (
+          <DropdownItem key={name} checked={name === style} onSelect={() => onChange(name)}>{name}</DropdownItem>
+        ))}
+        {styles.length === 0 && <DropdownItem disabled>No styles yet</DropdownItem>}
+        {style && <DropdownItem onSelect={() => onChange(undefined)}>No style</DropdownItem>}
+        <DropdownSeparator />
+        <DropdownItem disabled={!inDesktopApp} onSelect={add}>Add a style from a folder of tracks…</DropdownItem>
+      </DropdownContent>
+    </Dropdown>
+  );
+}
+
+const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
+
+/** Letting GrooveKit hear the library and the user's reference tracks: the one-time download,
+    then how much has been heard, and the styles with their analysis. */
+function Listening({ status }: { status?: ListeningStatus }) {
+  const styles = useListeningStatus().styles;
+  if (!status) return null;
+  const { models, index, styles: analysis } = status;
+
+  const addFolder = () => {
+    if (inDesktopApp)
+      void pickFolder("Choose a folder of reference tracks").then((path) => path && void addStyle(path));
+  };
+
+  return (
+    <div className="border-t border-line p-2 text-2xs text-dim">
+      <div className="mb-1 flex items-center gap-1">
+        <span className="flex-1 uppercase tracking-wide text-faint">Listening</span>
+        {models.ready && (
+          <IconButton size="sm" title="Add a style: a folder of reference tracks" disabled={analysis.running || !inDesktopApp} onClick={addFolder}>
+            <FolderPlus size={12} />
+          </IconButton>
+        )}
+      </div>
+
+      {!models.ready && !models.downloading && (
+        <div className="flex flex-col gap-1.5">
+          <span>Let GrooveKit hear your samples and the tracks you love, so it can pick sounds that fit. A one-time {megabytes(models.totalBytes)} download; everything stays on this Mac.</span>
+          {models.error && <span className="text-rec">{models.error}</span>}
+          <Button size="sm" className="self-start" onClick={() => void downloadModels()}>Download</Button>
+        </div>
+      )}
+
+      {models.downloading && (
+        <div className="flex flex-col gap-1">
+          <span>Downloading… {Math.round(models.progress * 100)}% of {megabytes(models.totalBytes)}</span>
+          <div className="h-1 overflow-hidden rounded-full bg-bg"><div className="h-full bg-agent transition-[width]" style={{ width: `${models.progress * 100}%` }} /></div>
+        </div>
+      )}
+
+      {models.ready && index.running && (
+        <div className="mb-1 flex flex-col gap-1">
+          <span>Listening to your library… {index.embedded.toLocaleString()} of {index.total.toLocaleString()}</span>
+          <div className="h-1 overflow-hidden rounded-full bg-bg"><div className="h-full bg-agent transition-[width]" style={{ width: `${(index.embedded / Math.max(1, index.total)) * 100}%` }} /></div>
+        </div>
+      )}
+
+      {models.ready && styles.map((s) => (
+        <div key={s.name} className="group flex items-center gap-1" title={s.folder}>
+          <Check size={10} className="shrink-0 text-ok" />
+          <span className="min-w-0 flex-1 truncate text-fg">{s.name}</span>
+          <span className="shrink-0 text-faint tabular">{s.tracks} tracks{s.tempo ? `, ${Math.round(s.tempo.min)}–${Math.round(s.tempo.max)} BPM` : ""}</span>
+          <button type="button" className="text-faint opacity-0 group-hover:opacity-100 hover:text-rec" title="Remove style"
+            onClick={() => void removeStyle(s.name)}><X size={10} /></button>
+        </div>
+      ))}
+
+      {analysis.running && (
+        <div className="mt-1 flex flex-col gap-1">
+          <span>Listening to {analysis.style}… {analysis.analysed ?? 0} of {analysis.tracks ?? "?"} tracks</span>
+          <div className="h-1 overflow-hidden rounded-full bg-bg"><div className="h-full bg-agent transition-[width]" style={{ width: `${((analysis.analysed ?? 0) / Math.max(1, analysis.tracks ?? 1)) * 100}%` }} /></div>
+        </div>
+      )}
+      {analysis.error && !analysis.running && <div className="mt-1 text-rec">{analysis.error}</div>}
+      {models.ready && styles.length === 0 && !analysis.running && (
+        <div className="text-faint">Add a folder of tracks you love as a style; GrooveKit learns how its kicks, hats, bass and music sound.</div>
       )}
     </div>
   );

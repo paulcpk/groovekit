@@ -35,6 +35,11 @@ function cppComponents(): Component[] {
     { name: "whisper.cpp and ggml (and OpenAI's Whisper model)", license: "MIT", url: "https://github.com/ggml-org/whisper.cpp", files: [join(deps, "whisper-src/LICENSE")] },
     { name: "JSON for Modern C++", license: "MIT", url: "https://github.com/nlohmann/json", files: [join(deps, "nlohmann_json-src/LICENSE.MIT")] },
 
+    // Downloaded when the user lets GrooveKit listen
+    { name: "ONNX Runtime (downloaded for listening)", license: "MIT", url: "https://onnxruntime.ai", files: [join(deps, "onnxruntime-src/LICENSE")] },
+    { name: "CLAP, LAION's larger_clap_music_and_speech model (downloaded for listening)", license: "Apache-2.0", url: "https://huggingface.co/laion/larger_clap_music_and_speech", copyright: "Copyright LAION", files: [join(spdx, "Apache-2.0.txt")] },
+    { name: "HT Demucs model (downloaded for listening)", license: "MIT", url: "https://github.com/facebookresearch/demucs", copyright: "Copyright (c) Meta Platforms, Inc. and affiliates", files: [join(spdx, "MIT.txt")] },
+
     // Inside JUCE
     { name: "FLAC (in JUCE)", license: "BSD-3-Clause", files: [join(juce, "juce_audio_formats/codecs/flac/Flac Licence.txt")] },
     { name: "Ogg Vorbis (in JUCE)", license: "BSD-3-Clause", files: [join(juce, "juce_audio_formats/codecs/oggvorbis/Ogg Vorbis Licence.txt")] },

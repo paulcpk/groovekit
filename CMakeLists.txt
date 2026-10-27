@@ -58,6 +58,13 @@ set(GGML_METAL_EMBED_LIBRARY ON CACHE INTERNAL "")
 set(GGML_NATIVE OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(whisper)
 
+# ONNX Runtime's headers (MIT). The library itself is downloaded with the listening models and
+# loaded at run time; this package's copy serves the tests.
+FetchContent_Declare(onnxruntime
+    URL https://github.com/microsoft/onnxruntime/releases/download/v1.31.1/onnxruntime-osx-arm64-1.31.1.tgz
+    URL_HASH SHA256=2e1344a1926ee50eb25b38153cb6992c3567515aef0e677a1a520a1798896d6f)
+FetchContent_MakeAvailable(onnxruntime)
+
 set(TRACKTION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/engine/external/tracktion_engine")
 add_subdirectory("${TRACKTION_DIR}/modules/juce" juce EXCLUDE_FROM_ALL)
 add_subdirectory("${TRACKTION_DIR}/modules" tracktion EXCLUDE_FROM_ALL)

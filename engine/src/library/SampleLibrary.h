@@ -74,6 +74,9 @@ public:
     size_t size() const;
     std::vector<SampleEntry> search (const SampleQuery&) const;
 
+    /** Every indexed sample, sorted by path. */
+    std::vector<SampleEntry> getSamples() const;
+
     struct Listing
     {
         struct Folder
