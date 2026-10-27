@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, Download, KeyRound, Loader2, Mic, RotateCcw, Sparkles, Square, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, Download, History, KeyRound, Loader2, Mic, RotateCcw, Sparkles, Square, SquarePen, Trash2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,7 +6,7 @@ import { Button, IconButton, Tabs } from "@/components/controls";
 import { Activity } from "@/features/history/Activity";
 import { cn } from "@/lib/cn";
 import { toast, useEngine } from "@/state/engine";
-import { clearConversation, retry, send, setApiKey, stop, useAgent, useApiKey, type ChatItem } from "./agent";
+import { deleteChat, newChat, openChat, refreshChats, retry, send, setApiKey, stop, useAgent, useApiKey, useChats, type ChatItem, type ChatSummary } from "./agent";
 import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
 
 const SUGGESTIONS = [
@@ -69,20 +69,110 @@ const MARKDOWN: Components = {
 };
 
 export function AgentPanel() {
-  const [view, setView] = useState<"chat" | "changes">("chat");
+  const [view, setView] = useState<"chat" | "changes" | "chats">("chat");
   const items = useAgent((s) => s.items);
   const running = useAgent((s) => s.running);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-2">
-        <Tabs<"chat" | "changes"> value={view} onChange={setView} items={[{ value: "chat", label: "Chat" }, { value: "changes", label: "Changes" }]} />
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line px-2">
+        <Tabs<"chat" | "changes"> value={view === "changes" ? "changes" : "chat"} onChange={setView}
+          items={[{ value: "chat", label: "Chat" }, { value: "changes", label: "Changes" }]} />
         <div className="flex-1" />
-        {view === "chat" && items.length > 0 && (
-          <IconButton size="sm" title="New conversation" disabled={running} onClick={clearConversation}><Trash2 size={12} /></IconButton>
+        {view !== "changes" && (
+          <>
+            <IconButton size="sm" title="Conversations" onClick={() => setView(view === "chats" ? "chat" : "chats")}
+              className={cn(view === "chats" && "bg-control text-fg")}><History size={12} /></IconButton>
+            <IconButton size="sm" title="New conversation" disabled={running || (items.length === 0 && view === "chat")}
+              onClick={() => {
+                newChat();
+                setView("chat");
+              }}><SquarePen size={12} /></IconButton>
+          </>
         )}
       </div>
-      <div className="min-h-0 flex-1">{view === "chat" ? <Chat /> : <Activity />}</div>
+      <div className="min-h-0 flex-1">
+        {view === "chat" ? <Chat /> : view === "chats" ? <Conversations onOpen={() => setView("chat")} /> : <Activity />}
+      </div>
+    </div>
+  );
+}
+
+function ago(ms: number) {
+  const minutes = Math.round((Date.now() - ms) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days} d ago`;
+  return new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short", year: days > 300 ? "numeric" : undefined });
+}
+
+/** Every conversation: this song's first, then the other songs'. Any can be reopened here, where
+    it carries on with this song; deleting one asks once more. */
+function Conversations({ onOpen }: { onOpen: () => void }) {
+  const chats = useChats((s) => s.chats);
+  const project = useAgent((s) => s.project);
+  const current = useAgent((s) => s.chatId);
+  const running = useAgent((s) => s.running);
+  const connected = useEngine((s) => s.status === "connected");
+  const [confirming, setConfirming] = useState<string>();
+
+  useEffect(() => {
+    if (connected) void refreshChats().catch(() => {});
+  }, [connected]);
+
+  const here = chats.filter((c) => c.project === project);
+  const elsewhere = chats.filter((c) => c.project !== project);
+
+  const row = (c: ChatSummary, showSong: boolean) => (
+    <div key={c.id}
+      onClick={() => {
+        if (running) return;
+        void openChat(c.id).then(onOpen, (e) => toast(`Couldn't open the conversation: ${e instanceof Error ? e.message : e}`));
+      }}
+      className={cn("group flex cursor-default items-start gap-2 rounded-[6px] px-2 py-1.5", c.id === current ? "bg-control" : "hover:bg-raised", running && "opacity-60")}>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-xs text-fg">{c.title || "Untitled"}</div>
+        <div className="truncate text-2xs text-faint">
+          {showSong ? `${c.projectName} · ` : ""}{c.messages} {c.messages === 1 ? "message" : "messages"} · {ago(c.updated)}
+        </div>
+      </div>
+      {confirming === c.id ? (
+        <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className="rounded-[4px] bg-rec px-1.5 py-0.5 text-2xs text-black" onClick={() => {
+            setConfirming(undefined);
+            void deleteChat(c.id);
+          }}>Delete</button>
+          <button type="button" className="text-faint hover:text-fg" title="Keep it" onClick={() => setConfirming(undefined)}><X size={11} /></button>
+        </div>
+      ) : (
+        <button type="button" title="Delete this conversation" disabled={running && c.id === current}
+          onClick={(e) => {
+            e.stopPropagation();
+            setConfirming(c.id);
+          }}
+          className="mt-0.5 shrink-0 text-faint opacity-0 hover:text-rec group-hover:opacity-100"><Trash2 size={11} /></button>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="h-full overflow-y-auto overscroll-contain px-2 py-2">
+      {chats.length === 0 && <div className="px-2 py-6 text-center text-xs text-faint">No conversations yet.</div>}
+      {here.length > 0 && (
+        <>
+          <div className="px-2 pb-1 text-2xs uppercase tracking-wide text-faint">This song</div>
+          {here.map((c) => row(c, false))}
+        </>
+      )}
+      {elsewhere.length > 0 && (
+        <>
+          <div className={cn("px-2 pb-1 text-2xs uppercase tracking-wide text-faint", here.length > 0 && "mt-3")}>Other songs</div>
+          {elsewhere.map((c) => row(c, true))}
+        </>
+      )}
     </div>
   );
 }

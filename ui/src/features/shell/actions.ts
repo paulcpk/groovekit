@@ -62,7 +62,7 @@ export async function setLoop(range: { start: number; end: number } | undefined,
 export function toggleLoop() {
   const { loop, looping } = useUi.getState();
   if (!loop) {
-    toast("Drag on the top half of the ruler to set a loop region");
+    toast("Drag two bars or more on the top half of the ruler to set a loop region");
     return;
   }
   return setLoop(loop, !looping);

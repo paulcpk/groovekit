@@ -43,6 +43,7 @@ target_sources(gk_engine PRIVATE
     src/sampler/SampleCache.cpp
     src/sampler/SamplerEngine.cpp
     src/sampler/SamplerPlugin.cpp
+    src/session/Chats.cpp
     src/session/Commands.cpp
     src/session/Mastering.cpp
     src/session/Presets.cpp

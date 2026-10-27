@@ -1,5 +1,6 @@
 // The in-app agent: Claude with GrooveKit's tools, called from this web view with the user's own
-// API key. The conversation (what's shown, and the transcript sent to the API) is kept per project.
+// API key. Conversations (what's shown, and the transcript sent to the API) are kept by the engine
+// in the app data folder; opening a project brings back its latest one, and any can be reopened.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { create } from "zustand";
@@ -22,14 +23,23 @@ export type ChatItem =
   | { kind: "error"; text: string };
 
 interface AgentState {
+  /** The conversation shown: it's saved under this id once it has a message. */
+  chatId: string;
+  title: string;
+  created?: number;
   items: ChatItem[];
   running: boolean;
   /** The transcript as the API sees it; appended to only (thinking blocks must stay as they were). */
   history: Anthropic.Beta.BetaMessageParam[];
+  /** The open project, where the conversation is saved as last used. */
   project?: string;
+  /** A conversation reopened from another song: the next message says so. */
+  movedFrom?: string;
 }
 
-export const useAgent = create<AgentState>(() => ({ items: [], running: false, history: [] }));
+const newId = () => crypto.randomUUID();
+
+export const useAgent = create<AgentState>(() => ({ chatId: newId(), title: "", items: [], running: false, history: [] }));
 const set = useAgent.setState;
 
 //==============================================================================
@@ -54,37 +64,119 @@ export function setApiKey(key: string) {
 export const useApiKey = create<{ key: string }>(() => ({ key: getApiKey() }));
 
 //==============================================================================
-// One conversation per project, kept in this web view's storage.
-const storageKey = (project: string) => `groovekit.agent.${project}`;
+// Conversations, kept by the engine.
 
-function save() {
-  const { project, items, history } = useAgent.getState();
-  if (!project) return;
+export interface ChatSummary {
+  id: string;
+  title: string;
+  project: string;
+  projectName: string;
+  created: number;
+  updated: number;
+  /** How many messages the user sent. */
+  messages: number;
+}
+
+export const useChats = create<{ chats: ChatSummary[] }>(() => ({ chats: [] }));
+
+export async function refreshChats() {
+  const r = await uiEngine.call<{ chats: ChatSummary[] }>("chats.list");
+  useChats.setState({ chats: r.chats });
+}
+
+const projectName = (project: string) => useEngine.getState().doc?.name || project.split("/").filter(Boolean).at(-1) || project;
+
+async function save() {
+  const { chatId, title, created, project, items, history } = useAgent.getState();
+  if (!project || items.length === 0) return;
   try {
-    localStorage.setItem(storageKey(project), JSON.stringify({ items, history }));
+    const saved = await uiEngine.call<ChatSummary>("chats.save", {
+      chat: { id: chatId, title, project, projectName: projectName(project), ...(created ? { created } : {}), items, history },
+    });
+    if (useAgent.getState().chatId === chatId) set({ created: saved.created });
+    void refreshChats();
   } catch {
-    // Too large or unavailable: the conversation still lasts this session.
+    // The engine is away: the conversation is saved after the next message.
   }
 }
 
-/** Shows the conversation of the open project. */
-export function loadConversation(project: string | undefined) {
+/** Conversations from before the engine kept them (in this web view's storage), moved over once. */
+async function migrateStoredChats() {
+  const prefix = "groovekit.agent.";
+  let keys: string[] = [];
+  try {
+    keys = Object.keys(localStorage).filter((k) => k.startsWith(prefix));
+  } catch {
+    return;
+  }
+  for (const key of keys) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) ?? "{}") as Partial<Pick<AgentState, "items" | "history">>;
+      const items = saved.items ?? [];
+      if (items.length) {
+        const project = key.slice(prefix.length);
+        const first = items.find((i) => i.kind === "user");
+        await uiEngine.call("chats.save", {
+          chat: { id: newId(), title: titleOf(first?.text ?? ""), project, projectName: project.split("/").filter(Boolean).at(-1) ?? project, items, history: saved.history ?? [] },
+        });
+      }
+      localStorage.removeItem(key);
+    } catch {
+      // Left for the next time.
+    }
+  }
+}
+
+const titleOf = (text: string) => {
+  const line = text.trim().split("\n")[0];
+  return line.length > 60 ? `${line.slice(0, 57).trimEnd()}…` : line;
+};
+
+let loading = 0;
+
+/** Shows the open project's latest conversation, or a new one. */
+export async function loadConversation(project: string | undefined) {
   if (!project || project === useAgent.getState().project) return;
   stop();
-  let saved: Pick<AgentState, "items" | "history"> = { items: [], history: [] };
+  const token = ++loading;
+  set({ project, chatId: newId(), title: "", created: undefined, items: [], history: [], running: false, movedFrom: undefined });
+
   try {
-    const raw = localStorage.getItem(storageKey(project));
-    if (raw) saved = JSON.parse(raw);
+    await migrateStoredChats();
+    await refreshChats();
+    const latest = useChats.getState().chats.find((c) => c.project === project);
+    if (latest && token === loading) await openChat(latest.id);
   } catch {
-    // Start over.
+    // Without the engine there's nothing to bring back.
   }
-  set({ project, items: saved.items, history: saved.history, running: false });
 }
 
-export function clearConversation() {
+/** Reopens a conversation, here: it carries on in the open project. */
+export async function openChat(id: string) {
+  if (useAgent.getState().running) return;
+  const chat = await uiEngine.call<{ id: string; title?: string; project?: string; projectName?: string; created?: number; items?: ChatItem[]; history?: Anthropic.Beta.BetaMessageParam[] }>("chats.get", { id });
+  const here = useAgent.getState().project;
+  set({
+    chatId: chat.id,
+    title: chat.title ?? "",
+    created: chat.created,
+    items: chat.items ?? [],
+    history: chat.history ?? [],
+    running: false,
+    movedFrom: chat.project && chat.project !== here ? chat.projectName || chat.project : undefined,
+  });
+}
+
+/** Starts a new conversation; the current one stays in the list. */
+export function newChat() {
   stop();
-  set({ items: [], history: [] });
-  save();
+  set({ chatId: newId(), title: "", created: undefined, items: [], history: [], running: false, movedFrom: undefined });
+}
+
+export async function deleteChat(id: string) {
+  await uiEngine.call("chats.delete", { id });
+  if (useAgent.getState().chatId === id) newChat();
+  await refreshChats();
 }
 
 //==============================================================================
@@ -126,6 +218,7 @@ function appState() {
     return found ? `${found.name || found.id} (${found.id})` : "none";
   };
   return [
+    `song: ${doc?.name || "untitled"}`,
     `selected pattern: ${name(doc?.patterns, selectedPattern)}`,
     `selected channel: ${name(doc?.channels, selectedChannel)}`,
     selectedClips.length ? `selected clips: ${selectedClips.join(", ")}` : "",
@@ -158,11 +251,17 @@ export async function send(text: string, resume = false) {
   if (resume) {
     set({ running: true });
   } else {
+    // A conversation carried on in another song: its ids and names may not exist here.
+    const moved = useAgent.getState().movedFrom;
+    const context = moved ? `this conversation began in the song "${moved}"; the open song is another one, so look at it before editing. ` : "";
     push({ kind: "user", text });
     set((s) => ({
       running: true,
-      history: [...s.history, { role: "user", content: `${text}\n\n[GrooveKit: ${appState()}]` }],
+      movedFrom: undefined,
+      title: s.title || titleOf(text),
+      history: [...s.history, { role: "user", content: `${text}\n\n[GrooveKit: ${context}${appState()}]` }],
     }));
+    void save();
   }
 
   let jsonRetries = 0;
@@ -257,7 +356,7 @@ export async function send(text: string, resume = false) {
     // A stopped turn can leave tool calls without results; the next request needs them answered.
     closeOpenToolCalls();
     set({ running: false });
-    save();
+    void save();
   }
 }
 

@@ -14,7 +14,7 @@ namespace listening { class Listening; }
 /** JSON-RPC 2.0 over any message transport. Lives on the message thread.
 
     Requests: execute, undo, redo, get, getSummary, getHistory, render, analyze, analyzeMix, master,
-    listEffects, hello, library.*, plugins.*, listening.*, styles.*, and with a live engine
+    listEffects, hello, library.*, plugins.*, listening.*, styles.*, chats.*, and with a live engine
     transport.*, record.* and audio.*.
     Notifications to clients: "snapshot" on connect, "patch" after every change from any client,
     "libraryProgress" and "pluginScanProgress" while scanning, "listening" while listening models
@@ -47,6 +47,9 @@ public:
 
     /** Where the user's presets are kept; empty for <app data>/presets. */
     std::filesystem::path presetsFolder;
+
+    /** Where the agent's conversations are kept; empty for <app data>/chats. */
+    std::filesystem::path chatsFolder;
 
     /** Called for every change; the server sends the message to all clients. */
     void setBroadcast (Send);
@@ -84,6 +87,7 @@ private:
     model::Json callProject (const std::string& method, const model::Json& params);
     model::Json callVoice (const std::string& method, const model::Json& params);
     model::Json callListening (const std::string& method, const model::Json& params);
+    model::Json callChats (const std::string& method, const model::Json& params);
     model::Json compareToStyle (const model::Json& params);
     model::Json importIntoProject (const std::string& method, const model::Json& params);
     void startLibraryScan();

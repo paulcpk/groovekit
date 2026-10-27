@@ -86,6 +86,10 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `library.describe` | `path`, `style?` | the entry with full `features` and `classification`, plus `sounds` (words) and with `style` its `fit` once GrooveKit can listen |
 | `library.rate` | `path`, `fits` (true, false or null to forget), `style?` (none: any style) | `{ path, style, fits }`; the verdict ranks the sample, and samples that sound almost the same, up or down in searches with that style. Kept in `<app data>/taste.json` |
 | `library.ratings` | | `{ ratings: [{ path, style, fits }] }` |
+| `chats.list` | | `{ chats: [{ id, title, project, projectName, created, updated, messages }] }`: the in-app agent's conversations, most recently updated first (`project` is where each was last used; `messages` counts the user's) |
+| `chats.get` | `id` | the conversation as saved: `{ id, title, project, projectName, created, updated, items, history }` |
+| `chats.save` | `chat` (`id`: letters, digits and dashes, plus anything else the UI keeps) | the summary; saved to `<app data>/chats/<id>.json` with `updated` set to now |
+| `chats.delete` | `id` | `{ deleted }` |
 | `listening.status` | | `{ models: { ready, downloading, progress, totalBytes, error? }, index: { running, total, embedded, failed, samples, librarySize }, styles: { running, names, style?, tracks?, analysed?, failed?, error? } }` |
 | `listening.download` | | the status; downloads the listening models (ONNX Runtime, CLAP and htdemucs, about 400 MB) once into `<app data>/models/listening`, then hears the library. `listening` notifications follow |
 | `listening.index` | | the status; hears library samples that haven't been yet (the engine also does this when it starts and after scans) |

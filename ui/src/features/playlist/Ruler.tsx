@@ -3,7 +3,8 @@ import { floorTo, snapTo, startDrag } from "@/lib/drag";
 import { useUi } from "@/state/ui";
 import { LOOP_STRIP_H, RULER_H, type Geometry } from "./geometry";
 
-/** Bar numbers and the loop region. Top strip: drag a loop. Below: click or drag to move the playhead. */
+/** Bar numbers and the loop region. Top strip: drag a loop of two bars or more, or click to clear it.
+    Below: click or drag to move the playhead. */
 export function Ruler({ g, endTicks }: { g: Geometry; endTicks: number }) {
   const loop = useUi((s) => s.loop);
   const looping = useUi((s) => s.looping);
@@ -39,7 +40,11 @@ export function Ruler({ g, endTicks }: { g: Geometry; endTicks: number }) {
             const t = snapTo(tickAt(ev, el), g.snap);
             range = t >= from ? { start: from, end: Math.max(from + g.snap, t) } : { start: t, end: from + g.snap };
             useUi.setState({ loop: range });
-          }, () => void setLoop(range, true), "ew-resize");
+          }, () => {
+            // A click or a short drag (under two bars) clears the loop instead of making a tiny one.
+            if (range.end - range.start < 2 * g.bar) void setLoop(undefined, false);
+            else void setLoop(range, true);
+          }, "ew-resize");
           return;
         }
 

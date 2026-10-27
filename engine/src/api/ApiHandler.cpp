@@ -14,6 +14,7 @@
 #include "plugins/PluginWindows.h"
 #include "render/Render.h"
 #include "session/Mastering.h"
+#include "session/Chats.h"
 #include "session/Presets.h"
 #include "session/RecentProjects.h"
 #include "session/Summary.h"
@@ -422,6 +423,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
 
     if (method.starts_with ("listening.") || method.starts_with ("styles."))
         return callListening (method, params);
+
+    if (method.starts_with ("chats."))
+        return callChats (method, params);
 
     if (method.starts_with ("presets."))
     {
@@ -1655,6 +1659,55 @@ Json ApiHandler::callListening (const std::string& method, const Json& params)
     {
         throw RpcError (operationFailed, e.what());
     }
+
+    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+Json ApiHandler::callChats (const std::string& method, const Json& params)
+{
+    ChatStore store (chatsFolder.empty() ? ChatStore::getDefaultFolder() : chatsFolder);
+
+    auto summaryJson = [] (const ChatStore::Summary& c)
+    {
+        return Json { { "id", c.id }, { "title", c.title }, { "project", c.project }, { "projectName", c.projectName },
+                      { "created", c.created }, { "updated", c.updated }, { "messages", c.messages } };
+    };
+
+    if (method == "chats.list")
+    {
+        auto list = Json::array();
+
+        for (auto& c : store.list())
+            list.push_back (summaryJson (c));
+
+        return { { "chats", list } };
+    }
+
+    if (method == "chats.get")
+    {
+        if (auto chat = store.get (readParam<std::string> (params, "id")))
+            return *chat;
+
+        throw RpcError (invalidParams, "No chat " + params["id"].dump());
+    }
+
+    if (method == "chats.save")
+    {
+        if (! params.contains ("chat") || ! params["chat"].is_object())
+            throw RpcError (invalidParams, "chat must be an object with an id");
+
+        try
+        {
+            return summaryJson (store.save (params["chat"]));
+        }
+        catch (const std::invalid_argument& e)
+        {
+            throw RpcError (invalidParams, e.what());
+        }
+    }
+
+    if (method == "chats.delete")
+        return { { "deleted", store.remove (readParam<std::string> (params, "id")) } };
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 }

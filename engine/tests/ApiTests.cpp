@@ -536,3 +536,50 @@ TEST_CASE ("Tracks are numbered lanes that need no adding")
     CHECK (trackOf ("b") == 5);
     CHECK (h.session.getProject().playlist.tracks[3].name == "Drums");
 }
+
+TEST_CASE ("The agent's conversations are kept, listed, reopened and deleted")
+{
+    const auto folder = test::tempDir() / "chats";
+    std::filesystem::remove_all (folder);
+
+    Harness h;
+    h.handler.chatsFolder = folder;
+
+    auto chat = [] (const std::string& id, const std::string& project)
+    {
+        return Json { { "id", id }, { "title", "Make it darker" }, { "project", project }, { "projectName", "Song" },
+                      { "items", Json::array ({ { { "kind", "user" }, { "text", "Make it darker" } }, { { "kind", "assistant" }, { "text", "Done." } } }) },
+                      { "history", Json::array ({ { { "role", "user" }, { "content", "Make it darker" } } }) } };
+    };
+
+    auto first = h.call ("chats.save", { { "chat", chat ("first", "/songs/a") } })["result"];
+    CHECK (first["messages"] == 1);
+    CHECK (first["created"].get<int64_t>() > 0);
+    juce::Thread::sleep (5);
+    h.call ("chats.save", { { "chat", chat ("second", "/songs/b") } });
+
+    auto list = h.call ("chats.list")["result"]["chats"];
+    REQUIRE (list.size() == 2);
+    CHECK (list[0]["id"] == "second"); // most recent first
+    CHECK (list[1]["project"] == "/songs/a");
+
+    // Saving again keeps when it was created; the whole transcript comes back.
+    auto again = chat ("first", "/songs/b");
+    again["created"] = first["created"];
+    h.call ("chats.save", { { "chat", again } });
+    auto loaded = h.call ("chats.get", { { "id", "first" } })["result"];
+    CHECK (loaded["project"] == "/songs/b");
+    CHECK (loaded["created"] == first["created"]);
+    CHECK (loaded["items"].size() == 2);
+    CHECK (loaded["history"][0]["content"] == "Make it darker");
+    CHECK (h.call ("chats.list")["result"]["chats"][0]["id"] == "first");
+
+    // The index is rebuilt from the files if it goes missing.
+    std::filesystem::remove (folder / "index.json");
+    CHECK (h.call ("chats.list")["result"]["chats"].size() == 2);
+
+    CHECK (h.call ("chats.delete", { { "id", "second" } })["result"]["deleted"] == true);
+    CHECK (h.call ("chats.list")["result"]["chats"].size() == 1);
+    CHECK (h.call ("chats.get", { { "id", "second" } }).contains ("error"));
+    CHECK (h.call ("chats.save", { { "chat", chat ("../escape", "/x") } }).contains ("error"));
+}
