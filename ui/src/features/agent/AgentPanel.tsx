@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button, IconButton, Tabs } from "@/components/controls";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/menu";
 import { Activity } from "@/features/history/Activity";
 import { cn } from "@/lib/cn";
 import { toast, useEngine } from "@/state/engine";
@@ -296,24 +297,35 @@ function Item({ item, last, running }: { item: ChatItem; last: boolean; running:
   switch (item.kind) {
     case "user":
       return (
-        <div className="ml-8 max-w-[90%] animate-rise self-end rounded-[12px] rounded-br-[4px] bg-control px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words text-fg">
-          {item.text}
+        <div className="group ml-8 flex max-w-[90%] animate-rise items-end gap-1 self-end">
+          <CopyButton text={item.text} />
+          <Message text={item.text} className="rounded-[12px] rounded-br-[4px] bg-control px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words text-fg">
+            {item.text}
+          </Message>
         </div>
       );
     case "assistant":
       return (
-        <div className="group relative text-xs leading-relaxed break-words text-fg">
-          <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN}>{item.text}</Markdown>
+        <div className="group relative">
+          <Message text={item.text} className="text-xs leading-relaxed break-words text-fg">
+            <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN}>{item.text}</Markdown>
+          </Message>
           {!(running && last) && item.text && <CopyButton text={item.text} />}
         </div>
       );
     case "note":
-      return <div className="border-l-2 border-agent/40 pl-2 text-[11px] leading-relaxed text-faint italic">{item.text}</div>;
+      return (
+        <div className="group relative">
+          <Message text={item.text} className="border-l-2 border-agent/40 pl-2 text-[11px] leading-relaxed text-faint italic">{item.text}</Message>
+          {!(running && last) && <CopyButton text={item.text} />}
+        </div>
+      );
     case "error":
       return (
-        <div className="flex items-start gap-2 rounded-[8px] bg-rec/10 px-2.5 py-2 text-xs text-rec ring-1 ring-rec/30">
+        <div className="group flex items-start gap-2 rounded-[8px] bg-rec/10 px-2.5 py-2 text-xs text-rec ring-1 ring-rec/30">
           <AlertTriangle size={13} className="mt-px shrink-0" />
-          <span className="min-w-0 flex-1">{item.text}</span>
+          <Message text={item.text} className="min-w-0 flex-1">{item.text}</Message>
+          <CopyButton text={item.text} />
           {last && !running && (
             <button type="button" onClick={() => void retry()} className="flex shrink-0 items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-fg hover:bg-rec/20">
               <RotateCcw size={11} /> Try again
@@ -326,12 +338,50 @@ function Item({ item, last, running }: { item: ChatItem; last: boolean; running:
   }
 }
 
+const copy = (text: string) => navigator.clipboard?.writeText(text);
+
+/** Text in the conversation that can be selected, with the menu a right click is expected to
+    bring up: copy what's selected, copy the whole message, select it. */
+function Message({ text, className, children }: { text: string; className?: string; children: React.ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [selected, setSelected] = useState("");
+
+  // What's selected inside this message when the menu opens.
+  const selectionHere = () => {
+    const selection = window.getSelection();
+    const el = box.current;
+    if (!selection || selection.isCollapsed || !el) return "";
+    return el.contains(selection.anchorNode) || el.contains(selection.focusNode) ? selection.toString() : "";
+  };
+
+  return (
+    <ContextMenu onOpenChange={(open) => open && setSelected(selectionHere())}>
+      <ContextMenuTrigger asChild>
+        <div ref={box} className={cn("cursor-text select-text", className)}>{children}</div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem disabled={!selected} shortcut="⌘C" onSelect={() => void copy(selected)}>Copy</ContextMenuItem>
+        <ContextMenuItem onSelect={() => void copy(text)}>Copy message</ContextMenuItem>
+        <ContextMenuItem onSelect={() => {
+          const el = box.current;
+          const selection = window.getSelection();
+          if (!el || !selection) return;
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }}>Select message</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button type="button" title={copied ? "Copied" : "Copy"}
-      className="mt-1 flex h-5 w-5 items-center justify-center rounded-[4px] text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg focus-visible:opacity-100"
-      onClick={() => void navigator.clipboard?.writeText(text).then(() => {
+      className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg focus-visible:opacity-100"
+      onClick={() => void copy(text)?.then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       })}>
@@ -387,11 +437,15 @@ function ToolRow({ tool }: { tool: ToolItem }) {
       </button>
       {open && (
         <div className="mx-2.5 mb-1.5 rounded-[6px] bg-bg px-2 py-1.5 font-mono text-[10px] leading-snug text-dim">
-          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(tool.input, null, 1)}</pre>
+          <Message text={JSON.stringify(tool.input, null, 1)}>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(tool.input, null, 1)}</pre>
+          </Message>
           {tool.result !== undefined && (
-            <pre className={cn("mt-1.5 max-h-48 overflow-auto border-t border-line/60 pt-1.5 whitespace-pre-wrap break-all", tool.status === "error" && "text-rec")}>
-              {tool.result.length > 4000 ? `${tool.result.slice(0, 4000)}…` : tool.result}
-            </pre>
+            <Message text={tool.result}>
+              <pre className={cn("mt-1.5 max-h-48 overflow-auto border-t border-line/60 pt-1.5 whitespace-pre-wrap break-all", tool.status === "error" && "text-rec")}>
+                {tool.result.length > 4000 ? `${tool.result.slice(0, 4000)}…` : tool.result}
+              </pre>
+            </Message>
           )}
         </div>
       )}

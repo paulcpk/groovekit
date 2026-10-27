@@ -66,6 +66,10 @@ export function useShortcuts() {
         e.preventDefault();
         void redo();
       } else if (mod && ["c", "v", "d", "a"].includes(e.key.toLowerCase())) {
+        // Selected text (in the agent's conversation, say) copies as text.
+        const selection = window.getSelection();
+        if (e.key.toLowerCase() === "c" && selection && !selection.isCollapsed && selection.toString().trim()) return;
+
         const doc = useEngine.getState().doc;
         if (!doc) return;
         const selected = doc.playlist.clips.filter((c) => useUi.getState().selectedClips.includes(c.id));
