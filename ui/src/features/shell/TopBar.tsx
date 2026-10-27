@@ -224,7 +224,7 @@ export function TopBar() {
   return (
     // In the desktop app the bar is also the title bar: it moves the window, and leaves room
     // for the window buttons.
-    <div className={cn("flex h-11 shrink-0 items-center gap-3 bg-panel px-3", inDesktopApp && "pl-[84px]")} data-tauri-drag-region>
+    <div className={cn("flex h-11 shrink-0 items-center gap-3 bg-panel px-3", inDesktopApp && "pl-[90px]")} data-tauri-drag-region>
       <div className="flex items-center gap-2" data-tauri-drag-region>
         <img src="/logo.svg" alt="" className="pointer-events-none h-[18px] w-[18px]" />
         <div className="text-[13px] font-semibold tracking-tight text-fg">GrooveKit</div>
