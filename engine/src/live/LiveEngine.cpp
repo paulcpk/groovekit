@@ -144,7 +144,7 @@ void LiveEngine::releaseBluetoothMicrophone()
 {
     auto& devices = context.getEngine().getDeviceManager().deviceManager;
 
-    if (! hasUnchosenBluetoothInput (devices))
+    if (! hasBluetoothInput (devices))
         return;
 
     auto setup = devices.getAudioDeviceSetup();
@@ -187,8 +187,9 @@ void LiveEngine::useSystemOutput()
 
     // Not saved as the chosen setup: the choice is "whatever the system uses".
     setup.outputDeviceName = systemOutput;
+    std::string notice;
 
-    if (auto error = devices.setAudioDeviceSetup (setup, false); error.isNotEmpty())
+    if (auto error = applyAudioSetup (devices, setup, false, notice); error.isNotEmpty())
         juce::Logger::writeToLog ("Couldn't switch to " + systemOutput + ": " + error);
 
     pairStereoInputs();

@@ -129,16 +129,36 @@ struct DefaultOutputWatcher::Impl
 DefaultOutputWatcher::DefaultOutputWatcher (std::function<void()> onChange) : impl (std::make_unique<Impl> (std::move (onChange))) {}
 DefaultOutputWatcher::~DefaultOutputWatcher() = default;
 
-bool hasUnchosenBluetoothInput (const juce::AudioDeviceManager& devices)
+bool hasBluetoothInput (const juce::AudioDeviceManager& devices)
 {
-    const auto input = devices.getAudioDeviceSetup().inputDeviceName;
+    return isBluetoothAudioDevice (devices.getAudioDeviceSetup().inputDeviceName);
+}
 
-    if (! isBluetoothAudioDevice (input))
-        return false;
+juce::String applyAudioSetup (juce::AudioDeviceManager& devices, juce::AudioDeviceManager::AudioDeviceSetup setup, bool chosen, std::string& notice)
+{
+    if (isBluetoothAudioDevice (setup.inputDeviceName))
+    {
+        notice = setup.inputDeviceName.toStdString() + "'s microphone isn't used: it would switch the headset to call quality";
+        setup.inputDeviceName = {};
+    }
 
-    // The settings last chosen explicitly (audio.setDevice), or restored from them.
-    auto chosen = devices.createStateXml();
-    return chosen == nullptr || chosen->getStringAttribute ("audioInputDeviceName") != input;
+    auto error = devices.setAudioDeviceSetup (setup, chosen);
+
+    // An input and an output that share no sample rate can't run together: play without the input.
+    if (error.isNotEmpty() && setup.inputDeviceName.isNotEmpty())
+    {
+        const auto input = setup.inputDeviceName;
+        setup.inputDeviceName = {};
+
+        if (devices.setAudioDeviceSetup (setup, chosen).isEmpty())
+        {
+            notice = input.toStdString() + " and " + setup.outputDeviceName.toStdString()
+                   + " can't run together (" + error.toStdString() + "), so there's no input. Pick an input that works with this output to record.";
+            return {};
+        }
+    }
+
+    return error;
 }
 
 } // namespace gk

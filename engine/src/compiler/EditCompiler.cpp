@@ -306,7 +306,14 @@ namespace
                 if (pc == nullptr)
                     continue;
 
-                auto& pattern = *findPattern (project, pc->pattern);
+                // Validated songs always have it; a clip without one plays nothing rather than
+                // taking the engine down.
+                auto* found = findPattern (project, pc->pattern);
+
+                if (found == nullptr)
+                    continue;
+
+                auto& pattern = *found;
                 const auto loopLength = getPatternLength (pattern, project.timeSignature);
                 const bool muted = pc->mute || isTrackMuted (pc->track);
 

@@ -1075,9 +1075,16 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
                 return j;
             };
 
+            // Headsets' microphones aren't offered: they'd turn playback into call quality.
+            juce::StringArray inputs;
+
+            for (auto& name : type->getDeviceNames (true))
+                if (! isBluetoothAudioDevice (name))
+                    inputs.add (name);
+
             types.push_back ({ { "type", type->getTypeName().toStdString() },
                                { "outputs", names (type->getDeviceNames (false)) },
-                               { "inputs", names (type->getDeviceNames (true)) } });
+                               { "inputs", names (inputs) } });
         }
 
         auto setup = devices.getAudioDeviceSetup();
@@ -1094,12 +1101,8 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         if (params.contains ("type"))
             devices.setCurrentAudioDeviceType (readParam<std::string> (params, "type"), true);
 
-        // Keep a Bluetooth headset's microphone closed unless it's the chosen input; this setup becomes the chosen one.
-        const bool releaseInput = ! params.contains ("input") && hasUnchosenBluetoothInput (devices);
+        // This setup becomes the chosen one (never with a headset's microphone; see applyAudioSetup).
         auto setup = devices.getAudioDeviceSetup();
-
-        if (releaseInput)
-            setup.inputDeviceName = {};
 
         // An output by name is the one to use from now on; "" goes back to following the system's.
         const auto output = params.contains ("output") ? std::optional (readParam<std::string> (params, "output")) : std::nullopt;
@@ -1112,7 +1115,9 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         setup.useDefaultInputChannels = true;
         setup.useDefaultOutputChannels = true;
 
-        if (auto error = devices.setAudioDeviceSetup (setup, true); error.isNotEmpty())
+        std::string notice;
+
+        if (auto error = applyAudioSetup (devices, setup, true, notice); error.isNotEmpty())
             throw RpcError (operationFailed, error.toStdString());
 
         live->pairStereoInputs();
@@ -1120,7 +1125,12 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
         if (output)
             live->setFollowSystemOutput (output->empty());
 
-        return call ("audio.devices", Json::object(), client);
+        auto result = call ("audio.devices", Json::object(), client);
+
+        if (! notice.empty())
+            result["notice"] = notice;
+
+        return result;
     }
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");

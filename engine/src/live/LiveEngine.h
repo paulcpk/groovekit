@@ -51,9 +51,9 @@ public:
         device the device manager has (e.g. a hosted device in tests). */
     void openDefaultAudioDevice();
 
-    /** Closes the input if it's a Bluetooth headset's microphone that wasn't chosen as the input
-        (see isBluetoothAudioDevice): macOS makes it the default input along with the output. Also
-        done whenever the device changes. */
+    /** Closes the input if it's a Bluetooth headset's microphone (see isBluetoothAudioDevice):
+        macOS makes it the default input along with the output. Also done whenever the device
+        changes. */
     void releaseBluetoothMicrophone();
 
     /** Plays through macOS's default output, switching when it changes (on unless an output was

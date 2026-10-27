@@ -5,7 +5,7 @@ import { Dropdown, DropdownContent, DropdownItem, DropdownTrigger } from "@/comp
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { setApiKey, useApiKey } from "@/features/agent/agent";
-import { call, engine, useEngine } from "@/state/engine";
+import { call, engine, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { ChevronDown } from "lucide-react";
 
@@ -70,7 +70,11 @@ export function SettingsDialog() {
   }, [open, plugins?.running]);
 
   const type = audio?.types.find((t) => t.type === audio.current?.type) ?? audio?.types[0];
-  const setDevice = (params: Record<string, unknown>) => call<AudioDevices>("audio.setDevice", params).then(setAudio);
+  // The engine leaves out an input it can't use with the output, and says so.
+  const setDevice = (params: Record<string, unknown>) => call<AudioDevices & { notice?: string }>("audio.setDevice", params).then((r) => {
+    setAudio(r);
+    if (r.notice) toast(r.notice);
+  });
 
   return (
     <Dialog open={open} onOpenChange={(o) => setUi({ settingsOpen: o })} title="Settings">
@@ -89,9 +93,6 @@ export function SettingsDialog() {
             })()}
             <span className="text-dim">Input</span>
             <Picker value={audio.current?.input ?? ""} options={type?.inputs ?? []} onPick={(v) => void setDevice({ input: v })} none />
-            {audio.current?.bluetoothInput && (
-              <span className="col-start-2 text-2xs text-faint">Using this headset's microphone switches it to call quality for playback too.</span>
-            )}
             <span className="text-dim">Buffer</span>
             <Picker value={`${audio.current?.bufferSize ?? ""} samples`} options={["64", "128", "256", "512", "1024", "2048"].map((b) => `${b} samples`)}
               onPick={(v) => void setDevice({ bufferSize: Number.parseInt(v) })} />
@@ -270,11 +271,12 @@ const SOURCE = "https://github.com/paulcpk/groovekit";
 
 /** The version, the license and the notices of the software GrooveKit includes. */
 function About() {
-  const [version, setVersion] = useState("");
+  const [version, setVersion] = useState<string>(import.meta.env.GROOVEKIT_VERSION ?? "");
   const [notices, setNotices] = useState<string>();
 
   useEffect(() => {
-    if (inDesktopApp) void import("@tauri-apps/api/app").then((m) => m.getVersion()).then(setVersion, () => {});
+    // Builds from a git checkout know which commit they are; otherwise the app's own version.
+    if (inDesktopApp && !import.meta.env.GROOVEKIT_VERSION) void import("@tauri-apps/api/app").then((m) => m.getVersion()).then(setVersion, () => {});
   }, []);
 
   const showNotices = async () => {
