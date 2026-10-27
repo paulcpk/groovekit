@@ -8,6 +8,7 @@
 #include "plugins/PluginCatalog.h"
 #include "render/Render.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -158,4 +159,96 @@ TEST_CASE ("Plugin state is captured into the project and restored")
     auto file = test::tempDir() / "plugin-state.wav";
     renderToWav (compiled, session->getProject(), file, {});
     CHECK (analysis::rmsDb (analysis::loadAudio (file), { 0, 0.1, {} }) < -30);
+}
+
+TEST_CASE ("GrooveKit's synth is registered without a scan, and plays")
+{
+    auto triad = findByName (appleUnits(), "Triad");
+    REQUIRE (triad);
+    CHECK (PluginCatalog::toJson (*triad)["instrument"] == true);
+    CHECK (triad->manufacturerName == "GrooveKit");
+
+    // Listed once, and found again if a project names it at another file (a build, the app).
+    const auto plugins = appleUnits().getPlugins();
+    CHECK (std::count_if (plugins.begin(), plugins.end(), [] (auto& d) { return d.name == "Triad"; }) == 1);
+    const auto uid = triad->createIdentifierString();
+    const auto moved = uid.upToLastOccurrenceOf ("-", false, false).upToLastOccurrenceOf ("-", true, false) + "1234abcd" + uid.fromLastOccurrenceOf ("-", true, false);
+    REQUIRE (moved != uid);
+    REQUIRE (appleUnits().find (moved.toStdString()));
+    CHECK (appleUnits().find (moved.toStdString())->fileOrIdentifier == triad->fileOrIdentifier);
+    CHECK (! appleUnits().find ((moved + "0").toStdString()));
+
+    auto render = [&] (double volume)
+    {
+        auto doc = Json::parse (std::ifstream (test::repoRoot() / "tests" / "songs" / "beeps" / "song.json"));
+        doc["channels"][0]["instrument"] = { { "type", "plugin" },
+            { "plugin", { { "format", "VST3" }, { "uid", triad->createIdentifierString().toStdString() }, { "name", "Triad" },
+                          { "params", { { "Volume", volume } } } } } };
+
+        auto project = model::parseProject (doc);
+        auto compiled = compileProject (test::getEngine(), project, { test::tempDir(), tracktion::Edit::forRendering });
+        auto file = test::tempDir() / "triad.wav";
+        renderToWav (compiled, project, file, {});
+        return analysis::rmsDb (analysis::loadAudio (file), { 0, 0.1, {} });
+    };
+
+    // Its volume runs -36 to +6 dB: halfway is -15 dB, 21 dB above the bottom.
+    const auto loud = render (0.5), quiet = render (0.0);
+    CHECK (loud > -30);
+    CHECK (loud - quiet == Catch::Approx (21).margin (0.5));
+}
+
+TEST_CASE ("Every one of the synth's presets plays, and its editor opens")
+{
+    auto triad = findByName (appleUnits(), "Triad");
+    REQUIRE (triad);
+
+    juce::String error;
+    auto instance = test::getEngine().getPluginManager().pluginFormatManager.createPluginInstance (*triad, 48000, 512, error);
+    REQUIRE (instance != nullptr);
+    instance->setPlayConfigDetails (0, 2, 48000, 512);
+    instance->prepareToPlay (48000, 512);
+    REQUIRE (instance->getNumPrograms() > 10);
+
+    for (int p = 0; p < instance->getNumPrograms(); ++p)
+    {
+        INFO (instance->getProgramName (p));
+        instance->setCurrentProgram (p);
+
+        // A chord held for half a second, then let go.
+        juce::AudioBuffer<float> buffer (2, 512);
+        float peak = 0;
+        bool finite = true;
+
+        for (int block = 0; block < 60; ++block)
+        {
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                for (auto note : { 48, 55, 60 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, 0.8f), 0);
+
+            if (block == 47)
+                midi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+
+            buffer.clear();
+            instance->processBlock (buffer, midi);
+
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    finite = finite && std::isfinite (buffer.getSample (ch, i));
+
+            peak = std::max (peak, buffer.getMagnitude (0, buffer.getNumSamples()));
+        }
+
+        CHECK (finite);
+        CHECK (peak > 0.01f);
+        CHECK (peak < 4.0f);
+    }
+
+    std::unique_ptr<juce::AudioProcessorEditor> editor (instance->createEditor());
+    REQUIRE (editor != nullptr);
+    CHECK (editor->getWidth() > 800);
+    editor.reset();
+    instance->releaseResources();
 }

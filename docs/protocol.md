@@ -45,6 +45,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `voice.transcribe` | `audio` (16-bit PCM at 16 kHz, mono, base64), `language?` (two letters; detected when absent) | `{ job }` at once; a `voiceTranscript` notification `{ job, text }` or `{ job, error }` follows |
 | `mixer.spectrum` | `insert`, `effect` | `{ bins, fromHz, toHz }`: what the effect slot outputs (after its mix) as 160 dB values, log-spaced from 20 Hz to 20 kHz |
 | `mixer.waveform` | `insert`, `effect`, `samples?` (1024) | `{ samples }`: the slot's latest output, mono |
+| `mixer.meter` | `insert`, `effect`, `since?`, `samples?` | What one of GrooveKit's effects measures, for its window; `{}` for others. Compressor, multiband and exciter: `{ position, frames }`, a frame of numbers per 5 ms written after `since` (a `position` from before), or the last five seconds: compressor `[inputDb, outputDb, gainDb]`; multiband `[inputDb, outputDb]` then per band (always four) `inputDb, outputDb, gainDb` (gain negative when pulled down, positive when lifted); exciter `[inputDb, outputDb]` as RMS. Stereo field: `{ left, right }`, the latest `samples` (512) output samples. |
 | `transport.state` / `transport.play` / `transport.stop` | | `{ playing, recording, position (ticks), seconds, mode, pattern? }`; stop keeps the position |
 | `transport.setPosition` | `position` (ticks) | transport state |
 | `transport.setLoop` | `start`, `end` (ticks); omit both to stop looping | transport state; in pattern mode it's kept for the song |

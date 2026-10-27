@@ -2,7 +2,7 @@
 
 An agent-first music production app, with AI agents as first-class producers. The human is the director; the agent arranges, mixes, automates and masters.
 
-Songs are built from channels (a built-in multi-layer sampler or hosted VST3/AU instruments), patterns of notes that any number of channels share, a playlist of free tracks holding pattern, audio and automation clips, and a mixer of inserts with effects, sends and routing. Everything the UI can do, an agent can do through the same API, and every change is undoable.
+Songs are built from channels (a built-in multi-layer sampler, GrooveKit's own Triad synth, or hosted VST3/AU instruments), patterns of notes that any number of channels share, a playlist of free tracks holding pattern, audio and automation clips, and a mixer of inserts with effects, sends and routing. Everything the UI can do, an agent can do through the same API, and every change is undoable.
 
 Status: early development. The engine, command API, MCP server, sample library, analysis, mastering, live playback and recording (including clock-synced hardware), plugin hosting and a first desktop UI work. See [docs/architecture.md](docs/architecture.md) and [docs/roadmap.md](docs/roadmap.md).
 
@@ -89,10 +89,17 @@ Songs are JSON files described by [schema/project.schema.json](schema/project.sc
 
 File names say little about how a sample sounds, so GrooveKit can listen. In the Browser, under Listening, download the listening models once (about 400 MB) and GrooveKit hears every sample in your library. Then add a style: a folder of tracks you love. GrooveKit splits them into drums, bass and the rest and learns what each part sounds like, and how the tracks move (tempo, swing, density) and balance. The Browser can then rank samples by how well they fit the style, search by describing a sound ("dusty warm chord stab"), and find sounds like one you picked; thumbs up or down teaches it your taste. The agent does the same: it builds songs from sounds that fit the style and compares the result with your references to see what's off. Everything runs on your Mac.
 
+### Effects and the Triad synth
+
+Every built-in effect has a window that shows what it does as it does it. The compressor draws its curve with the sound riding it and the last seconds of level and gain reduction; the multiband compressor splits the spectrum into three or four bands you drag, each with its waveform scrolling past, its thresholds to drag and its own pull-down and lift-up; the exciter is a warm tube, tape, transformer or console stage with a VU meter; the bitcrusher shows its steps on a little LCD; the stereo field routes each side to each side and shows the image on a vectorscope. Each comes with presets.
+
+Triad is GrooveKit's own synth: three oscillators with FM and ring modulation between them, unison, a filter with its own envelope, an LFO and glide, with presets from sub bass to chord stabs. It's a VST3 that comes with the app, ready in any channel (+ Channel → Triad synth).
+
 ## Repository layout
 
 - `engine/` — C++ engine: model, commands and history, API server, compiler to Tracktion, sampler, mixer, effects, renderer, analysis, CLI
 - `schema/` — JSON Schemas for the project and the command protocol, and the C++/TypeScript generator (`pnpm codegen`)
+- `plugins/triad/` — the Triad synth, a JUCE VST3
 - `mcp/` — the MCP server for agents
 - `ui/` — the app: React UI and the Tauri desktop shell
 - `tests/` — render test songs and the fixture samples they use

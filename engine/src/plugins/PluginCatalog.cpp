@@ -12,6 +12,82 @@ PluginCatalog::PluginCatalog (tracktion::Engine& e, fs::path file)
 {
     if (auto xml = juce::parseXML (juce::File (listFile.string())))
         engine.getPluginManager().knownPluginList.recreateFromXml (*xml);
+
+    addBundledPlugins();
+}
+
+std::vector<fs::path> PluginCatalog::getBundledPluginFolders()
+{
+    std::vector<fs::path> folders;
+
+    if (auto env = std::getenv ("GROOVEKIT_BUNDLED_PLUGINS"))
+        folders.emplace_back (env);
+
+    // In the app: Contents/MacOS/groovekit-engine, beside Contents/Resources.
+    const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+    folders.push_back (fs::path (exe.getParentDirectory().getParentDirectory().getChildFile ("Resources/Plug-Ins").getFullPathName().toStdString()));
+
+   #ifdef GK_BUILT_PLUGINS
+    folders.emplace_back (GK_BUILT_PLUGINS);
+   #endif
+
+    return folders;
+}
+
+void PluginCatalog::addBundledPlugins()
+{
+    auto& manager = engine.getPluginManager();
+    juce::AudioPluginFormat* vst3 = nullptr;
+
+    for (auto* format : manager.pluginFormatManager.getFormats())
+        if (format->getName() == "VST3")
+            vst3 = format;
+
+    if (vst3 == nullptr)
+        return;
+
+    auto& list = manager.knownPluginList;
+    bool changed = false;
+
+    // The first folder that has them wins: the app's own copy over a build tree's.
+    for (auto& folder : getBundledPluginFolders())
+    {
+        std::error_code ec;
+        juce::StringArray paths;
+
+        for (auto& entry : fs::directory_iterator (folder, ec))
+            if (entry.path().extension() == ".vst3")
+                paths.add (juce::File (entry.path().string()).getFullPathName());   // as the list keeps them, without ".."
+
+        if (paths.isEmpty())
+            continue;
+
+        // Scanned once, and again when they change.
+        for (auto& path : paths)
+        {
+            if (! list.isListingUpToDate (path, *vst3))
+            {
+                juce::OwnedArray<juce::PluginDescription> found;
+                list.scanAndAddFile (path, false, found, *vst3);
+                changed = true;
+            }
+        }
+
+        // Copies elsewhere (another build, an older app) are forgotten, so each is listed once.
+        for (auto& type : list.getTypes())
+        {
+            if (type.manufacturerName == "GrooveKit" && ! paths.contains (type.fileOrIdentifier))
+            {
+                list.removeType (type);
+                changed = true;
+            }
+        }
+
+        break;
+    }
+
+    if (changed)
+        save();
 }
 
 PluginCatalog::~PluginCatalog()
@@ -128,12 +204,35 @@ std::vector<juce::PluginDescription> PluginCatalog::getPlugins() const
     return list;
 }
 
-std::optional<juce::PluginDescription> PluginCatalog::find (const std::string& uid) const
+std::optional<juce::PluginDescription> PluginCatalog::find (const juce::KnownPluginList& list, const std::string& uid)
 {
-    if (auto d = engine.getPluginManager().knownPluginList.getTypeForIdentifierString (uid))
+
+    if (auto d = list.getTypeForIdentifierString (uid))
         return *d;
 
+    // Identifiers end in a hash of the plugin's file and its id: "VST3-Triad-1a2b3c-49b6ccb2". The
+    // same plugin moved to another file (reinstalled, or GrooveKit's own in the app rather than a
+    // build) keeps its format, name and id.
+    const auto id = juce::String (uid);
+    const auto withoutId = id.upToLastOccurrenceOf ("-", false, false);
+    const auto prefix = withoutId.upToLastOccurrenceOf ("-", true, false);
+    const auto suffix = id.fromLastOccurrenceOf ("-", true, false);
+
+    for (auto& d : list.getTypes())
+    {
+        const auto other = d.createIdentifierString();
+
+        if (other.startsWith (prefix) && other.endsWith (suffix)
+            && other.substring (prefix.length()).upToLastOccurrenceOf ("-", false, false).containsOnly ("0123456789abcdef"))
+            return d;
+    }
+
     return {};
+}
+
+std::optional<juce::PluginDescription> PluginCatalog::find (const std::string& uid) const
+{
+    return find (engine.getPluginManager().knownPluginList, uid);
 }
 
 std::string PluginCatalog::formatName (const juce::PluginDescription& d)

@@ -79,4 +79,5 @@ if(GK_BUILD_TESTS)
     enable_testing()
 endif()
 
+add_subdirectory(plugins/triad)
 add_subdirectory(engine)

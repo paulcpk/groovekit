@@ -369,7 +369,7 @@
       "properties": {
         "type": { "const": "builtin" },
         "id": { "$ref": "#/$defs/Id" },
-        "kind": { "type": "string", "enum": ["eq", "compressor", "limiter", "reverb", "delay", "phaser", "chorus", "distortion", "lowpass", "highpass"] },
+        "kind": { "type": "string", "enum": ["eq", "compressor", "multiband", "limiter", "reverb", "delay", "phaser", "chorus", "distortion", "exciter", "bitcrusher", "stereo", "lowpass", "highpass"] },
         "bypass": { "type": "boolean", "default": false },
         "mix": { "description": "How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter \"mix\".", "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
         "params": {

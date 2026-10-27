@@ -876,6 +876,9 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
                  { "fromHz", 20 }, { "toHz", 20000 } };
     }
 
+    if (method == "mixer.meter")
+        return live->readEffectMeter (readParam<std::string> (params, "insert"), readParam<std::string> (params, "effect"), params);
+
     if (method == "preview.stop")
     {
         live->getPreview().stop();

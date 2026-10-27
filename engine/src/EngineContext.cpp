@@ -5,6 +5,8 @@
 #include "live/MidiClockPlugin.h"
 #include "effects/Effects.h"
 #include "effects/EqPlugin.h"
+#include "effects/Saturation.h"
+#include "effects/StereoPlugin.h"
 #include "mixer/EffectMix.h"
 #include "mixer/FaderPlugin.h"
 #include "mixer/LimiterPlugin.h"
@@ -91,6 +93,11 @@ EngineContext::EngineContext (Options options) : impl (std::make_unique<Impl> (o
     plugins.createBuiltInType<effects::ReverbPlugin>();
     plugins.createBuiltInType<effects::ChorusPlugin>();
     plugins.createBuiltInType<effects::DistortionPlugin>();
+    plugins.createBuiltInType<effects::CompressorPlugin>();
+    plugins.createBuiltInType<effects::MultibandPlugin>();
+    plugins.createBuiltInType<effects::ExciterPlugin>();
+    plugins.createBuiltInType<effects::BitcrusherPlugin>();
+    plugins.createBuiltInType<effects::StereoPlugin>();
     plugins.createBuiltInType<mixer::EffectMixTap>();
     plugins.createBuiltInType<mixer::EffectMixBlend>();
     plugins.createBuiltInType<MidiClockPlugin>();

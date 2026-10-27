@@ -46,8 +46,9 @@ export function getCatalogue() {
 }
 
 export const effectNames: Record<string, string> = {
-  eq: "EQ", compressor: "Compressor", limiter: "Limiter", reverb: "Reverb", delay: "Delay",
-  phaser: "Phaser", chorus: "Chorus", distortion: "Distortion", lowpass: "Low-pass", highpass: "High-pass",
+  eq: "EQ", compressor: "Compressor", multiband: "Multiband", limiter: "Limiter", reverb: "Reverb", delay: "Delay",
+  phaser: "Phaser", chorus: "Chorus", distortion: "Distortion", exciter: "Exciter", bitcrusher: "Bitcrusher",
+  stereo: "Stereo Field", lowpass: "Low-pass", highpass: "High-pass",
 };
 
 export function formatParam(value: number, unit: string) {

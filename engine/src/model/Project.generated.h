@@ -188,12 +188,16 @@ enum class BuiltinEffectKind
 {
     eq,
     compressor,
+    multiband,
     limiter,
     reverb,
     delay,
     phaser,
     chorus,
     distortion,
+    exciter,
+    bitcrusher,
+    stereo,
     lowpass,
     highpass
 };
@@ -204,12 +208,16 @@ inline const char* toString (BuiltinEffectKind v)
     {
         case BuiltinEffectKind::eq: return "eq";
         case BuiltinEffectKind::compressor: return "compressor";
+        case BuiltinEffectKind::multiband: return "multiband";
         case BuiltinEffectKind::limiter: return "limiter";
         case BuiltinEffectKind::reverb: return "reverb";
         case BuiltinEffectKind::delay: return "delay";
         case BuiltinEffectKind::phaser: return "phaser";
         case BuiltinEffectKind::chorus: return "chorus";
         case BuiltinEffectKind::distortion: return "distortion";
+        case BuiltinEffectKind::exciter: return "exciter";
+        case BuiltinEffectKind::bitcrusher: return "bitcrusher";
+        case BuiltinEffectKind::stereo: return "stereo";
         case BuiltinEffectKind::lowpass: return "lowpass";
         case BuiltinEffectKind::highpass: return "highpass";
     }
@@ -226,12 +234,16 @@ inline void readValue (Reader& r, const Json& j, BuiltinEffectKind& out)
 
     if (s == "eq") { out = BuiltinEffectKind::eq; return; }
     if (s == "compressor") { out = BuiltinEffectKind::compressor; return; }
+    if (s == "multiband") { out = BuiltinEffectKind::multiband; return; }
     if (s == "limiter") { out = BuiltinEffectKind::limiter; return; }
     if (s == "reverb") { out = BuiltinEffectKind::reverb; return; }
     if (s == "delay") { out = BuiltinEffectKind::delay; return; }
     if (s == "phaser") { out = BuiltinEffectKind::phaser; return; }
     if (s == "chorus") { out = BuiltinEffectKind::chorus; return; }
     if (s == "distortion") { out = BuiltinEffectKind::distortion; return; }
+    if (s == "exciter") { out = BuiltinEffectKind::exciter; return; }
+    if (s == "bitcrusher") { out = BuiltinEffectKind::bitcrusher; return; }
+    if (s == "stereo") { out = BuiltinEffectKind::stereo; return; }
     if (s == "lowpass") { out = BuiltinEffectKind::lowpass; return; }
     if (s == "highpass") { out = BuiltinEffectKind::highpass; return; }
 

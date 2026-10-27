@@ -23,17 +23,25 @@ export function usePlugins(instrument: boolean) {
   return plugins;
 }
 
+/** Instruments for a new channel: GrooveKit's own Triad synth first, then every scanned plugin. */
 export function PluginPicker({ doc }: { doc: Project }) {
+  const plugins = usePlugins(true);
+  const triad = plugins?.find((p) => p.manufacturer === "GrooveKit" && p.name === "Triad");
+  const add = (p: PluginInfo) => {
+    const id = uniqueId(p.name, doc.channels);
+    void execute({
+      type: "addChannel",
+      channel: { id, name: p.name, instrument: { type: "plugin", plugin: { format: p.format, uid: p.uid, name: p.name, manufacturer: p.manufacturer } } },
+    }, { label: `Add ${p.name}` }).then(() => setUi({ selectedChannel: id }));
+  };
+
   return (
-    <DropdownSub label="Plugin instrument">
-      <PluginList instrument onPick={(p) => {
-        const id = uniqueId(p.name, doc.channels);
-        void execute({
-          type: "addChannel",
-          channel: { id, name: p.name, instrument: { type: "plugin", plugin: { format: p.format, uid: p.uid, name: p.name, manufacturer: p.manufacturer } } },
-        }, { label: `Add ${p.name}` }).then(() => setUi({ selectedChannel: id }));
-      }} />
-    </DropdownSub>
+    <>
+      {triad && <DropdownItem onSelect={() => add(triad)}>Triad synth</DropdownItem>}
+      <DropdownSub label="Plugin instrument">
+        <PluginList instrument onPick={add} />
+      </DropdownSub>
+    </>
   );
 }
 

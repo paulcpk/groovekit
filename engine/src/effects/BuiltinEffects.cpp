@@ -1,7 +1,10 @@
 #include "BuiltinEffects.h"
 
+#include "Dynamics.h"
 #include "Effects.h"
 #include "EqPlugin.h"
+#include "Saturation.h"
+#include "StereoPlugin.h"
 #include "mixer/LimiterPlugin.h"
 
 #include <deque>
@@ -13,9 +16,6 @@ using model::BuiltinEffectKind;
 
 namespace
 {
-    float dbToGain (float db)         { return juce::Decibels::decibelsToGain (db); }
-    float inverse (float ratio)       { return 1.0f / ratio; }
-
     /** Keeps generated parameter names alive for the catalogue's const char* ids. */
     const char* keep (std::string s)
     {
@@ -46,20 +46,65 @@ namespace
         return info;
     }
 
+    EffectInfo multibandInfo()
+    {
+        EffectInfo info { BuiltinEffectKind::multiband, MultibandPlugin::xmlTypeName,
+                          "Multiband compressor: three or four bands split at lowFreq, midFreq (four bands only) and highFreq, "
+                          "each compressed on its own (bandNThresholdDb and bandNRatio pull loud parts down; bandNBelowDb and bandNBelowRatio "
+                          "lift quiet parts up, for dense, upfront sound), with its own gain and a mode (on, bypass, solo or mute). "
+                          "With three bands, band1-3 are low, mid and high; with four, low, low mid, high mid and high.",
+                          {
+                              { "bands", "", 0, 1, 0, "How many bands (an index into the choices).", "bands", nullptr, nullptr, { "3", "4" } },
+                              { "lowFreq", "Hz", 20, 2000, 150, "Crossover between the low band and the next.", "lowFreq" },
+                              { "midFreq", "Hz", 100, 10000, 1000, "Crossover between the two middle bands (four bands only).", "midFreq" },
+                              { "highFreq", "Hz", 500, 16000, 5000, "Crossover between the high band and the one below it.", "highFreq" },
+                              { "inputDb", "dB", -24, 24, 0, "Gain before the bands: drives them harder into their thresholds.", "inputDb" },
+                              { "outputDb", "dB", -24, 24, 0, "Gain after the bands are summed.", "outputDb" },
+                              { "kneeDb", "dB", 0, 24, 6, "Softness of every band's knee: wider eases into compression.", "kneeDb" },
+                              { "detect", "", 0, 1, 0, "How bands hear their level (an index into the choices): peak reacts to transients, rms to loudness.",
+                                "detect", nullptr, nullptr, { "peak", "rms" } },
+                          } };
+
+        // Lows move slower than highs.
+        const float attacks[] { 20, 10, 5, 3 }, releases[] { 200, 150, 100, 80 };
+
+        for (int b = 0; b < MultibandPlugin::maxBands; ++b)
+        {
+            const auto n = "band" + std::to_string (b + 1);
+            const auto id = [&] (const char* what) { return keep (n + what); };
+
+            info.params.push_back ({ id ("ThresholdDb"), "dB", -60, 0, -18, "Level above which the band is pulled down.", id ("ThresholdDb") });
+            info.params.push_back ({ id ("Ratio"), ":1", 1, 20, 2, "Downward ratio above the threshold; 1 leaves it alone.", id ("Ratio") });
+            info.params.push_back ({ id ("BelowDb"), "dB", -80, 0, -40, "Level below which quiet parts are lifted (with a below ratio over 1).", id ("BelowDb") });
+            info.params.push_back ({ id ("BelowRatio"), ":1", 1, 10, 1, "Upward ratio below BelowDb, lifting at most 24 dB; 1 is off.", id ("BelowRatio") });
+            info.params.push_back ({ id ("AttackMs"), "ms", 0.1, 200, attacks[b], "How quickly the band reacts when it gets louder.", id ("AttackMs") });
+            info.params.push_back ({ id ("ReleaseMs"), "ms", 10, 1000, releases[b], "How quickly it recovers.", id ("ReleaseMs") });
+            info.params.push_back ({ id ("GainDb"), "dB", -24, 24, 0, "The band's level after compression.", id ("GainDb") });
+            info.params.push_back ({ id ("Mode"), "", 0, 3, 0, "on, bypass (uncompressed), solo (only soloed bands are heard) or mute (an index into the choices).",
+                                     id ("Mode"), nullptr, nullptr, MultibandPlugin::modeNames() });
+        }
+
+        return info;
+    }
+
     std::vector<EffectInfo> buildCatalogue()
     {
         return {
             eqInfo(),
 
-            { BuiltinEffectKind::compressor, tracktion::CompressorPlugin::xmlTypeName,
-              "Feed-forward compressor.",
+            { BuiltinEffectKind::compressor, CompressorPlugin::xmlTypeName,
+              "Compressor, channels linked: pulls the level down above the threshold by the ratio, with a soft knee if asked, then make-up gain.",
               {
-                  { "thresholdDb", "dB", -40, 0, -6, "Level above which gain is reduced.", "threshold", nullptr, dbToGain },
-                  { "ratio", ":1", 1, 20, 2, "Compression ratio.", "ratio", nullptr, inverse },
-                  { "attackMs", "ms", 0.3, 200, 100, "Attack time.", "attack" },
-                  { "releaseMs", "ms", 10, 300, 100, "Release time.", "release" },
-                  { "outputDb", "dB", -10, 24, 0, "Make-up gain.", "output gain" },
+                  { "thresholdDb", "dB", -60, 0, -6, "Level above which gain is reduced.", "thresholdDb" },
+                  { "ratio", ":1", 1, 20, 2, "Compression ratio: every ratio dB over the threshold comes out as 1 dB.", "ratio" },
+                  { "attackMs", "ms", 0.1, 200, 100, "How quickly it clamps down when the sound gets louder.", "attackMs" },
+                  { "releaseMs", "ms", 10, 1000, 100, "How quickly it lets go.", "releaseMs" },
+                  { "outputDb", "dB", -10, 24, 0, "Make-up gain.", "outputDb" },
+                  { "kneeDb", "dB", 0, 24, 0, "Width of the knee around the threshold: 0 is hard, wider eases in.", "kneeDb" },
+                  { "detectLowCut", "Hz", 20, 500, 20, "The detector doesn't hear below this, so the bass doesn't make the rest pump (20 is off).", "detectLowCut" },
               } },
+
+            multibandInfo(),
 
             { BuiltinEffectKind::limiter, mixer::LimiterPlugin::xmlTypeName,
               "Lookahead brickwall limiter (5 ms latency): no sample exceeds the ceiling. Put it last on master.",
@@ -118,6 +163,47 @@ namespace
                   { "driveDb", "dB", 0, 48, 12, "Gain into the shaper: more distortion (for crush, fewer bits).", "driveDb" },
                   { "tone", "Hz", 500, 20000, 8000, "Low-pass after the shaper; lower is darker.", "tone" },
                   { "outputDb", "dB", -24, 12, -6, "Level after; distortion adds a lot of loudness.", "outputDb" },
+              } },
+
+            { BuiltinEffectKind::exciter, ExciterPlugin::xmlTypeName,
+              "Exciter: a soft analog-style stage (triode or pentode tube, tape, transformer, console or transistor), level-matched so it warms "
+              "rather than gets louder, with generated harmonics above harmonicsHz for presence and air, and below 150 Hz for body. "
+              "Gentler than the distortion.",
+              {
+                  { "model", "", 0, 5, 0, "The stage (an index into the choices): triode is warm and even, pentode firmer and odd, tape smooth with a softer top, "
+                    "transformer saturates the lows, console is the subtlest, transistor the crispest.", "model", nullptr, nullptr, ExciterPlugin::modelNames() },
+                  { "driveDb", "dB", 0, 24, 6, "How hard the stage is driven: more harmonics and gentle compression, at about the same level.", "driveDb" },
+                  { "warmth", "%", 0, 100, 40, "Share of even harmonics (asymmetry): rounder and warmer.", "warmth" },
+                  { "harmonics", "%", 0, 100, 20, "Generated harmonics above harmonicsHz: presence and air.", "harmonics" },
+                  { "harmonicsHz", "Hz", 1000, 16000, 5000, "Where the generated highs start.", "harmonicsHz" },
+                  { "body", "%", 0, 100, 0, "Generated harmonics of the lows, an octave up: bass that reads on small speakers.", "body" },
+                  { "outputDb", "dB", -24, 12, 0, "Level after.", "outputDb" },
+              } },
+
+            { BuiltinEffectKind::bitcrusher, BitcrusherPlugin::xmlTypeName,
+              "Bitcrusher: lowers the sample rate (holding samples, so it aliases) and the bit depth, then a low-pass tone.",
+              {
+                  { "driveDb", "dB", 0, 24, 0, "Gain before crushing: more of the signal hits the coarse steps.", "driveDb" },
+                  { "bits", "bits", 1, 16, 8, "Bit depth: fewer is grittier (fractions blend between).", "bits" },
+                  { "rateHz", "Hz", 200, 48000, 11025, "Sample rate it's lowered to: lower adds metallic aliasing.", "rateHz" },
+                  { "jitter", "%", 0, 100, 0, "Randomness in the sample timing: noisier, less tonal aliasing.", "jitter" },
+                  { "tone", "Hz", 500, 20000, 20000, "Low-pass after crushing; 20 kHz leaves it open.", "tone" },
+                  { "outputDb", "dB", -24, 12, 0, "Level after.", "outputDb" },
+              } },
+
+            { BuiltinEffectKind::stereo, StereoPlugin::xmlTypeName,
+              "Stereo field: a matrix of how much of each input side goes to each output side (negative inverts), then a delay of one side "
+              "(Haas widening), mid/side width, mono below monoBelow and balance. Swaps, folds to mono, inverts or narrows the sides.",
+              {
+                  { "leftToLeft", "%", -100, 100, 100, "How much of the left input is in the left output.", "leftToLeft" },
+                  { "rightToLeft", "%", -100, 100, 0, "How much of the right input is in the left output.", "rightToLeft" },
+                  { "leftToRight", "%", -100, 100, 0, "How much of the left input is in the right output.", "leftToRight" },
+                  { "rightToRight", "%", -100, 100, 100, "How much of the right input is in the right output.", "rightToRight" },
+                  { "width", "%", 0, 200, 100, "Side level against the middle: 0 is mono, 200 twice as wide.", "width" },
+                  { "pan", "%", -100, 100, 0, "Balance: negative turns the right side down, positive the left.", "pan" },
+                  { "delayMs", "ms", -20, 20, 0, "Delays one side: positive the right, negative the left. A few ms widens (Haas).", "delayMs" },
+                  { "monoBelow", "Hz", 0, 500, 0, "Below this the sound is mono, keeping the bass centred; 0 is off.", "monoBelow" },
+                  { "outputDb", "dB", -24, 12, 0, "Level after.", "outputDb" },
               } },
 
             { BuiltinEffectKind::lowpass, tracktion::LowPassPlugin::xmlTypeName,

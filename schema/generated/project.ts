@@ -5,7 +5,7 @@ export type SamplerFilterType = "off" | "lowpass" | "highpass" | "bandpass";
 export type SamplerLayerMode = "oneShot" | "gate";
 export type PluginRefFormat = "VST3" | "AU";
 export type AutomationTargetScope = "channel" | "insert" | "effect" | "send";
-export type BuiltinEffectKind = "eq" | "compressor" | "limiter" | "reverb" | "delay" | "phaser" | "chorus" | "distortion" | "lowpass" | "highpass";
+export type BuiltinEffectKind = "eq" | "compressor" | "multiband" | "limiter" | "reverb" | "delay" | "phaser" | "chorus" | "distortion" | "exciter" | "bitcrusher" | "stereo" | "lowpass" | "highpass";
 
 /** Stable identifier, unique within its collection. */
 export type Id = string;

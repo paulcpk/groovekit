@@ -10,9 +10,12 @@ target_sources(gk_engine PRIVATE
     src/compiler/EditCompiler.cpp
     src/compiler/EditGraveyard.cpp
     src/effects/BuiltinEffects.cpp
+    src/effects/Dynamics.cpp
     src/effects/EffectPlugin.cpp
     src/effects/Effects.cpp
     src/effects/EqPlugin.cpp
+    src/effects/Saturation.cpp
+    src/effects/StereoPlugin.cpp
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp
     src/library/SampleLibrary.cpp
@@ -100,8 +103,12 @@ if(APPLE)
     target_compile_options(gk_engine PRIVATE -fno-aligned-allocation)
 endif()
 
+# GrooveKit's own plugins, built with the engine and found in the build tree during development.
+target_compile_definitions(gk_engine PRIVATE GK_BUILT_PLUGINS="$<TARGET_FILE_DIR:Triad_VST3>/../../..")
+
 add_executable(groovekit-engine src/main.cpp)
 target_link_libraries(groovekit-engine PRIVATE gk_engine juce::juce_recommended_warning_flags)
+add_dependencies(groovekit-engine Triad_VST3)
 
 if(GK_BUILD_TESTS)
     add_subdirectory(tests)

@@ -213,6 +213,10 @@ public:
         there's no such effect. For the UI's spectrum and scope. */
     std::vector<float> readEffectOutput (const std::string& insert, const std::string& effect, int numSamples) const;
 
+    /** What one of our effects measures for its window (gain reduction, levels, the stereo
+        image); an empty object for effects that measure nothing or don't exist. */
+    model::Json readEffectMeter (const std::string& insert, const std::string& effect, const model::Json& params) const;
+
     /** The audio device's sample rate. */
     double getSampleRate() const;
 

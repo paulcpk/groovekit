@@ -9,7 +9,8 @@
 namespace gk
 {
 
-/** The VST3 and AU plugins on this machine, as found by scanning.
+/** The VST3 and AU plugins on this machine, as found by scanning, and GrooveKit's own (the
+    Triad synth), which are registered when the catalog opens without a scan.
 
     Scanning runs on the message thread one plugin at a time, so the engine keeps answering
     in between. With out-of-process scanning enabled (see EngineContext) each plugin is
@@ -23,6 +24,10 @@ public:
     ~PluginCatalog() override;
 
     static std::filesystem::path getDefaultListFile();
+
+    /** Where GrooveKit's own plugins are: GROOVEKIT_BUNDLED_PLUGINS, the app's Resources/Plug-Ins,
+        and (for development) the build tree. */
+    static std::vector<std::filesystem::path> getBundledPluginFolders();
 
     struct Progress
     {
@@ -39,8 +44,10 @@ public:
 
     std::vector<juce::PluginDescription> getPlugins() const;
 
-    /** By identifier (PluginDescription::createIdentifierString). */
+    /** By identifier (PluginDescription::createIdentifierString), or the same plugin (format,
+        name and id) at another file when it has moved. */
     std::optional<juce::PluginDescription> find (const std::string& uid) const;
+    static std::optional<juce::PluginDescription> find (const juce::KnownPluginList&, const std::string& uid);
 
     static model::Json toJson (const juce::PluginDescription&);
 
@@ -54,6 +61,7 @@ private:
     std::function<void (const Progress&)> onProgress;
     Progress progress;
 
+    void addBundledPlugins();
     void timerCallback() override;
     void finishScan();
     void save() const;

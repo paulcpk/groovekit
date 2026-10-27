@@ -3,7 +3,12 @@ import { Power } from "lucide-react";
 import { Knob } from "@/components/controls";
 import { FloatingWindow } from "@/components/window";
 import { EqEditor } from "@/features/effects/EqEditor";
-import { ChorusEditor, CompressorEditor, DelayEditor, DistortionEditor, ReverbEditor } from "@/features/effects/editors";
+import { BitcrusherEditor } from "@/features/effects/BitcrusherEditor";
+import { CompressorEditor } from "@/features/effects/CompressorEditor";
+import { ChorusEditor, DelayEditor, DistortionEditor, ReverbEditor } from "@/features/effects/editors";
+import { ExciterEditor } from "@/features/effects/ExciterEditor";
+import { MultibandEditor } from "@/features/effects/MultibandEditor";
+import { StereoEditor } from "@/features/effects/StereoEditor";
 import { ParamKnob } from "@/features/effects/params";
 import { PresetMenu } from "@/features/effects/PresetMenu";
 import { useCatalogue } from "@/lib/catalogue";
@@ -22,7 +27,14 @@ const EDITORS: Partial<Record<string, (props: { insert: Insert; effect: BuiltinE
   chorus: (props) => <ChorusEditor {...props} />,
   distortion: (props) => <DistortionEditor {...props} />,
   compressor: (props) => <CompressorEditor {...props} />,
+  multiband: (props) => <MultibandEditor {...props} />,
+  exciter: (props) => <ExciterEditor {...props} />,
+  bitcrusher: (props) => <BitcrusherEditor {...props} />,
+  stereo: (props) => <StereoEditor {...props} />,
 };
+
+/** Wider windows for the editors that need the room. */
+const WIDTHS: Partial<Record<string, number>> = { multiband: 900, exciter: 720, stereo: 720 };
 
 /** One of our effects in a window of its own: its controls, with the slot's on switch and mix
     knob in the title bar. */
@@ -35,7 +47,7 @@ export function EffectWindow({ window: w, insert, effect }: { window: OpenWindow
   const mix = useLiveControl((v) => ({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { mix: Math.round(v * 100) / 100 } }), `${name} mix`);
 
   return (
-    <FloatingWindow window={w} width={EDITORS[effect.kind] ? 680 : 460} accent="var(--color-accent)"
+    <FloatingWindow window={w} width={WIDTHS[effect.kind] ?? (EDITORS[effect.kind] ? 680 : 460)} accent="var(--color-accent)"
       title={
         <>
           <button type="button" title={effect.bypass ? "Turn on" : "Turn off"} className={effect.bypass ? "text-faint" : "text-accent"}

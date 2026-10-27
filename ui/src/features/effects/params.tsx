@@ -12,57 +12,32 @@ export function paramValue(effect: BuiltinEffect, id: string, param: EffectParam
   return effect.params?.[id] ?? param?.default ?? 0;
 }
 
-/** One parameter of one of our effects: a knob, or buttons for a choice. Right-click to reset
-    or automate it. */
-export function ParamKnob({ insert, effect, id, param: given, name, size = 32 }: {
-  insert: Insert; effect: BuiltinEffect; id: string; param?: EffectParam; name?: string; size?: number;
-}) {
-  const doc = useEngine((s) => s.doc)!;
+/** What a control needs for one parameter of one of our effects: its value, a knob scale (log
+    for frequencies, so the travel is spent evenly across octaves), live changes while dragging
+    and a set for one-off changes. */
+export function useParamControl(insert: Insert, effect: BuiltinEffect, id: string, name?: string, given?: EffectParam) {
   const catalogue = useCatalogue();
   const p = given ?? catalogue?.[effect.kind]?.params[id];
   const value = paramValue(effect, id, p);
   const log = p?.unit === "Hz" && p.min > 0;
-  // Frequencies turn on a log scale, so the knob spends its travel evenly across octaves.
   const toKnob = (v: number) => (p && log ? Math.log(v / p.min) / Math.log(p.max / p.min) : v);
   const fromKnob = (k: number) => (p && log ? p.min * Math.pow(p.max / p.min, k) : k);
+  const title = name ?? label(id);
   const live = useLiveControl((k) => ({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { params: { [id]: round(fromKnob(k)) } } }),
-    `${effectNames[effect.kind] ?? effect.kind} ${name ?? label(id)}`);
-  if (!p) return null;
+    `${effectNames[effect.kind] ?? effect.kind} ${title}`);
+  const set = (v: number) => void execute({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { params: { [id]: v } } }, { label: title });
+  return { p, value, title, toKnob, fromKnob, live, set };
+}
 
-  const set = (v: number) => void execute({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { params: { [id]: v } } }, { label: `${name ?? label(id)}` });
+/** Right-click on a parameter's control: reset it, or automate it. */
+export function ParamMenu({ insert, effect, id, children }: { insert: Insert; effect: BuiltinEffect; id: string; children: React.ReactNode }) {
+  const doc = useEngine((s) => s.doc)!;
+  const { p, value, set } = useParamControl(insert, effect, id);
+  if (!p) return <>{children}</>;
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
-        {p.choices && p.choices.length > 5 ? (
-          <div className="flex flex-col items-center gap-1" title={p.description}>
-            <select value={Math.round(value)} onChange={(e) => set(Number(e.target.value))}
-              className="h-6 rounded-[3px] bg-control px-1 text-xs text-fg outline-none">
-              {p.choices.map((c, i) => <option key={c} value={i}>{c === "off" ? "Off" : c}</option>)}
-            </select>
-            <div className="text-2xs text-dim">{name ?? label(id)}</div>
-          </div>
-        ) : p.choices ? (
-          <div className="flex flex-col items-center gap-1" title={p.description}>
-            <div className="flex flex-wrap justify-center gap-0.5">
-              {p.choices.map((c, i) => (
-                <button key={c} type="button" onClick={() => set(i)}
-                  className={cn("h-5 rounded-[3px] px-1.5 text-2xs", Math.round(value) === i ? "bg-accent text-black" : "bg-control text-dim hover:text-fg")}>
-                  {c === "off" ? "Off" : c === "on" ? "On" : c}
-                </button>
-              ))}
-            </div>
-            <div className="text-2xs text-dim">{name ?? label(id)}</div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center" title={p.description}>
-            <Knob size={size} value={toKnob(value)} min={toKnob(p.min)} max={toKnob(p.max)} defaultValue={toKnob(p.default)}
-              format={(k) => formatParam(fromKnob(k), p.unit)} onChange={live.onChange} onCommit={live.onCommit} />
-            <div className="mt-0.5 max-w-[84px] truncate text-2xs text-dim">{name ?? label(id)}</div>
-            <div className="text-[9px] text-faint tabular">{formatParam(value, p.unit)}</div>
-          </div>
-        )}
-      </ContextMenuTrigger>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => set(p.default)}>Reset</ContextMenuItem>
         {p.automatable && (
@@ -73,7 +48,50 @@ export function ParamKnob({ insert, effect, id, param: given, name, size = 32 }:
   );
 }
 
-function round(v: number) {
+/** One parameter of one of our effects: a knob, or buttons for a choice. Right-click to reset
+    or automate it. */
+export function ParamKnob({ insert, effect, id, param: given, name, size = 32, color }: {
+  insert: Insert; effect: BuiltinEffect; id: string; param?: EffectParam; name?: string; size?: number; color?: string;
+}) {
+  const { p, value, title, toKnob, fromKnob, live, set } = useParamControl(insert, effect, id, name, given);
+  if (!p) return null;
+
+  return (
+    <ParamMenu insert={insert} effect={effect} id={id}>
+      {p.choices && p.choices.length > 5 ? (
+        <div className="flex flex-col items-center gap-1" title={p.description}>
+          <select value={Math.round(value)} onChange={(e) => set(Number(e.target.value))}
+            className="h-6 rounded-[3px] bg-control px-1 text-xs text-fg outline-none">
+            {p.choices.map((c, i) => <option key={c} value={i}>{c === "off" ? "Off" : c}</option>)}
+          </select>
+          <div className="text-2xs text-dim">{title}</div>
+        </div>
+      ) : p.choices ? (
+        <div className="flex flex-col items-center gap-1" title={p.description}>
+          <div className="flex flex-wrap justify-center gap-0.5">
+            {p.choices.map((c, i) => (
+              <button key={c} type="button" onClick={() => set(i)}
+                className={cn("h-5 rounded-[3px] px-1.5 text-2xs", Math.round(value) === i ? "bg-accent text-black" : "bg-control text-dim hover:text-fg")}>
+                {c === "off" ? "Off" : c === "on" ? "On" : c}
+              </button>
+            ))}
+          </div>
+          <div className="text-2xs text-dim">{title}</div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center" title={p.description}>
+          <Knob size={size} value={toKnob(value)} min={toKnob(p.min)} max={toKnob(p.max)} defaultValue={toKnob(p.default)} color={color}
+            bipolar={p.min === -p.max}
+            format={(k) => formatParam(fromKnob(k), p.unit)} onChange={live.onChange} onCommit={live.onCommit} />
+          <div className="mt-0.5 max-w-[84px] truncate text-2xs text-dim">{title}</div>
+          <div className="text-[9px] text-faint tabular">{formatParam(value, p.unit)}</div>
+        </div>
+      )}
+    </ParamMenu>
+  );
+}
+
+export function round(v: number) {
   return Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 1000) / 1000;
 }
 

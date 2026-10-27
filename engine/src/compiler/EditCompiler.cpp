@@ -4,6 +4,7 @@
 #include "effects/BuiltinEffects.h"
 #include "mixer/EffectMix.h"
 #include "mixer/FaderPlugin.h"
+#include "plugins/PluginCatalog.h"
 #include "render/Stretch.h"
 #include "sampler/AudioChannelPlugin.h"
 #include "sampler/SamplerPlugin.h"
@@ -617,9 +618,9 @@ namespace
         /** Loads a VST3 or AU plugin, then its saved state, then its parameter values. */
         te::Plugin::Ptr createHostedPlugin (const PluginRef& ref, const std::string& owner)
         {
-            auto desc = engine.getPluginManager().knownPluginList.getTypeForIdentifierString (ref.uid);
+            auto desc = PluginCatalog::find (engine.getPluginManager().knownPluginList, ref.uid);
 
-            if (desc == nullptr)
+            if (! desc)
                 throw std::runtime_error (owner + ": plugin \"" + ref.name + "\" (" + toString (ref.format)
                                           + ") isn't installed or hasn't been scanned yet");
 

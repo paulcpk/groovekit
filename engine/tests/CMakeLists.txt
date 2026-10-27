@@ -1,6 +1,7 @@
 add_executable(gk_tests
     AnalysisTests.cpp
     ClockTests.cpp
+    EffectTests.cpp
     ApiTests.cpp
     LibraryTests.cpp
     LimiterTests.cpp
@@ -15,6 +16,7 @@ add_executable(gk_tests
     TestHelpers.cpp)
 
 target_link_libraries(gk_tests PRIVATE gk_engine Catch2::Catch2WithMain)
+add_dependencies(gk_tests Triad_VST3)
 
 include(Catch)
 catch_discover_tests(gk_tests

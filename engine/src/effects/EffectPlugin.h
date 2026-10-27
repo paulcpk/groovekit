@@ -23,6 +23,10 @@ public:
     int getNumOutputChannelsGivenInputs (int) override  { return 2; }
     void deinitialise() override {}
 
+    /** What it measures for the UI (see `mixer.meter`): nothing unless the effect overrides it.
+        `params` are the call's, such as `since` for a MeterHistory. The message thread. */
+    virtual model::Json readMeter (const model::Json& params) const   { (void) params; return model::Json::object(); }
+
 protected:
     const EffectInfo& info;
 

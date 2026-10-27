@@ -9,6 +9,7 @@
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
 #include "effects/BuiltinEffects.h"
+#include "effects/EffectPlugin.h"
 #include "sampler/AudioChannelPlugin.h"
 #include "sampler/SamplerPlugin.h"
 
@@ -548,6 +549,14 @@ std::vector<float> LiveEngine::readEffectOutput (const std::string& insert, cons
         return it->second->readScope (numSamples);
 
     return {};
+}
+
+model::Json LiveEngine::readEffectMeter (const std::string& insert, const std::string& effect, const model::Json& params) const
+{
+    if (auto plugin = dynamic_cast<const effects::EffectPlugin*> (findPlugin ("effect:" + insert + "/" + effect)))
+        return plugin->readMeter (params);
+
+    return model::Json::object();
 }
 
 double LiveEngine::getSampleRate() const

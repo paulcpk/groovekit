@@ -8,17 +8,17 @@ import { useEngine } from "@/state/engine";
 import { ParamKnob, paramValue } from "./params";
 import { useEffectWaveform } from "./useEffectOutput";
 
-interface EditorProps { insert: Insert; effect: BuiltinEffect }
+export interface EditorProps { insert: Insert; effect: BuiltinEffect }
 
 const W = 640, H = 170;
-const ACCENT = "#f2a33a", WET = "#58b7d6", FAINT = "#5b5b64";
+export const ACCENT = "#f2a33a", WET = "#58b7d6", FAINT = "#5b5b64";
 
-function useParams({ effect }: EditorProps) {
+export function useParams({ effect }: EditorProps) {
   const catalogue = useCatalogue();
   return (id: string) => paramValue(effect, id, catalogue?.[effect.kind]?.params[id]);
 }
 
-function Screen({ children, label }: { children: React.ReactNode; label?: string }) {
+export function Screen({ children, label }: { children: React.ReactNode; label?: string }) {
   return (
     <div className="relative overflow-hidden rounded-md bg-[#0c0c0e] ring-1 ring-line">
       {label && <div className="pointer-events-none absolute top-1.5 right-2 text-2xs text-faint tabular">{label}</div>}
@@ -27,7 +27,7 @@ function Screen({ children, label }: { children: React.ReactNode; label?: string
   );
 }
 
-function Knobs({ props, ids, names = {} }: { props: EditorProps; ids: string[]; names?: Record<string, string> }) {
+export function Knobs({ props, ids, names = {} }: { props: EditorProps; ids: string[]; names?: Record<string, string> }) {
   return (
     <div className="flex flex-wrap items-start justify-around gap-y-3 rounded-md bg-raised px-2 py-3">
       {ids.map((id) => <ParamKnob key={id} insert={props.insert} effect={props.effect} id={id} name={names[id]} />)}
@@ -219,42 +219,6 @@ export function DistortionEditor(props: EditorProps) {
         <text x={half + 14} y={22} fontSize={9} fill={FAINT}>live output</text>
       </Screen>
       <Knobs props={props} ids={["type", "driveDb", "tone", "outputDb"]} names={{ driveDb: "Drive", outputDb: "Output" }} />
-    </div>
-  );
-}
-
-//==============================================================================
-/** Input level against output level: flat below the threshold, then leaning over by the ratio,
-    lifted by the make-up gain. */
-export function CompressorEditor(props: EditorProps) {
-  const p = useParams(props);
-  const threshold = p("thresholdDb"), ratio = p("ratio"), makeup = p("outputDb");
-  const size = H - 20;
-  const pos = (db: number) => ((db + 60) / 60) * size;
-  const outDb = (inDb: number) => (inDb < threshold ? inDb : threshold + (inDb - threshold) / ratio) + makeup;
-
-  let curve = "";
-  for (let db = -60; db <= 0; db += 1) curve += `${db === -60 ? "M" : "L"} ${10 + pos(db)} ${10 + size - Math.max(0, Math.min(size, pos(outDb(db))))} `;
-
-  return (
-    <div className="flex flex-col gap-2">
-      <Screen label={`${ratio.toFixed(1)}:1 above ${threshold.toFixed(1)} dB`}>
-        <rect x={10} y={10} width={size} height={size} fill="none" stroke="#1f1f24" />
-        {[-48, -36, -24, -12].map((db) => (
-          <g key={db}>
-            <line x1={10 + pos(db)} x2={10 + pos(db)} y1={10} y2={10 + size} stroke="#17171b" />
-            <line x1={10} x2={10 + size} y1={10 + size - pos(db)} y2={10 + size - pos(db)} stroke="#17171b" />
-          </g>
-        ))}
-        <line x1={10} y1={10 + size} x2={10 + size} y2={10} stroke="#2c2c31" strokeDasharray="3 3" />
-        <line x1={10 + pos(threshold)} x2={10 + pos(threshold)} y1={10} y2={10 + size} stroke={WET} strokeOpacity={0.5} />
-        <path d={curve} fill="none" stroke={ACCENT} strokeWidth={2} />
-        <text x={size + 24} y={30} fontSize={10} fill="#8d8d96">Above the threshold, every {ratio.toFixed(1)} dB in</text>
-        <text x={size + 24} y={46} fontSize={10} fill="#8d8d96">comes out as 1 dB. Make-up adds {makeup.toFixed(1)} dB back.</text>
-        <text x={size + 24} y={74} fontSize={10} fill="#8d8d96">Attack {seconds(p("attackMs") / 1000)}: how quickly it clamps down.</text>
-        <text x={size + 24} y={90} fontSize={10} fill="#8d8d96">Release {seconds(p("releaseMs") / 1000)}: how quickly it lets go.</text>
-      </Screen>
-      <Knobs props={props} ids={["thresholdDb", "ratio", "attackMs", "releaseMs", "outputDb"]} names={{ thresholdDb: "Threshold", outputDb: "Make-up" }} />
     </div>
   );
 }
