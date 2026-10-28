@@ -154,9 +154,9 @@ const AUTOPLAY_KEY = "groovekit.browser.autoplay";
 function useAutoPlay() {
   const [on, setOn] = useState(() => {
     try {
-      return localStorage.getItem(AUTOPLAY_KEY) === "1";
+      return localStorage.getItem(AUTOPLAY_KEY) !== "0";
     } catch {
-      return false;
+      return true;
     }
   });
   const toggle = () => {
@@ -198,6 +198,16 @@ export function Browser() {
   const [version, setVersion] = useState(0);
   const { playing, preview } = usePreview();
   const [autoPlay, toggleAutoPlay] = useAutoPlay();
+  const resultsBox = useRef<HTMLDivElement>(null);
+
+  // The arrow keys move through the results (from the search field or the list), playing each
+  // sample they land on while auto-play is on, and keep it in view.
+  const moveResult = (i: number) => {
+    const next = Math.max(0, Math.min(results.length - 1, i));
+    setCursor(next);
+    if (autoPlay && next !== cursor && results[next]) preview(results[next]);
+    (resultsBox.current?.children[next] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
+  };
 
   // Ranking by sound needs the models and a heard library; a removed style no longer applies.
   const style = listening && chosenStyle && styles.some((s) => s.name === chosenStyle) ? chosenStyle : undefined;
@@ -256,9 +266,8 @@ export function Browser() {
             onKeyDown={(e) => {
               e.stopPropagation();
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                const next = Math.max(0, Math.min(results.length - 1, cursor + (e.key === "ArrowDown" ? 1 : -1)));
-                setCursor(next);
-                if (autoPlay && next !== cursor && results[next]) preview(results[next]);
+                e.preventDefault();
+                moveResult(cursor + (e.key === "ArrowDown" ? 1 : -1));
               }
               if (e.key === "Enter" && results[cursor]) preview(results[cursor]);
             }}
@@ -309,7 +318,17 @@ export function Browser() {
       {!filtering ? (
         <FolderTree playing={playing} preview={preview} autoPlay={autoPlay} />
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div ref={resultsBox} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto py-1 outline-none"
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              if (results[cursor]) preview(results[cursor]);
+              return;
+            }
+            moveResult(cursor + (e.key === "ArrowDown" ? 1 : -1));
+          }}>
           {results.length === 0 ? (
             <Empty>{size === 0 ? "The library is empty. Add a folder below." : "No samples match."}</Empty>
           ) : results.map((s, i) => (
@@ -318,6 +337,7 @@ export function Browser() {
               onClick={() => {
                 setCursor(i);
                 preview(s);
+                resultsBox.current?.focus();
               }} />
           ))}
         </div>
@@ -477,6 +497,7 @@ function FolderTree({ playing, preview, autoPlay }: { playing?: string; preview:
                   onClick={() => {
                     setCursor(i);
                     preview(row.sample);
+                    box.current?.focus();
                   }} />
               );
             }
@@ -486,6 +507,7 @@ function FolderTree({ playing, preview, autoPlay }: { playing?: string; preview:
                 onClick={() => {
                   setCursor(i);
                   toggle(row.path);
+                  box.current?.focus();
                 }}
                 className={cn("flex cursor-default items-center gap-1 pr-2 text-xs", i === cursor ? "bg-control" : "hover:bg-raised")}
                 style={{ height: ROW_H, paddingLeft: 4 + row.depth * 14 }}>

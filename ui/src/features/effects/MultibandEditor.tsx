@@ -9,7 +9,7 @@ import { ParamKnob } from "./params";
 import { useParams, type EditorProps } from "./editors";
 import { font, gainChangeDb, useCanvas, useGlide, useMeterStream } from "./live";
 
-const STRIP_H = 118, LANE_H = 62, LABEL_W = 148, CURVE_W = 58;
+const STRIP_H = 150, LANE_H = 62, LABEL_W = 148, CURVE_W = 58;
 const FLOOR = -60, GR_RANGE = 24;
 const RED = "#ef6f6c", LIFT = "#5fe0c4", LABEL = "#5b5b64", MASTER = "#9fe870", CEILING = "#ff9a5c";
 const COLORS = { 3: ["#c47ef0", "#f2a33a", "#58b7d6"], 4: ["#c47ef0", "#f2a33a", "#6fd08c", "#58b7d6"] } as const;
@@ -21,6 +21,94 @@ const MODES = ["on", "bypass", "solo", "mute"] as const;
 const bandIn = (b: number) => 2 + 3 * b, bandOut = (b: number) => 3 + 3 * b, bandGain = (b: number) => 4 + 3 * b;
 const OUT = 1, MASTER_IN = 14, MASTER_GAIN = 15;
 const isLevel = (i: number) => (i < 14 ? i < 2 || (i - 2) % 3 !== 2 : i === MASTER_IN);
+
+
+/** A band's gain change as a lit LED ladder in a dark housing, with a dB scale: reduction
+    (negative) lights from the top, shading from amber to red as it deepens, with a held peak;
+    lift (positive) lights from the bottom. The reading sits in a small display beneath. */
+function drawGainLadder(g: CanvasRenderingContext2D, cx: number, top: number, height: number, gain: number, peakDb: number, color: string, on: boolean) {
+  const w = 16, x = cx - w / 2;
+  const seg = 4, gap = 2, count = Math.max(4, Math.floor((height - 6) / (seg + gap)));
+  const inner = count * (seg + gap) - gap, y0 = top + (height - inner) / 2;
+  const reduction = Math.max(0, -gain), lift = Math.max(0, gain);
+  const segDb = GR_RANGE / count;
+
+  // The housing: a recessed bezel with a faint top highlight, and a glow of the band's colour
+  // that grows with the reduction.
+  if (on && reduction > 0.3) {
+    const glow = g.createRadialGradient(cx, top + height * 0.3, 2, cx, top + height * 0.3, height * 0.7);
+    glow.addColorStop(0, color + Math.round(Math.min(0.28, reduction / 30) * 255).toString(16).padStart(2, "0"));
+    glow.addColorStop(1, color + "00");
+    g.fillStyle = glow;
+    g.fillRect(cx - height * 0.7, top - 10, height * 1.4, height + 20);
+  }
+  const body = g.createLinearGradient(0, top - 4, 0, top + height + 4);
+  body.addColorStop(0, "#08080a");
+  body.addColorStop(1, "#141418");
+  g.fillStyle = body;
+  g.beginPath(); g.roundRect(x - 4, top - 4, w + 8, height + 8, 5); g.fill();
+  g.strokeStyle = "rgba(255,255,255,0.07)";
+  g.lineWidth = 1;
+  g.beginPath(); g.roundRect(x - 3.5, top - 3.5, w + 7, height + 7, 4.5); g.stroke();
+
+  // The scale: 3, 6, 12 and 24 dB, on the left.
+  font(g, 7);
+  g.textAlign = "right";
+  for (const db of [3, 6, 12, 24]) {
+    const y = y0 + (db / GR_RANGE) * inner;
+    g.fillStyle = "rgba(214,214,219,0.35)";
+    g.fillRect(x - 9, Math.round(y) - 0.5, 3, 1);
+    g.fillText(String(db), x - 11, y + 2.5);
+  }
+
+  // The segments: lit ones glow, the rest show faintly.
+  for (let i = 0; i < count; i++) {
+    const sy = y0 + i * (seg + gap);
+    const fromTop = (i + 1) * segDb, fromBottom = (count - i) * segDb;
+    const litDown = on && reduction >= fromTop - segDb * 0.5;
+    const litUp = on && lift >= fromBottom - segDb * 0.5;
+    let fill = "rgba(255,255,255,0.045)";
+    if (litDown) fill = fromTop <= 3 ? "#f5c451" : fromTop <= 9 ? "#f2903a" : RED;
+    else if (litUp) fill = LIFT;
+    if (litDown || litUp) {
+      g.save();
+      g.shadowColor = fill;
+      g.shadowBlur = 6;
+      g.fillStyle = fill;
+      g.beginPath(); g.roundRect(x, sy, w, seg, 1.5); g.fill();
+      g.restore();
+      g.fillStyle = "rgba(255,255,255,0.35)";
+      g.fillRect(x + 2, sy + 0.5, w - 4, 1);
+    } else {
+      g.fillStyle = fill;
+      g.beginPath(); g.roundRect(x, sy, w, seg, 1.5); g.fill();
+    }
+  }
+
+  // The held peak: a bright bar that lingers at the deepest reduction, then falls back.
+  if (on && peakDb > 0.5) {
+    const y = y0 + Math.min(1, peakDb / GR_RANGE) * inner;
+    g.save();
+    g.shadowColor = "#fff";
+    g.shadowBlur = 8;
+    g.fillStyle = "#fff";
+    g.fillRect(x - 2, Math.round(y) - 1, w + 4, 2);
+    g.restore();
+  }
+
+  // The reading, in a small display.
+  const active = on && Math.abs(gain) > 0.05;
+  const text = active ? `${gain > 0 ? "+" : ""}${gain.toFixed(1)}` : "0.0";
+  font(g, 9, 600);
+  g.textAlign = "center";
+  const tw = Math.max(30, g.measureText(text).width + 10);
+  g.fillStyle = "#060607";
+  g.beginPath(); g.roundRect(cx - tw / 2, top + height + 9, tw, 14, 3); g.fill();
+  g.strokeStyle = "rgba(255,255,255,0.06)";
+  g.beginPath(); g.roundRect(cx - tw / 2 + 0.5, top + height + 9.5, tw - 1, 13, 2.5); g.stroke();
+  g.fillStyle = !active ? LABEL : gain < 0 ? (reduction > 9 ? RED : "#f5c451") : LIFT;
+  g.fillText(text, cx, top + height + 19.5);
+}
 
 /** The multiband compressor. On top, the spectrum split into its bands, with the crossovers to
     drag and each band's gain change; below, a lane per band with the last three seconds of it
@@ -43,6 +131,7 @@ export function MultibandEditor(props: EditorProps) {
   const glide = useGlide();
   const control = useLiveControl<Record<string, number>>((params) => ({ type: "updateEffect", insert: props.insert.id, effect: props.effect.id, changes: { params } }), "Multiband");
   const pulse = useRef<number[]>([0, 0, 0, 0]);
+  const peaks = useRef(Array.from({ length: 4 }, () => ({ db: 0, age: 0 })));
 
   const set = (params: Record<string, number>, commit: boolean) => {
     if (commit) {
@@ -93,23 +182,13 @@ export function MultibandEditor(props: EditorProps) {
       g.fillStyle = on ? colors[b] : LABEL;
       g.fillText(names[b].toUpperCase(), mid, 16);
 
-      // The band's gain change: reduction down from the top, lift up from the bottom.
+      // The band's gain change on an LED ladder: reduction down from the top, lift up from the
+      // bottom, with the deepest reduction of the last moments held.
       const gain = glide(`g${b}`, stream.value(0, bandGain(b)), dt, 40);
-      const cap = { x: mid - 7, w: 14, top: 24, h: h - 46 };
-      g.fillStyle = "rgba(0,0,0,0.35)";
-      g.beginPath(); g.roundRect(cap.x, cap.top, cap.w, cap.h, 7); g.fill();
-      const amount = (Math.min(GR_RANGE, Math.abs(gain)) / GR_RANGE) * cap.h;
-      if (Math.abs(gain) > 0.05) {
-        g.save();
-        g.beginPath(); g.roundRect(cap.x, cap.top, cap.w, cap.h, 7); g.clip();
-        g.fillStyle = g.shadowColor = gain < 0 ? RED : LIFT;
-        g.shadowBlur = 8;
-        g.fillRect(cap.x, gain < 0 ? cap.top : cap.top + cap.h - amount, cap.w, amount);
-        g.restore();
-      }
-      font(g, 9);
-      g.fillStyle = Math.abs(gain) > 0.05 ? "#d6d6db" : LABEL;
-      g.fillText(Math.abs(gain) > 0.05 ? `${gain > 0 ? "+" : ""}${gain.toFixed(1)}` : "0", mid, h - 8);
+      const hold = peaks.current[b];
+      if (-gain >= hold.db) { hold.db = -gain; hold.age = 0; }
+      else if ((hold.age += dt) > 1200) hold.db = Math.max(0, hold.db - dt * 0.012);
+      drawGainLadder(g, mid, 26, h - 52, gain, hold.db, colors[b], on);
     }
 
     // The crossovers.

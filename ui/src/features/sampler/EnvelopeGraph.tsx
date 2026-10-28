@@ -110,8 +110,8 @@ export function EnvelopeGraph({ envelope, color, label, dim, extra, onChange, on
   const curvePoint = (x0: number, x1: number, level: (p: number) => number, title: string, key: "attackCurve" | "decayCurve" | "releaseCurve") =>
     x1 - x0 > 14 && (
       <circle key={key} cx={(x0 + x1) / 2} cy={y(level(0.5))} r={3.5} fill={color} fillOpacity={0.6} className="cursor-ns-resize hover:fill-opacity-100"
-        onPointerDown={(e) => dragCurve(e, key)} onDoubleClick={() => set({ ...env, [key]: 0 }, true)}>
-        <title>{title}: drag up or down; double-click for straight</title>
+        onPointerDown={(e) => (e.altKey ? set({ ...env, [key]: 0 }, true) : dragCurve(e, key))} onDoubleClick={() => set({ ...env, [key]: 0 }, true)}>
+        <title>{title}: drag up or down; double-click or Alt-click for straight</title>
       </circle>
     );
 

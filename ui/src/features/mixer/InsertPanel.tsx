@@ -1,6 +1,6 @@
 import type { Effect, Insert, Project } from "@groovekit/schema/project";
 import { GripVertical, Plus, Power, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { IconButton, Knob } from "@/components/controls";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownSub, DropdownTrigger } from "@/components/menu";
 import { createAutomation } from "@/features/playlist/automation";
@@ -75,13 +75,20 @@ function EffectSlot({ doc, insert, effect, index, count }: { doc: Project; inser
   const mix = useLiveControl((v) => ({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { mix: Math.round(v * 100) / 100 } }), `${name} mix`);
   const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateEffect", insert: insert.id, effect: effect.id, changes }, { label });
   const show = () => openEffect(insert.id, effect);
+  const pressedKnob = useRef(false);
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
           draggable
+          // The row drags to reorder, except from its mix knob, which turns.
+          onPointerDownCapture={(e) => { pressedKnob.current = !!(e.target as Element).closest("svg.cursor-ns-resize"); }}
           onDragStart={(e) => {
+            if (pressedKnob.current) {
+              e.preventDefault();
+              return;
+            }
             e.dataTransfer.setData(EFFECT_MIME, effect.id);
             e.dataTransfer.effectAllowed = "move";
           }}

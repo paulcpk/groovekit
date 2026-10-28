@@ -89,6 +89,11 @@ export function Knob({
         onDoubleClick={() => defaultValue !== undefined && onCommit(defaultValue)}
         onPointerDown={(e) => {
           e.stopPropagation();
+          // Alt-click: back to the default.
+          if (e.altKey && defaultValue !== undefined) {
+            onCommit(defaultValue);
+            return;
+          }
           const v0 = value;
           let v = v0;
           startDrag(e, (_dx, dy, ev) => {
@@ -117,10 +122,12 @@ export function Knob({
 //==============================================================================
 /** A number you drag (up/down) or double-click to type. */
 export function DragNumber({
-  value, min, max, step = 1, pixelsPerStep = 3, format, parse, onCommit, className, title,
+  value, min, max, step = 1, pixelsPerStep = 3, format, parse, onCommit, className, title, defaultValue,
 }: {
   value: number; min: number; max: number; step?: number; pixelsPerStep?: number;
   format?: (v: number) => string; parse?: (s: string) => number; onCommit: (v: number) => void; className?: string; title?: string;
+  /** What Alt-click goes back to. */
+  defaultValue?: number;
 }) {
   const [live, setLive] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
@@ -158,6 +165,10 @@ export function DragNumber({
       className={cn("cursor-ns-resize tabular", className)}
       onDoubleClick={() => setEditing(true)}
       onPointerDown={(e) => {
+        if (e.altKey && defaultValue !== undefined) {
+          if (defaultValue !== value) onCommit(defaultValue);
+          return;
+        }
         const v0 = value;
         let v = v0;
         startDrag(e, (_dx, dy, ev) => {

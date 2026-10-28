@@ -1,4 +1,5 @@
 import type { Channel, Note, Pattern, Project } from "@groovekit/schema/project";
+import type { Command } from "@groovekit/schema/protocol";
 import { AudioLines, ChevronDown, Copy, Plus, Trash2, Volume2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton, Knob, ToggleChip } from "@/components/controls";
@@ -344,10 +345,8 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
               ))}
             </div>
           </ContextMenuSub>
-          <ContextMenuItem onSelect={() => {
-            const id = uniqueId(channel.id, doc.channels);
-            void execute({ type: "addChannel", channel: { ...channel, id, name: `${channel.name ?? channel.id} 2` }, index: doc.channels.indexOf(channel) + 1 }, { label: "Clone channel" });
-          }}>Clone</ContextMenuItem>
+          <ContextMenuItem onSelect={() => void duplicateChannel(doc, channel, false)}>Duplicate</ContextMenuItem>
+          <ContextMenuItem onSelect={() => void duplicateChannel(doc, channel, true)}>Duplicate with notes</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem danger onSelect={() => void execute({ type: "removeChannel", channel: channel.id }, { label: `Delete ${channel.name ?? channel.id}` })}>Delete channel</ContextMenuItem>
         </ContextMenuContent>
@@ -443,4 +442,19 @@ function MiniRoll({ notes, length, color, width, onOpen }: { notes: Note[]; leng
       </svg>
     </button>
   );
+}
+
+/** A copy of a channel (sampler layers, filter, modulation, routing) below it; with its notes,
+    the copy plays the same notes in every pattern. */
+function duplicateChannel(doc: Project, channel: Channel, withNotes: boolean) {
+  const id = uniqueId(channel.id, doc.channels);
+  const name = `${channel.name ?? channel.id} 2`;
+  const notes: Command[] = withNotes
+    ? doc.patterns.flatMap((p) => {
+      const mine = p.notes.filter((n) => n.channel === channel.id).map((n) => ({ ...n, channel: id }));
+      return mine.length ? [{ type: "addNotes" as const, pattern: p.id, notes: mine }] : [];
+    })
+    : [];
+  return execute([{ type: "addChannel", channel: { ...channel, id, name }, index: doc.channels.indexOf(channel) + 1 }, ...notes],
+    { label: `Duplicate ${channel.name ?? channel.id}` });
 }

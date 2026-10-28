@@ -16,7 +16,7 @@ export function faderToDb(pos: number) {
   return Math.round((Math.pow(Math.min(1, pos), 1 / curve) * (maxDb - minDb) + minDb) * 10) / 10;
 }
 
-/** Vertical volume fader. Drag (Shift for fine), double-click for 0 dB. */
+/** Vertical volume fader. Drag (Shift for fine), double-click or Alt-click for 0 dB. */
 export function Fader({ db, onChange, onCommit, height = 140 }: {
   db: number; onChange?: (db: number) => void; onCommit: (db: number) => void; height?: number;
 }) {
@@ -33,6 +33,10 @@ export function Fader({ db, onChange, onCommit, height = 140 }: {
       onDoubleClick={() => onCommit(0)}
       onPointerDown={(e) => {
         e.stopPropagation();
+        if (e.altKey) {
+          onCommit(0);
+          return;
+        }
         const p0 = dbToFader(db);
         let value = db;
         startDrag(e, (_dx, dy, ev) => {

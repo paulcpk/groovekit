@@ -8,7 +8,7 @@ import { stepKey } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
 import { useLivePosition } from "@/lib/playhead";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
-import { colorFor, noteName, patternLength, snapTicks, STEP, ticksPerBar, ticksPerBeat } from "@/lib/model";
+import { colorFor, noteName, patternLength, STEP, ticksPerBar, ticksPerBeat } from "@/lib/model";
 import { auditionNote } from "@/features/shell/actions";
 import { engine, execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -46,12 +46,24 @@ function PatternPlayhead({ pattern, px }: { pattern: string; px: number }) {
   return <div ref={line} className="pointer-events-none absolute top-0 bottom-0 left-0 z-10 w-px bg-fg/80 will-change-transform" style={{ display: "none" }} />;
 }
 
+/** The piano roll's grids, in ticks; 1 is off (free, to the tick). */
+const GRIDS = [
+  { label: "1/4", ticks: 960 }, { label: "1/8", ticks: 480 }, { label: "1/8T", ticks: 320 }, { label: "1/16", ticks: 240 },
+  { label: "1/16T", ticks: 160 }, { label: "1/32", ticks: 120 }, { label: "1/64", ticks: 60 }, { label: "Off", ticks: 1 },
+];
+
+/** The shortest note drawn or resized without a grid: a 128th. */
+const FREE_MIN = 30;
+
 function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; channelId: string }) {
-  const { pianoZoom, pianoKeyHeight: keyH, snap } = useUi();
+  const { pianoZoom, pianoKeyHeight: keyH, pianoSnap } = useUi();
   const channel = doc.channels.find((c) => c.id === channelId)!;
   const color = colorFor(channel.id, channel.color);
   const px = pianoZoom / 960;
-  const step = Math.min(snapTicks(snap, doc), ticksPerBeat(doc));
+  // Notes snap to the grid; holding ⌘ while dragging places them freely.
+  const step = pianoSnap;
+  const stepFor = (ev: { metaKey: boolean }) => (ev.metaKey ? 1 : step);
+  const minLength = (s: number) => (s <= 1 ? FREE_MIN : s);
   const bar = ticksPerBar(doc);
   const loop = patternLength(pattern, doc);
   const width = Math.max(loop, 4 * bar) * px + 200;
@@ -100,7 +112,8 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
 
   const quantize = () => {
     const targets = selected.size ? selected : new Set(stored.map((_, i) => i));
-    save(stored.map((n, i) => (targets.has(i) ? { ...n, start: Math.max(0, snapTo(n.start, step)) } : n)), "Quantize notes");
+    const to = step > 1 ? step : 240;
+    save(stored.map((n, i) => (targets.has(i) ? { ...n, start: Math.max(0, snapTo(n.start, to)) } : n)), "Quantize notes");
   };
 
   useEffect(() => {
@@ -204,13 +217,16 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
     setSelected(new Set([index]));
     setDraft([...stored, created]);
 
+    const lengthAt = (ev: PointerEvent) => {
+      const s = stepFor(ev);
+      return Math.max(minLength(s), snapTo(pointToNote(ev, el).tick - start, s));
+    };
+
     startDrag(e, (_dx, _dy, ev) => {
-      const t = pointToNote(ev, el).tick;
-      const length = Math.max(step, snapTo(t - start, step));
-      setDraft([...stored, { ...created, length }]);
+      setDraft([...stored, { ...created, length: lengthAt(ev) }]);
     }, (_dx, _dy, ev, moved) => {
       // A click draws a note as long as the last one; a drag sets the length.
-      const length = moved ? Math.max(step, snapTo(pointToNote(ev, el).tick - start, step)) : lastLength.current;
+      const length = moved ? lengthAt(ev) : lastLength.current;
       lastLength.current = length;
       save([...stored, { ...created, length }], `Add note ${noteName(key)}`);
     }, "ew-resize");
@@ -233,14 +249,15 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
 
     startDrag(e, (_dx, _dy, ev) => {
       const at = pointToNote(ev, grid);
+      const s = stepFor(ev);
       if (edge === "right") {
         const n = base[index];
-        const length = Math.max(step, snapTo(at.tick - n.start, step));
+        const length = Math.max(minLength(s), snapTo(at.tick - n.start, s));
         const dl = length - n.length;
-        next = base.map((m, i) => (sel.has(i) ? { ...m, length: Math.max(step, m.length + dl) } : m));
+        next = base.map((m, i) => (sel.has(i) ? { ...m, length: Math.max(minLength(s), m.length + dl) } : m));
       } else {
         const n = base[index];
-        const dt = snapTo(n.start + (at.tick - origin.tick), step) - n.start;
+        const dt = snapTo(n.start + (at.tick - origin.tick), s) - n.start;
         const dk = at.key - origin.key;
         const minStart = Math.min(...[...sel].map((i) => base[i].start));
         const shift = Math.max(-minStart, dt);
@@ -273,14 +290,15 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
     backgroundImage: [
       "linear-gradient(to right, var(--color-grid-strong) 1px, transparent 1px)",
       "linear-gradient(to right, #222226 1px, transparent 1px)",
+      step > 1 && step < ticksPerBeat(doc) && step * px >= 5 ? "linear-gradient(to right, #1e1e22 1px, transparent 1px)" : "linear-gradient(transparent, transparent)",
       `repeating-linear-gradient(to bottom, ${Array.from({ length: 12 }, (_, i) => {
         const key = 11 - i;
         const c = black.has(key) ? "#16161a" : "#1b1b1f";
         return `${c} ${i * keyH}px, ${c} ${(i + 1) * keyH - 1}px, #141417 ${(i + 1) * keyH - 1}px, #141417 ${(i + 1) * keyH}px`;
       }).join(", ")})`,
     ].join(", "),
-    backgroundSize: `${bar * px}px 100%, ${ticksPerBeat(doc) * px}px 100%, 100% ${12 * keyH}px`,
-    backgroundPosition: `0 0, 0 0, 0 ${(128 % 12) * keyH - 12 * keyH}px`,
+    backgroundSize: `${bar * px}px 100%, ${ticksPerBeat(doc) * px}px 100%, ${Math.max(1, step) * px}px 100%, 100% ${12 * keyH}px`,
+    backgroundPosition: `0 0, 0 0, 0 0, 0 ${(128 % 12) * keyH - 12 * keyH}px`,
   };
 
   return (
@@ -406,7 +424,8 @@ function VelocityLane({ notes, px, width, color, selected, onChange, onPreview }
 }
 
 function PianoToolbar({ doc, pattern, channelId, onQuantize, selection }: { doc: Project; pattern: Pattern; channelId: string; onQuantize: () => void; selection: number }) {
-  const { pianoZoom, pianoKeyHeight } = useUi();
+  const { pianoZoom, pianoKeyHeight, pianoSnap } = useUi();
+  const grid = GRIDS.find((g) => g.ticks === pianoSnap) ?? GRIDS[3];
   const channel = doc.channels.find((c) => c.id === channelId)!;
 
   return (
@@ -436,8 +455,20 @@ function PianoToolbar({ doc, pattern, channelId, onQuantize, selection }: { doc:
           ))}
         </DropdownContent>
       </Dropdown>
+      <Dropdown>
+        <DropdownTrigger asChild>
+          <Button size="sm" title="The grid notes are drawn, moved and resized on; hold ⌘ while dragging to place them freely">
+            <span className="text-faint">Grid</span> <span className="text-fg">{grid.label}</span> <ChevronDown size={11} />
+          </Button>
+        </DropdownTrigger>
+        <DropdownContent>
+          {GRIDS.map((g) => (
+            <DropdownItem key={g.label} checked={g.ticks === grid.ticks} onSelect={() => setUi({ pianoSnap: g.ticks })}>{g.label}</DropdownItem>
+          ))}
+        </DropdownContent>
+      </Dropdown>
       <Button size="sm" title="Snap note starts to the grid (Q)" onClick={onQuantize}>Quantize{selection ? ` ${selection}` : ""}</Button>
-      <div className="truncate text-2xs text-faint">Click to draw · Shift-drag selects · Alt-drag copies · ↑↓ transpose · ⌘C ⌘V ⌘D · double-click deletes</div>
+      <div className="truncate text-2xs text-faint">Click to draw · Shift-drag selects · Alt-drag copies · ⌘ while dragging ignores the grid · ↑↓ transpose · ⌘C ⌘V ⌘D · double-click deletes</div>
       <div className="flex-1" />
       <div className="flex items-center">
         <IconButton size="sm" title="Shorter keys" onClick={() => setUi({ pianoKeyHeight: Math.max(6, pianoKeyHeight - 2) })}><Minus size={12} /></IconButton>

@@ -238,6 +238,10 @@ function RetroKnob({ insert, effect, id, name }: EditorProps & { id: string; nam
           onDoubleClick={() => live.onCommit(toKnob(p.default))}
           onPointerDown={(e) => {
             if (e.button !== 0) return;
+            if (e.altKey) {
+              live.onCommit(toKnob(p.default));
+              return;
+            }
             const k0 = toKnob(value), lo = toKnob(p.min), hi = toKnob(p.max);
             let next = k0;
             startDrag(e, (_dx, dy, ev) => {

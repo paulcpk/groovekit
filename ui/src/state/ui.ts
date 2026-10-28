@@ -29,6 +29,8 @@ export interface UiState {
   snap: number;
   pianoZoom: number;
   pianoKeyHeight: number;
+  /** The piano roll's grid in ticks (its own, apart from the playlist's snap); 1 is off. */
+  pianoSnap: number;
   followPlayhead: boolean;
   settingsOpen: boolean;
   recordOpen: boolean;
@@ -68,6 +70,7 @@ export const useUi = create<UiState>(() => ({
   snap: 960,
   pianoZoom: 80,
   pianoKeyHeight: 12,
+  pianoSnap: 240,
   followPlayhead: true,
   settingsOpen: false,
   recordOpen: false,
@@ -82,7 +85,7 @@ export const useUi = create<UiState>(() => ({
 
 const persisted: (keyof UiState)[] = [
   "sidebarTab", "sidebarOpen", "bottomPanel", "bottomOpen", "bottomHeight", "sidebarWidth",
-  "rackView", "playlistZoom", "rowHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize", "loopDrop",
+  "rackView", "playlistZoom", "rowHeight", "snap", "pianoZoom", "pianoKeyHeight", "pianoSnap", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize", "loopDrop",
 ];
 
 useUi.subscribe((state) => {

@@ -62,7 +62,7 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
     <div
       className={cn(
         "group/clip absolute top-px overflow-hidden rounded-[3px]",
-        selected ? "ring-1 ring-fg" : "ring-1 ring-black/40",
+        selected ? "z-[5] ring-2 ring-fg" : "ring-1 ring-black/40",
         ghost && "opacity-50",
         muted && "opacity-45 saturate-0",
       )}

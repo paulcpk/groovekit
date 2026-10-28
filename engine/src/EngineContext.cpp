@@ -114,6 +114,10 @@ EngineContext::~EngineContext()
 
 std::filesystem::path EngineContext::getAppDataFolder()
 {
+    // GROOVEKIT_APP_DATA keeps a test engine's settings, indexes and styles apart from the app's.
+    if (auto env = std::getenv ("GROOVEKIT_APP_DATA"))
+        return env;
+
     // JUCE's userApplicationDataDirectory is ~/Library on macOS.
     auto library = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
     return std::filesystem::path (library.getFullPathName().toStdString()) / "Application Support" / "GrooveKit";
