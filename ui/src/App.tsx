@@ -15,6 +15,7 @@ import { useLiveChannel, useTypingKeyboard } from "@/features/shell/liveInput";
 import { useAgentConversation } from "@/features/agent/AgentPanel";
 import { useShortcuts } from "@/features/shell/shortcuts";
 import { ReferencesPrompt } from "@/features/browser/ReferencesPrompt";
+import { EngineVersionBanner } from "@/features/shell/EngineVersionBanner";
 import { Windows } from "@/features/windows/Windows";
 import { useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -36,6 +37,7 @@ export function App() {
   return (
     <div className="flex h-full flex-col">
       <TopBar />
+      <EngineVersionBanner />
       <div className="flex min-h-0 flex-1 border-t border-line">
         {sidebarOpen && (
           <>

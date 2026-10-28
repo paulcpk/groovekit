@@ -89,13 +89,21 @@ interface MapsState {
   references?: string;
   hearing?: Hearing;
   loaded: boolean;
+  /** Why the songs couldn't be read (an engine older than the app has no maps). */
+  error?: string;
 }
 
 export const useMaps = create<MapsState>(() => ({ songs: [], loaded: false }));
 
 export async function refreshSongs() {
-  const r = await engine.call<{ songs: Song[]; folder: string; references: string }>("maps.list");
-  useMaps.setState({ songs: r.songs, folder: r.folder, references: r.references, loaded: true });
+  try {
+    const r = await engine.call<{ songs: Song[]; folder: string; references: string }>("maps.list");
+    useMaps.setState({ songs: r.songs, folder: r.folder, references: r.references, loaded: true, error: undefined });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    useMaps.setState({ loaded: true, error: /unknown method/.test(message) ? "This engine is older than the app and has no maps: restart it (see the bar at the top)." : message });
+    throw e;
+  }
 }
 
 export async function refreshHearing() {

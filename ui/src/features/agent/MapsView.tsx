@@ -41,7 +41,7 @@ export function MapsView() {
 
 //==============================================================================
 function Songs() {
-  const { songs, loaded, references } = useMaps();
+  const { songs, loaded, references, error } = useMaps();
   const [filter, setFilter] = useState("");
   const [closed, setClosed] = useState<Set<string>>(() => new Set(readClosed()));
   const [message, setMessage] = useState<string>();
@@ -123,7 +123,8 @@ function Songs() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
-        {loaded && songs.length === 0 && (
+        {error && <p className="px-2 py-2 text-xs leading-relaxed text-rec">{error}</p>}
+        {loaded && !error && songs.length === 0 && (
           <p className="px-2 py-2 text-xs leading-relaxed text-dim">
             No reference tracks yet. Put tracks you love in {references ?? "the references folder"}, one folder per style; GrooveKit hears each
             once into a map, and learns the style from the maps you tick.

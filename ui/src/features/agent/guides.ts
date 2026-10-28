@@ -15,6 +15,8 @@ export interface GuideSummary {
   edited: boolean;
   /** The open song's style. */
   song: boolean;
+  /** A built-in guide the user took out of the list. */
+  hidden?: boolean;
 }
 
 export interface Guide extends Omit<GuideSummary, "song"> {
@@ -48,6 +50,11 @@ export function useStyleGuides() {
 export const getGuide = (id: string) => call<Guide>("guides.get", { id });
 
 export const saveGuide = (text: string, id?: string) => call<Guide>("guides.save", { text, ...(id ? { id } : {}) });
+
+/** Out of the list: one of the user's own is deleted, a built-in one hidden. */
+export const deleteGuide = (id: string) => call<{ removed: "deleted" | "hidden" }>("guides.delete", { id });
+
+export const unhideGuide = (id: string) => call("guides.unhide", { id });
 
 export const removeGuide = (id: string) => call<{ removed: "nothing" | "restored" | "deleted" }>("guides.remove", { id });
 

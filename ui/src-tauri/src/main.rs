@@ -156,6 +156,21 @@ fn ensure_engine(state: &Engine) -> Result<String, String> {
     Err("The engine didn't start".into())
 }
 
+/// Asks the engine the app joined to quit (it saves as it goes), when it's older than the app: the
+/// UI reconnects, and with no engine serving the project the app starts its own.
+#[tauri::command]
+fn restart_engine(state: tauri::State<'_, Arc<Engine>>) -> Result<(), String> {
+    let pid = state.pid.lock().map_err(|e| e.to_string())?.take();
+
+    if let Some(pid) = pid {
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 async fn engine_url(state: tauri::State<'_, Arc<Engine>>) -> Result<String, String> {
     // Waiting for a starting engine mustn't block the main thread.
@@ -244,7 +259,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(Engine::default()))
         .manage(Arc::new(Quitting::default()))
-        .invoke_handler(tauri::generate_handler![engine_url, quit_acknowledged, quit])
+        .invoke_handler(tauri::generate_handler![engine_url, restart_engine, quit_acknowledged, quit])
         .setup(|app| {
             // The standard menu, with Quit asking the UI first rather than quitting outright.
             use tauri::menu::{Menu, MenuItem};

@@ -737,5 +737,17 @@ TEST_CASE ("Style guides are listed, read, edited, restored, and set as the song
     CHECK (h.call ("guides.list")["result"]["guides"].size() == 13);
     CHECK (h.call ("guides.remove", { { "id", "dub-techno" } })["result"]["removed"] == "deleted");
 
+    // Deleting from the list: one of their own goes, a built-in one is hidden (and still found
+    // for songs in its style) until it's brought back.
+    h.call ("guides.save", { { "text", "# Dub techno\n\nDeep chords in fog.\n" } });
+    CHECK (h.call ("guides.delete", { { "id", "dub-techno" } })["result"]["removed"] == "deleted");
+    CHECK (h.call ("guides.delete", { { "id", "trap" } })["result"]["removed"] == "hidden");
+    auto hiddenList = h.call ("guides.list")["result"]["guides"];
+    CHECK (std::any_of (hiddenList.begin(), hiddenList.end(), [] (auto& g) { return g["id"] == "trap" && g.value ("hidden", false); }));
+    CHECK (h.call ("guides.get", { { "id", "trap" } })["result"]["id"] == "trap");
+    h.call ("guides.unhide", { { "id", "trap" } });
+    hiddenList = h.call ("guides.list")["result"]["guides"];
+    CHECK (std::none_of (hiddenList.begin(), hiddenList.end(), [] (auto& g) { return g.value ("hidden", false); }));
+
     ::unsetenv ("GROOVEKIT_GUIDES");
 }

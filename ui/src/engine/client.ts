@@ -19,6 +19,9 @@ export interface ClientEvents {
 
 export const inDesktopApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/** The engine protocol this UI needs (hello's protocol): 2 for song maps and sound matching. */
+export const ENGINE_PROTOCOL = 2;
+
 /** Where to connect: ?engine=ws://... in the address, the desktop app's engine, the dev server's
     engine finder, or the default port. */
 async function findEngineUrl(): Promise<string> {

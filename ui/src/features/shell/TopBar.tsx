@@ -148,7 +148,7 @@ function StyleMenu({ style }: { style?: string }) {
         </button>
       </DropdownTrigger>
       <DropdownContent>
-        {guides.map((g) => <DropdownItem key={g.id} checked={g.id === style} onSelect={() => set(g.id, g.name)}>{g.name}</DropdownItem>)}
+        {guides.filter((g) => !g.hidden || g.id === style).map((g) => <DropdownItem key={g.id} checked={g.id === style} onSelect={() => set(g.id, g.name)}>{g.name}</DropdownItem>)}
         <DropdownSeparator />
         {style && <DropdownItem onSelect={() => openWindow({ kind: "guide", guide: style })}>Read the guide</DropdownItem>}
         {style && <DropdownItem onSelect={() => set()}>No style</DropdownItem>}

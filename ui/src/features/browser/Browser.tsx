@@ -1,6 +1,7 @@
-import { AudioLines, Check, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, Headphones, Heart, Play, RefreshCw, Repeat, Search, Sparkles, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { AudioLines, Check, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, Headphones, Heart, Map as MapIcon, Play, RefreshCw, Repeat, Search, Sparkles, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton } from "@/components/controls";
+import { Dialog } from "@/components/dialog";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { endSampleDrag, startSampleDrag, type DraggedSample } from "@/features/playlist/geometry";
 import { addSamplerChannel } from "@/features/rack/channels";
@@ -11,7 +12,7 @@ import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { call, engine, useEngine } from "@/state/engine";
 import { openMaps } from "@/features/agent/maps";
-import { addStyle, canListen, downloadModels, needsHearing, rateSample, refreshReferences, useListening, useListeningStatus, type ListeningStatus, type ReferenceFolder } from "./listening";
+import { addStyle, canListen, stopUsingStyle, downloadModels, needsHearing, rateSample, refreshReferences, useListening, useListeningStatus, type ListeningStatus, type ReferenceFolder } from "./listening";
 
 interface Sample {
   path: string;
@@ -636,6 +637,7 @@ const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
     then how much has been heard, and the styles with their analysis. */
 function Listening({ status }: { status?: ListeningStatus }) {
   const { styles, references } = useListeningStatus();
+  const [removing, setRemoving] = useState<string>();
   if (!status) return null;
   const { models, index, styles: analysis } = status;
   const toHear = references?.folders.filter(needsHearing) ?? [];
@@ -649,6 +651,7 @@ function Listening({ status }: { status?: ListeningStatus }) {
     <div className="border-t border-line p-2 text-2xs text-dim">
       <div className="mb-1 flex items-center gap-1">
         <span className="flex-1 uppercase tracking-wide text-faint">Listening</span>
+        <IconButton size="sm" title="Your reference songs and their maps" onClick={() => openMaps("songs")}><MapIcon size={12} /></IconButton>
         {models.ready && (
           <IconButton size="sm" title="Add a style: a folder of reference tracks" disabled={analysis.running || !inDesktopApp} onClick={addFolder}>
             <FolderPlus size={12} />
@@ -683,8 +686,22 @@ function Listening({ status }: { status?: ListeningStatus }) {
           <Check size={10} className="shrink-0 text-ok" />
           <span className="min-w-0 flex-1 truncate text-fg">{s.name}</span>
           <span className="shrink-0 text-faint tabular">{s.tracks} tracks{s.tempo ? `, ${Math.round(s.tempo.min)}–${Math.round(s.tempo.max)} BPM` : ""}</span>
+          <button type="button" title="Stop using this style" onClick={() => setRemoving(s.name)}
+            className="invisible shrink-0 text-faint hover:text-rec group-hover:visible"><X size={10} /></button>
         </div>
       ))}
+
+      <Dialog open={!!removing} onOpenChange={(open) => !open && setRemoving(undefined)} title={`Stop using ${removing ?? "this style"}?`} className="w-[380px]">
+        <p className="text-xs leading-relaxed text-dim">
+          Its songs are unticked in Maps, so searches stop ranking by it and the agent stops learning from it. Their maps are kept:
+          tick them again in Maps to bring the style back.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={() => setRemoving(undefined)} className="h-7 rounded-[4px] px-3 text-xs text-dim hover:bg-control hover:text-fg">Cancel</button>
+          <button type="button" onClick={() => void stopUsingStyle(removing!).finally(() => setRemoving(undefined))}
+            className="h-7 rounded-[4px] bg-rec px-3 text-xs text-white hover:brightness-110">Stop using it</button>
+        </div>
+      </Dialog>
 
       {models.ready && toHear.map((f) => (
         <div key={f.path} className="flex items-center gap-1" title={f.path}>

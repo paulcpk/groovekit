@@ -36,6 +36,7 @@ struct Guide
     std::string id, name, summary, text;
     Targets targets;
     bool builtIn = false, edited = false;
+    bool hidden = false;        // a built-in guide the user took out of the list
 };
 
 /** Reads a guide: its name from the first "# " heading, its summary from the first paragraph
@@ -70,6 +71,10 @@ public:
     /** Removes the user's version: an edited built-in guide goes back to how it shipped, one of
         their own is deleted. */
     Removed remove (const std::string& id);
+
+    /** Takes a built-in guide out of the list, or puts it back (hidden.json in the folder). A
+        hidden guide is still found by find, so songs in its style keep it. */
+    void setHidden (const std::string& id, bool);
 
 private:
     const std::filesystem::path folder;

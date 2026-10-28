@@ -52,6 +52,8 @@ interface EngineState {
   status: Status;
   error?: string;
   project?: string;
+  /** The engine's protocol version (hello): older than the app's means features are missing. */
+  protocol?: number;
   doc?: Project;
   head: number | null;
   /** The history entry the song was last saved at; changes since are unsaved. */
@@ -141,7 +143,7 @@ function onNotification(method: string, params: any) {
     }
 
     case "hello":
-      set({ project: params.project });
+      set({ project: params.project, protocol: params.protocol ?? 1 });
       break;
 
     case "patch": {

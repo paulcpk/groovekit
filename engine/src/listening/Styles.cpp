@@ -558,7 +558,6 @@ std::vector<Styles::ReferenceFolder> Styles::referenceFolders (const std::filesy
 {
     std::vector<ReferenceFolder> folders;
     const auto all = songs (root);
-    const auto heardStyles = names();
 
     for (auto& [name, path] : styleFoldersIn (root))
     {
@@ -572,10 +571,11 @@ std::vector<Styles::ReferenceFolder> Styles::referenceFolders (const std::filesy
             folder.files += s.file ? 1 : 0;
             folder.unheard += s.status == "new" || s.status == "changed" || s.status == "failed" ? 1 : 0;
             folder.gone += s.status == "gone" ? 1 : 0;
-        }
 
-        if (std::find (heardStyles.begin(), heardStyles.end(), name) != heardStyles.end())
-            folder.style = name;
+            // Heard, whether or not its songs are in use.
+            if (s.map != nullptr)
+                folder.style = name;
+        }
 
         folders.push_back (std::move (folder));
     }

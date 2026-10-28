@@ -209,6 +209,9 @@ Json toJson (const Guide& g, bool withText)
 {
     Json j { { "id", g.id }, { "name", g.name }, { "summary", g.summary }, { "builtIn", g.builtIn }, { "edited", g.edited } };
 
+    if (g.hidden)
+        j["hidden"] = true;
+
     if (withText)
     {
         j["text"] = g.text;
@@ -220,6 +223,32 @@ Json toJson (const Guide& g, bool withText)
 
 //==============================================================================
 GuideStore::GuideStore (fs::path f) : folder (std::move (f)) {}
+
+/** The built-in guides the user took out of the list. */
+static std::set<std::string> readHidden (const fs::path& folder)
+{
+    try
+    {
+        std::ifstream in (folder / "hidden.json");
+
+        if (in)
+            return Json::parse (in).get<std::set<std::string>>();
+    }
+    catch (const std::exception&)
+    {
+        // Nothing hidden.
+    }
+
+    return {};
+}
+
+void GuideStore::setHidden (const std::string& id, bool hide)
+{
+    auto hidden = readHidden (folder);
+    hide ? (void) hidden.insert (id) : (void) hidden.erase (id);
+    fs::create_directories (folder);
+    std::ofstream (folder / "hidden.json") << Json (hidden).dump (2);
+}
 
 fs::path GuideStore::getDefaultFolder()
 {
@@ -271,9 +300,13 @@ std::vector<Guide> GuideStore::list() const
     }
 
     std::vector<Guide> guides;
+    const auto hiddenIds = readHidden (folder);
 
     for (auto& [id, g] : byId)
+    {
+        g.hidden = g.builtIn && hiddenIds.contains (id);
         guides.push_back (std::move (g));
+    }
 
     std::sort (guides.begin(), guides.end(), [] (auto& a, auto& b) { return juce::String (a.name).compareNatural (juce::String (b.name)) < 0; });
     return guides;

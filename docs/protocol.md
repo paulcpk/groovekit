@@ -27,7 +27,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `hello` | `origin?`: name recorded in history for this connection's changes (`ui`, `agent`, ...) | `{ server, protocol, project }` |
+| `hello` | `origin?`: name recorded in history for this connection's changes (`ui`, `agent`, ...) | `{ server, protocol, project }`; `protocol` goes up when clients need methods an older engine lacks (2: song maps and sound matching), so a client that joined an older engine can say so |
 | `execute` | `commands`: Command[], `group?`, `label?` | `{ entry, label }` |
 | `undo` / `redo` | `wholeGroup?` (default true) | `{ changed, head }` |
 | `get` | `path?`: JSON Pointer into song.json (default: everything) | the value |
@@ -101,6 +101,8 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `guides.get` | `id?` (an id or a name; none: the song's style) | `{ id, name, summary, text, targets, builtIn, edited }` |
 | `guides.save` | `text`, `id?` (none: a new guide, its id from its name) | the guide. Kept in `<app data>/guides/<id>.md`, in place of a built-in one. Every change sends a `guides` notification with the list |
 | `guides.remove` | `id` | `{ removed }`: `restored` (an edited built-in guide is back as it shipped), `deleted` (one of the user's own) or `nothing` |
+| `guides.delete` | `id` | `{ removed }`: `deleted` for one of the user's own, `hidden` for a built-in one (listed with `hidden`, still found by id or name, so songs in its style keep it) |
+| `guides.unhide` | `id` | puts a hidden built-in guide back in the list |
 | `melody.voice` | `recording?` (a voice message's id, default the latest), `from?`, `to?` (seconds, else the sung part found), `tempo?` (`"song"`: hummed at the song's tempo), `key?`, `register?` (`bass`, `chords`, `lead`, `high`), `lowest?`, `highest?`, `snapToScale?` (default true) | `{ notes: [{ start, length, key, velocity }], length, heardTempo, heardKey?, key?, transposed, recording, from, to }`: the melody hummed or sung in a voice message, on the song's grid (ticks from its start) in the song's key (or `key`), moved by octaves into the register. `voiceTranscript` notifications carry `recording` and, when a sung part was heard, `melody: { from, to, notes }` |
 | `melody.reference` | `track` (words of its file name), `style?`, `from?`, `length?` (seconds, default 24), `part?` (`lead`, `chords` or `bass`), `key?`, `register?`, `lowest?`, `highest?`, `snapToScale?` (default false) | the same, with `track`, `from`, `seconds` and `part`: a stretch of a style's reference track split into stems and transcribed (Basic Pitch, its 230 KB model downloaded next to the listening models the first time), its lead the top line of everything but drums and bass |
 | `listening.status` | | `{ models: { ready, downloading, progress, totalBytes, error? }, index: { running, total, embedded, failed, samples, librarySize }, kicks: { running, total, measured, samples }, styles: { running, paused, names, queued, secondsPerSong, mapsVersion, style?, tracks?, analysed?, failed?, current?: { id, style, title, progress, started }, error? } }`; `mapsVersion` goes up with every change to a map or a choice |

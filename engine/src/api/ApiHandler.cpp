@@ -313,7 +313,8 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
         if (params.contains ("origin"))
             client.origin = readParam<std::string> (params, "origin");
 
-        Json result { { "server", "groovekit-engine" }, { "protocol", 1 } };
+        // Goes up when clients need methods an older engine lacks (2: song maps and sound matching).
+        Json result { { "server", "groovekit-engine" }, { "protocol", 2 } };
 
         if (auto dir = session.getProjectDir())
             result["project"] = dir->string();
@@ -2186,6 +2187,32 @@ Json ApiHandler::callGuides (const std::string& method, const Json& params)
 
         if (method == "guides.save")
             return changed (guides::toJson (store.save (params.value ("id", std::string()), readParam<std::string> (params, "text")), true));
+
+        // Out of the list: one of the user's own is deleted, a built-in one hidden (unhide brings
+        // it back).
+        if (method == "guides.delete")
+        {
+            const auto id = readParam<std::string> (params, "id");
+            auto guide = store.find (id);
+
+            if (! guide)
+                throw RpcError (invalidParams, "No style guide \"" + id + "\" (guides.list)");
+
+            if (guide->builtIn)
+            {
+                store.setHidden (guide->id, true);
+                return changed ({ { "removed", "hidden" } });
+            }
+
+            store.remove (guide->id);
+            return changed ({ { "removed", "deleted" } });
+        }
+
+        if (method == "guides.unhide")
+        {
+            store.setHidden (readParam<std::string> (params, "id"), false);
+            return changed ({ { "unhidden", params["id"] } });
+        }
 
         if (method == "guides.remove")
         {
