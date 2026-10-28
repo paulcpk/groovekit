@@ -572,7 +572,7 @@ TEST_CASE ("Rows are numbered, need no adding, and move with their clips and set
     CHECK (h.session.getProject().playlist.rows[0].name == "Drums");
     CHECK (h.session.getProject().playlist.rows[0].mute);
     CHECK (h.session.getProject().playlist.rows[1].solo);
-    CHECK (h.session.getProject().playlist.rows[3] == model::PlaylistRow {});
+    CHECK (h.session.getProject().playlist.rows.size() == 2); // the empty rows after them are left out
 
     // And down again, past an empty row.
     h.call ("execute", Json::parse (R"({ "commands": [ { "type": "moveRows", "row": 0, "to": 2 } ] })"));
