@@ -697,8 +697,14 @@ void Styles::hear (const std::vector<std::pair<std::string, std::filesystem::pat
             Progress::Item item { songId (style, file), style, file.stem().string(), file };
             ids.push_back (item.id);
 
-            if ((progress.current && progress.current->id == item.id)
-                || std::any_of (progress.queued.begin(), progress.queued.end(), [&] (auto& i) { return i.id == item.id; }))
+            // Ticked again while it's being heard: it carries on.
+            if (progress.current && progress.current->id == item.id)
+            {
+                skipping = false;
+                continue;
+            }
+
+            if (std::any_of (progress.queued.begin(), progress.queued.end(), [&] (auto& i) { return i.id == item.id; }))
                 continue;
 
             progress.queued.push_back (std::move (item));
@@ -766,6 +772,10 @@ void Styles::unqueue (const std::vector<std::string>& ids)
         const auto before = progress.queued.size();
         std::erase_if (progress.queued, [&] (auto& i) { return gone.contains (i.id); });
         progress.tracks -= static_cast<int> (before - progress.queued.size());
+
+        if (progress.current && gone.contains (progress.current->id))
+            skipping = true;
+
         saveQueue();
     }
 
@@ -819,6 +829,7 @@ void Styles::run()
 
             item = progress.queued.front();
             progress.queued.erase (progress.queued.begin());
+            skipping = false;
             progress.current = item;
             progress.currentProgress = 0;
             progress.currentStarted = now();
@@ -839,7 +850,7 @@ void Styles::run()
 
             auto track = hearTrack (*separator, clap, item.file, {}, [&] (double fraction)
             {
-                if (cancel || pausing)
+                if (cancel || pausing || skipping)
                     return false;
 
                 {
@@ -856,6 +867,10 @@ void Styles::run()
             track.modified = modifiedTime (item.file);
             track.analysis = analysisVersion;
 
+            // Taken out of the queue at the last moment: its old map stays.
+            if (skipping)
+                throw std::runtime_error ("Skipped");
+
             SongMap map;
             map.style = item.style;
             map.title = item.title;
@@ -869,11 +884,18 @@ void Styles::run()
             error = e.what();
         }
 
+        const bool skipped = skipping.exchange (false);
+
         {
             std::lock_guard lock (mutex);
             progress.current.reset();
 
-            if (stopped)
+            if (skipped)
+            {
+                // Dropped: nothing heard, nothing failed.
+                --progress.tracks;
+            }
+            else if (stopped)
             {
                 // Heard again from the start next time.
                 progress.queued.insert (progress.queued.begin(), item);

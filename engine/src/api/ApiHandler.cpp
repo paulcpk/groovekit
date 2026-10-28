@@ -2352,9 +2352,29 @@ Json ApiHandler::callMaps (const std::string& method, const Json& params)
             return j;
         }
 
+        // The queue follows the ticks while songs are being heard: unticked ones leave it (the one
+        // being heard stops and keeps its old map), ticked ones join it.
         if (method == "maps.setInUse")
         {
-            maps.setInUse (ids(), readParam<bool> (params, "inUse"));
+            const auto list = ids();
+            const auto inUse = readParam<bool> (params, "inUse");
+            maps.setInUse (list, inUse);
+
+            if (! inUse)
+            {
+                styles.unqueue (list);
+            }
+            else if (const auto now = styles.getProgress(); now.current || ! now.queued.empty())
+            {
+                std::vector<std::pair<std::string, std::filesystem::path>> todo;
+
+                for (auto& song : songsFor (list))
+                    if (song.file)
+                        todo.emplace_back (song.style, *song.file);
+
+                styles.hear (todo);
+            }
+
             listening->notifyChanged();
             return { { "changed", params["ids"].size() } };
         }

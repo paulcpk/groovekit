@@ -200,7 +200,8 @@ public:
     void resume();
     void start();
 
-    /** Takes songs out of the queue, or all of them. */
+    /** Takes songs out of the queue, or all of them. The song being heard, if it's one, stops
+        after the stretch it's on and keeps the map it had (or none); hearing moves on. */
     void unqueue (const std::vector<std::string>& ids);
     void clearQueue();
 
@@ -224,6 +225,7 @@ private:
     Progress progress;
     std::thread thread;
     std::atomic<bool> cancel { false }, pausing { false };
+    std::atomic<bool> skipping { false };   // the song being heard was taken out of the queue
     Observer observer;
 
     struct Cached { uint64_t version = 0; std::shared_ptr<const StyleProfile> profile; };

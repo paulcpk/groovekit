@@ -590,3 +590,56 @@ TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and 
     CHECK (measured["score"].get<double>() > 60);
     CHECK (measured["changes"].dump().find ("rumble") != std::string::npos);
 }
+
+TEST_CASE ("While songs are being heard, the queue follows the ticks")
+{
+    const auto dir = freshDir ("maps-ticks");
+    const auto refs = dir / "References";
+
+    for (auto name : { "a", "b", "c" })
+        writeFile (refs / "Hard Techno" / (std::string (name) + ".wav"), 1000);
+
+    library::SampleLibrary library (dir / "library.json");
+    listening::Listening::Files files { dir / "no-models", dir / "sounds.bin", dir / "styles", dir / "taste.json", dir / "Maps", dir / "kicks.json" };
+    listening::Listening listening (library, files);
+    Session session (Session::createEmptyProject());
+    ApiHandler handler (session, test::getEngineContext(), &library, nullptr, nullptr, &listening);
+    handler.referencesFolder = refs;
+
+    Json response;
+    ApiHandler::Client client;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+
+    auto call = [&] (const std::string& method, Json params = Json::object())
+    {
+        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        INFO (response.dump());
+        CHECK_FALSE (response.contains ("error"));
+        return response["result"];
+    };
+
+    auto queued = [&]
+    {
+        std::vector<std::string> ids;
+        const auto status = call ("maps.status");
+
+        for (auto& item : status["queued"])
+            ids.push_back (item["id"]);
+
+        return ids;
+    };
+
+    call ("maps.hear", { { "ids", { "Hard Techno/a", "Hard Techno/b" } } });
+    CHECK (queued() == std::vector<std::string> { "Hard Techno/a", "Hard Techno/b" });
+
+    // Unticked: out of the queue. Ticked: into it.
+    call ("maps.setInUse", { { "ids", { "Hard Techno/b" } }, { "inUse", false } });
+    CHECK (queued() == std::vector<std::string> { "Hard Techno/a" });
+    call ("maps.setInUse", { { "ids", { "Hard Techno/c" } }, { "inUse", true } });
+    CHECK (queued() == std::vector<std::string> { "Hard Techno/a", "Hard Techno/c" });
+
+    // With nothing being heard, a tick only means in use.
+    call ("maps.clearQueue");
+    call ("maps.setInUse", { { "ids", { "Hard Techno/b" } }, { "inUse", true } });
+    CHECK (queued().empty());
+}
