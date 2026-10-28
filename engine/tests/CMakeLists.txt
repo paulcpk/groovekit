@@ -7,6 +7,7 @@ add_executable(gk_tests
     LimiterTests.cpp
     ListeningTests.cpp
     LiveTests.cpp
+    MapsTests.cpp
     ModelTests.cpp
     PluginTests.cpp
     PresetTests.cpp

@@ -3,7 +3,8 @@
 Status (2026-10-28): step 1 built (the guides in the engine, the song's style, the guide in the
 agent's instructions, Styles in the agent panel and the top bar), reference folders for Berlin,
 industrial and hard techno (music discovery, `docs/music-discovery.md`), and the agent's
-conversation mode. Next: the review. The full order is in "The road to excellent results" below.
+conversation mode. Next: song maps, then the review. The full order is in "The road to excellent
+results" below.
 
 ## The problem
 
@@ -51,7 +52,78 @@ Wiring:
 Berlin techno is drafted from the user's own words. The others need the user's read-through, in
 order of how much they care.
 
-### 2. A review (the ears)
+### 2. Song maps (how the references are built)
+
+The agent should arrange like someone who knows the style: when each part comes in, what it plays,
+how the track changes to keep a loop alive. So every reference track is heard once, in full, into a
+map, and the maps are curated and shared instead of heard again.
+
+What a map holds, on the bar grid:
+
+1. **Form.** The downbeat, the sections (where things change: almost always on 8, 16 or 32 bars)
+   with a role each (intro, groove, build, break, drop, outro), and an energy curve per bar
+   (loudness, low end, brightness, density).
+2. **Parts.** Which of a fixed list plays in each bar: kick, rumble/sub, bass, clap, snare, closed
+   hat, open hat, ride, shaker, percussion, toms, crash, stab/chord, riff/lead, pad/atmosphere,
+   vocal, effects. Drum hits are cut from the drum stem, labelled by the sound model and grouped
+   (the same sound repeated is one part); rumble is the low tail after each kick, bass the notes in
+   the bass stem. Each label has a confidence.
+3. **Patterns.** Each part's rhythm per bar on a 16-step grid (32 steps or triplets where the track
+   needs them) with accents, the notes of pitched parts, and where each part sits against the grid
+   (the groove). Repeats fold together: "pattern A for bars 17-48, a variation every 8th".
+4. **Changes.** Filters opening, fills and drop-outs before a phrase, a part out for a bar,
+   crashes and risers on section starts, notes changing under a kept rhythm.
+
+The agent reads a map as a score (form, parts and patterns as text), through a tool.
+
+From all maps of a style:
+
+- **Flavours.** The style's tracks grouped by how they unfold (groove-first, tops-first, melodic
+  build, hypnotic loop, break and drop, ...): found from the data, named with the user. Each has a
+  template with ranges ("the low end comes in at bar 17-33") and its best maps as worked examples.
+- **The shared system** under all of them: phrase lengths, how often something changes, what drops
+  out before a section, the most parts at once.
+- **The rhythm vocabulary**: the kick, hat, clap and bass patterns the style uses and how often, with
+  swing and push per part (for drum and bass this is where two-step and shuffle live).
+
+Maps on disk:
+
+- One JSON file per song in `~/Music/GrooveKit/Maps/<style>/<song>.json`, beside
+  `References/<style>`, holding everything heard (also the sound fit and levels the hearing kept
+  per track), the hearing version and the source (heard here or imported). `index.json` lists them
+  with their style, summary and whether each is in use.
+- Real titles, on the user's machine only: not in the repository. Sharing is a zip of map files
+  between people (export a style or the ticked songs; import by dropping the zip), each zip with
+  its own index. Exact notes of pitched parts stay out of an export unless asked for.
+- Maps heard by an older hearing are used for what they have; the user hears their own again when
+  the hearing improves, and contributors send new zips.
+
+Curating (the References tab in the agent panel):
+
+- **Songs**: every reference track by style, like the folders, with its status (heard, hearing,
+  queued, failed, heard by an older version, imported without audio, skipped). A tick means in use:
+  the style's flavours and templates come from the ticked maps, and the ticks also pick songs for
+  the actions: hear (again), forget (delete the map and don't hear it again), remove from the
+  references (the audio goes to "Not used"), export.
+- **Processing**: the hearing queue, every song with its steps and progress, the time left, pause
+  and resume; it carries on after a restart.
+- A map opens in a window: its measurements now, the form, parts and patterns as they come, with
+  playback from any bar and corrections to labels.
+- **A song's references**: a project can name its own references ("make it like these two"), so its
+  review keeps comparing with those, whatever is ticked.
+
+Built in this order:
+
+1. Map files, the index, the queue, the References tab and export/import, with what the hearing
+   already measures (tempo, swing, density, loudness, balance, levels and sounds per part).
+2. The full-track hearing: form, parts per bar, energy; the map window shows them. The user checks
+   the first maps against tracks they know by heart.
+3. Drum-hit labels, patterns per part, notes, the timing feel; the rhythm vocabulary.
+4. Flavours and templates per style, into the guides and the agent's tools; the agent plans a song
+   as a map first, and a song can name its references.
+5. The review (below) compares the song's own map with the template.
+
+### 3. A review (the ears)
 
 A `review` tool (engine `song.review`) that checks the song against its guide and returns a ranked
 list of problems, each with a concrete fix:
@@ -74,7 +146,7 @@ agent's own word (`roles`).
 The agent must run the review after every part it adds and fix the top problem before going on. It
 reports the result to the user in a line ("within the guide except a busy top end at bar 49").
 
-### 3. The process
+### 4. The process
 
 Written into the agent's instructions and the guides:
 
@@ -85,7 +157,7 @@ Written into the agent's instructions and the guides:
 4. Few, better sounds: search by sound and fit to the style, prefer the user's trusted folders.
 5. Arrange within the parts-at-once budget; review the whole song; master.
 
-### 4. Feedback (the user, in small doses)
+### 5. Feedback (the user, in small doses)
 
 - A/B/C: the agent renders three short variations (different kits or densities) and the user picks
   one with a click. The pick trains the taste model on kits, not single sounds.
@@ -93,7 +165,7 @@ Written into the agent's instructions and the guides:
   good song); searches prefer them.
 - Notes: lasting wishes go into the notes, which the agent already follows.
 
-### 5. Testing it
+### 6. Testing it
 
 A fixed set of prompts per style ("a 6-minute Berlin techno track at 136 BPM from my library"). For
 each version of the guides and the review: build the songs, review them, and the user rates them
@@ -106,20 +178,21 @@ In this order; each step is judged by the test round (6) before the next.
 1. **Conversation mode** (done). The agent talks when asked a question or for ideas: it answers,
    explains, offers options with their trade-offs and asks back, and edits only when asked. It looks
    at the song (and renders or compares it with the references) before giving an opinion.
-2. **The review** (next; one to two sessions). Measures the song against its guide and the user's
+2. **Song maps** (next; see "Song maps" above, built in its five steps). The references heard in
+   full into maps the user curates and shares; flavours, templates and the rhythm vocabulary per
+   style come from them. This takes in "Arrangement from the references" (the old step 5).
+3. **The review** (one to two sessions). Measures the song against its guide and the user's
    reference folders and returns ranked, concrete problems ("the clap is 2 dB under the kick; your
    references put it 7 to 16 dB under", "bars 33 to 48 have 9 parts; the budget is 6", "the highs
    are busier than your Berlin references"). The guides' targets come from the references'
    measurements instead of estimates.
-3. **The process** (one session). The agent builds the groove first, adds one part at a time,
+4. **The process** (one session). The agent builds the groove first, adds one part at a time,
    reviews after each and fixes the top problem before going on, then masters and compares with
    the references.
-4. **Sound choice from the references.** Every search ranks by fit to the song's style folder and
+5. **Sound choice from the references.** Every search ranks by fit to the song's style folder and
    by the user's taste, so a kick is chosen because it sounds like the references' kicks.
-5. **Arrangement from the references.** How the references evolve (parts at once over time,
-   breakdowns, intro length) becomes the arrangement target per style.
 6. **Testing with the user.** A fixed prompt per style, the songs rated blind (good, okay, bad), one
-   change at a time; keep what improves the ratings. The first round comes after step 3.
+   change at a time; keep what improves the ratings. The first round comes after step 4.
 7. **A/B/C variations and trusted folders.** Three short versions to pick from by ear, which trains
    the taste on whole kits; trusted sample folders searches prefer.
 8. **A mastering chain per style**, tuned to the references' loudness and balance.

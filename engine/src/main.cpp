@@ -5,6 +5,7 @@
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
 #include "listening/Listening.h"
+#include "listening/Maps.h"
 #include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
 #include "render/Render.h"
@@ -195,8 +196,9 @@ Add --verbose to see engine log messages.
             library.startScan();
 
         // Hearing what the samples sound like, once the listening models are downloaded. With
-        // their own library index (tests), the sound index, styles and verdicts go beside it.
+        // their own library index (tests), the sound index, styles, maps and verdicts go beside it.
         gk::listening::Listening::Files listeningFiles;
+        listeningFiles.maps = gk::listening::MapStore::getDefaultFolder();
 
         if (auto index = args.get ("--library"))
         {
@@ -204,6 +206,7 @@ Add --verbose to see engine log messages.
             listeningFiles.soundIndex = std::filesystem::path (base).replace_extension (".sounds.bin");
             listeningFiles.styles = std::filesystem::path (base).replace_extension (".styles");
             listeningFiles.taste = std::filesystem::path (base).replace_extension (".taste.json");
+            listeningFiles.maps = std::filesystem::path (base).replace_extension (".maps");
         }
 
         gk::listening::Listening listening (library, listeningFiles);

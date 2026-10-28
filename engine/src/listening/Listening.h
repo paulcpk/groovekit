@@ -21,6 +21,10 @@ public:
         std::filesystem::path soundIndex = SoundIndex::getDefaultFile();
         std::filesystem::path styles = Styles::getDefaultFolder();
         std::filesystem::path taste = Taste::getDefaultFile();
+
+        /** The song maps; beside the styles folder unless given (the app's are in
+            MapStore::getDefaultFolder()). */
+        std::filesystem::path maps;
     };
 
     Listening (library::SampleLibrary&, Files);
@@ -32,11 +36,14 @@ public:
     Taste& getTaste()           { return taste; }
     Clap& getClap()             { return clap; }
 
-    /** Called from any thread whenever a download, indexing or style analysis moves on. */
+    /** Called from any thread whenever a download, indexing or hearing moves on, or a map changes. */
     void setObserver (std::function<void (const model::Json& status)>);
 
-    /** Models, index and style analysis progress. */
+    /** Models, index and hearing progress. */
     model::Json getStatus() const;
+
+    /** Tells the observer that maps or the user's choices changed. */
+    void notifyChanged()        { notify(); }
 
     /** Downloads the models; when they're in, indexes the library. */
     void download();
@@ -44,7 +51,8 @@ public:
     /** Embeds new library samples, after any running library scan, if the models are in. */
     void startIndexing();
 
-    /** Analyses a folder of reference tracks as a style. Returns its name. */
+    /** Hears a folder of reference tracks as a style: queues its new and changed tracks. Returns
+        the style's name. */
     std::string addStyle (const std::filesystem::path& folder, const std::string& name);
 
     //==============================================================================

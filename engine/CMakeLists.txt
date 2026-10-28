@@ -25,6 +25,7 @@ target_sources(gk_engine PRIVATE
     src/listening/Download.cpp
     src/listening/Groove.cpp
     src/listening/Listening.cpp
+    src/listening/Maps.cpp
     src/listening/Models.cpp
     src/listening/NoteTranscriber.cpp
     src/listening/Ort.cpp

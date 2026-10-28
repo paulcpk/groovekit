@@ -100,7 +100,5 @@ export const downloadModels = () => call<ListeningStatus>("listening.download").
 
 export const addStyle = (path: string) => call<{ name: string }>("styles.add", { path });
 
-export const removeStyle = (name: string) => call("styles.remove", { name }).then(refreshStyles);
-
 /** The user's verdict on a sample for a style; null forgets it. */
 export const rateSample = (path: string, style: string, fits: boolean | null) => call("library.rate", { path, style, fits });

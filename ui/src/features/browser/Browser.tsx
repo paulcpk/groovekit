@@ -10,7 +10,7 @@ import { previewSample, stopPreview } from "@/features/shell/actions";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { call, engine, useEngine } from "@/state/engine";
-import { addStyle, canListen, downloadModels, needsHearing, rateSample, refreshReferences, removeStyle, useListening, useListeningStatus, type ListeningStatus, type ReferenceFolder } from "./listening";
+import { addStyle, canListen, downloadModels, needsHearing, rateSample, refreshReferences, useListening, useListeningStatus, type ListeningStatus, type ReferenceFolder } from "./listening";
 
 interface Sample {
   path: string;
@@ -682,8 +682,6 @@ function Listening({ status }: { status?: ListeningStatus }) {
           <Check size={10} className="shrink-0 text-ok" />
           <span className="min-w-0 flex-1 truncate text-fg">{s.name}</span>
           <span className="shrink-0 text-faint tabular">{s.tracks} tracks{s.tempo ? `, ${Math.round(s.tempo.min)}–${Math.round(s.tempo.max)} BPM` : ""}</span>
-          <button type="button" className="text-faint opacity-0 group-hover:opacity-100 hover:text-rec" title="Remove style"
-            onClick={() => void removeStyle(s.name)}><X size={10} /></button>
         </div>
       ))}
 

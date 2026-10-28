@@ -1,10 +1,12 @@
 #include "Styles.h"
 
 #include "EngineContext.h"
+#include "Maps.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
 
 #include <fstream>
+#include <numeric>
 #include <set>
 
 namespace gk::listening
@@ -35,13 +37,6 @@ namespace
     int64_t modifiedTime (const std::filesystem::path& p)
     {
         return static_cast<int64_t> (std::filesystem::last_write_time (p).time_since_epoch().count());
-    }
-
-    /** Whether a track heard before is this file, unchanged: by its name, size and date rather
-        than its path, so a folder that moved isn't heard again. */
-    bool isSameFile (const StyleProfile::Track& t, const std::filesystem::path& file, int64_t size, int64_t modified, int version)
-    {
-        return std::filesystem::path (t.path).filename() == file.filename() && t.size == size && t.modified == modified && t.analysis == version;
     }
 
     /** The audio files in a folder and the folders inside it, sorted. */
@@ -180,35 +175,69 @@ float StyleProfile::fit (Role role, const Embedding& e, std::optional<size_t> le
     return std::accumulate (similarities.begin(), similarities.begin() + static_cast<long> (k), 0.0f) / static_cast<float> (k);
 }
 
+Json StyleProfile::Track::toJson() const
+{
+    Json levelsJson = Json::object(), soundsJson = Json::object();
+
+    for (auto& [role, db] : levels)
+        levelsJson[roleName (role)] = round (db, 0.1);
+
+    for (auto& [role, list] : sounds)
+    {
+        auto encoded = Json::array();
+
+        for (auto& e : list)
+            encoded.push_back (encode (e));
+
+        soundsJson[roleName (role)] = encoded;
+    }
+
+    Json j { { "path", path }, { "size", size }, { "modified", modified }, { "analysis", analysis }, { "tempo", tempo }, { "density", round (density, 0.01) },
+             { "lufs", round (lufs, 0.1) }, { "balance", balance }, { "levels", levelsJson }, { "sounds", soundsJson } };
+
+    if (swing)
+        j["swing"] = round (*swing, 0.01);
+
+    return j;
+}
+
+StyleProfile::Track StyleProfile::Track::fromJson (const Json& tj)
+{
+    Track t;
+    t.path = tj.value ("path", "");
+    t.size = tj.value ("size", int64_t { 0 });
+    t.modified = tj.value ("modified", int64_t { 0 });
+    t.analysis = tj.value ("analysis", 1);
+    t.tempo = tj.value ("tempo", 0.0);
+    t.density = tj.value ("density", 0.0);
+    t.lufs = tj.value ("lufs", 0.0f);
+    t.balance = tj.value ("balance", std::vector<float>());
+
+    if (tj.contains ("swing"))
+        t.swing = tj["swing"].get<double>();
+
+    // Held here: items() only refers to the object it's given.
+    const auto levels = tj.value ("levels", Json::object());
+    const auto sounds = tj.value ("sounds", Json::object());
+
+    for (auto& [name, db] : levels.items())
+        if (auto role = roleFromName (name))
+            t.levels[*role] = db.get<float>();
+
+    for (auto& [name, list] : sounds.items())
+        if (auto role = roleFromName (name))
+            for (auto& s : list)
+                t.sounds[*role].push_back (decode (s.get<std::string>()));
+
+    return t;
+}
+
 Json StyleProfile::toJson() const
 {
     auto trackList = Json::array();
 
     for (auto& t : tracks)
-    {
-        Json levels = Json::object(), sounds = Json::object();
-
-        for (auto& [role, db] : t.levels)
-            levels[roleName (role)] = round (db, 0.1);
-
-        for (auto& [role, list] : t.sounds)
-        {
-            auto encoded = Json::array();
-
-            for (auto& e : list)
-                encoded.push_back (encode (e));
-
-            sounds[roleName (role)] = encoded;
-        }
-
-        Json j { { "path", t.path }, { "size", t.size }, { "modified", t.modified }, { "analysis", t.analysis }, { "tempo", t.tempo }, { "density", round (t.density, 0.01) },
-                 { "lufs", round (t.lufs, 0.1) }, { "balance", t.balance }, { "levels", levels }, { "sounds", sounds } };
-
-        if (t.swing)
-            j["swing"] = round (*t.swing, 0.01);
-
-        trackList.push_back (std::move (j));
-    }
+        trackList.push_back (t.toJson());
 
     Json typical = Json::object();
 
@@ -225,34 +254,7 @@ StyleProfile StyleProfile::fromJson (const Json& j)
     p.folder = j.value ("folder", "");
 
     for (auto& tj : j.value ("tracks", Json::array()))
-    {
-        Track t;
-        t.path = tj.value ("path", "");
-        t.size = tj.value ("size", int64_t { 0 });
-        t.modified = tj.value ("modified", int64_t { 0 });
-        t.analysis = tj.value ("analysis", 1);
-        t.tempo = tj.value ("tempo", 0.0);
-        t.density = tj.value ("density", 0.0);
-        t.lufs = tj.value ("lufs", 0.0f);
-        t.balance = tj.value ("balance", std::vector<float>());
-
-        if (tj.contains ("swing"))
-            t.swing = tj["swing"].get<double>();
-
-        const auto levels = tj.value ("levels", Json::object());
-        const auto sounds = tj.value ("sounds", Json::object());
-
-        for (auto& [name, db] : levels.items())
-            if (auto role = roleFromName (name))
-                t.levels[*role] = db.get<float>();
-
-        for (auto& [name, list] : sounds.items())
-            if (auto role = roleFromName (name))
-                for (auto& s : list)
-                    t.sounds[*role].push_back (decode (s.get<std::string>()));
-
-        p.tracks.push_back (std::move (t));
-    }
+        p.tracks.push_back (Track::fromJson (tj));
 
     const auto typical = j.value ("typicalFit", Json::object());
 
@@ -325,32 +327,69 @@ Json StyleProfile::measurements() const
     return j;
 }
 
-//==============================================================================
-Styles::Styles (const Models& m, Clap& c, std::filesystem::path f) : models (m), clap (c), folder (std::move (f))
+int currentAnalysisVersion()
 {
-    std::error_code ec;
+    return analysisVersion;
+}
 
-    for (auto& entry : std::filesystem::directory_iterator (folder, ec))
+//==============================================================================
+namespace
+{
+    int64_t now()
     {
-        if (entry.path().extension() != ".json")
-            continue;
-
-        try
-        {
-            std::ifstream in (entry.path());
-            auto j = Json::parse (in);
-
-            if (j.value ("version", 0) == fileVersion)
-            {
-                auto p = std::make_shared<StyleProfile> (StyleProfile::fromJson (j));
-                profiles[p->name] = std::move (p);
-            }
-        }
-        catch (const std::exception&)
-        {
-            // A damaged profile is left out; adding the folder again rebuilds it.
-        }
+        return juce::Time::currentTimeMillis();
     }
+
+    std::string lower (const std::string& s)
+    {
+        return juce::String (s).toLowerCase().toStdString();
+    }
+
+    std::string songId (const std::string& style, const std::filesystem::path& file)
+    {
+        return style + "/" + file.stem().string();
+    }
+
+    /** Whether a map was heard from this file, unchanged: by its name, size and date rather than
+        its path, so a folder that moved isn't heard again. */
+    bool isSameFile (const StyleProfile::Track& t, const std::filesystem::path& file)
+    {
+        std::error_code ec;
+        const auto size = static_cast<int64_t> (std::filesystem::file_size (file, ec));
+        return std::filesystem::path (t.path).filename() == file.filename() && t.size == size && t.modified == modifiedTime (file);
+    }
+
+    /** The style folders in a references folder. */
+    std::vector<std::pair<std::string, std::filesystem::path>> styleFoldersIn (const std::filesystem::path& root)
+    {
+        static const std::set<std::string> notStyles { "albums", "mixes", "not used" };
+        std::vector<std::pair<std::string, std::filesystem::path>> folders;
+        std::error_code ec;
+
+        for (auto& entry : std::filesystem::directory_iterator (root, ec))
+        {
+            const auto name = entry.path().filename().string();
+
+            if (entry.is_directory (ec) && ! name.starts_with (".") && ! notStyles.contains (lower (name)))
+                folders.emplace_back (name, entry.path());
+        }
+
+        return folders;
+    }
+
+    bool naturalLess (const std::string& a, const std::string& b)
+    {
+        return juce::String (a).compareNatural (juce::String (b)) < 0;
+    }
+}
+
+Styles::Styles (const Models& m, Clap& c, std::filesystem::path mapsFolder, std::filesystem::path oldProfilesFolder)
+    : models (m), clap (c), maps (std::make_unique<MapStore> (std::move (mapsFolder)))
+{
+    if (! oldProfilesFolder.empty())
+        migrate (oldProfilesFolder);
+
+    loadQueue();
 }
 
 Styles::~Styles()
@@ -361,7 +400,26 @@ Styles::~Styles()
 void Styles::stop()
 {
     cancel = true;
-    wait();
+
+    if (thread.joinable())
+        thread.join();
+
+    cancel = false;
+}
+
+void Styles::wait()
+{
+    for (;;)
+    {
+        {
+            std::lock_guard lock (mutex);
+
+            if (! progress.running)
+                break;
+        }
+
+        std::this_thread::sleep_for (std::chrono::milliseconds (20));
+    }
 }
 
 std::filesystem::path Styles::getDefaultFolder()
@@ -378,104 +436,200 @@ std::filesystem::path Styles::getReferencesFolder()
     return std::filesystem::path (music.getFullPathName().toStdString()) / "GrooveKit" / "References";
 }
 
-std::vector<Styles::ReferenceFolder> Styles::referenceFolders (const std::filesystem::path& root) const
-{
-    static const std::set<std::string> notStyles { "albums", "mixes", "not used" };
-    std::vector<ReferenceFolder> folders;
-    std::error_code ec;
-
-    for (auto& entry : std::filesystem::directory_iterator (root, ec))
-    {
-        const auto name = entry.path().filename().string();
-
-        if (! entry.is_directory (ec) || name.starts_with (".") || notStyles.contains (juce::String (name).toLowerCase().toStdString()))
-            continue;
-
-        ReferenceFolder folder { name, entry.path() };
-        const auto files = audioFilesIn (entry.path());
-        folder.files = static_cast<int> (files.size());
-
-        // The style heard from this folder (wherever the folder was when it was added, by name).
-        std::shared_ptr<const StyleProfile> profile;
-        {
-            std::lock_guard lock (mutex);
-
-            for (auto& [styleName, p] : profiles)
-                if (std::filesystem::equivalent (p->folder, entry.path(), ec) || (! profile && styleName == name))
-                    profile = p;
-        }
-
-        if (profile != nullptr)
-        {
-            folder.style = profile->name;
-
-            for (auto& file : files)
-            {
-                const auto size = static_cast<int64_t> (std::filesystem::file_size (file, ec));
-                const auto modified = modifiedTime (file);
-                const bool heard = std::any_of (profile->tracks.begin(), profile->tracks.end(), [&] (auto& t)
-                {
-                    return isSameFile (t, file, size, modified, analysisVersion);
-                });
-                folder.unheard += heard ? 0 : 1;
-            }
-
-            for (auto& track : profile->tracks)
-                folder.gone += std::any_of (files.begin(), files.end(), [&] (auto& f) { return f.filename() == std::filesystem::path (track.path).filename(); }) ? 0 : 1;
-        }
-        else
-        {
-            folder.unheard = folder.files;
-        }
-
-        folders.push_back (std::move (folder));
-    }
-
-    std::sort (folders.begin(), folders.end(), [] (auto& a, auto& b) { return juce::String (a.name).compareNatural (juce::String (b.name)) < 0; });
-    return folders;
-}
-
-std::filesystem::path Styles::fileFor (const std::string& name) const
-{
-    auto safe = juce::File::createLegalFileName (juce::String (name)).toStdString();
-    return folder / (safe + ".json");
-}
-
-std::vector<std::string> Styles::names() const
+void Styles::setObserver (Observer o)
 {
     std::lock_guard lock (mutex);
-    std::vector<std::string> list;
+    observer = std::move (o);
+}
 
-    for (auto& [name, p] : profiles)
-        list.push_back (name);
+void Styles::notify()
+{
+    Observer o;
+    {
+        std::lock_guard lock (mutex);
+        o = observer;
+    }
+
+    if (o)
+        o();
+}
+
+//==============================================================================
+std::vector<Styles::Song> Styles::songs (const std::filesystem::path& root) const
+{
+    // The references folder's style folders, and folders styles were heard from elsewhere.
+    std::map<std::string, std::filesystem::path> folders;
+    std::error_code ec;
+
+    for (auto& [name, path] : styleFoldersIn (root))
+        folders[name] = path;
+
+    for (auto& map : maps->all())
+        if (! folders.contains (map->style))
+            if (auto folder = maps->getStyleFolder (map->style); folder && std::filesystem::is_directory (*folder, ec))
+                folders[map->style] = *folder;
+
+    const auto now = getProgress();
+    std::vector<Song> list;
+    std::set<std::string> seen;
+
+    auto queued = [&] (const std::string& id)
+    {
+        return std::any_of (now.queued.begin(), now.queued.end(), [&] (auto& i) { return i.id == id; });
+    };
+
+    auto failure = [&] (const std::string& id) -> const Progress::Done*
+    {
+        for (auto& d : now.recent)
+            if (d.item.id == id)
+                return d.ok ? nullptr : &d;
+
+        return nullptr;
+    };
+
+    for (auto& [style, folder] : folders)
+    {
+        for (auto& file : audioFilesIn (folder))
+        {
+            Song s;
+            s.style = style;
+            s.title = file.stem().string();
+            s.id = songId (style, file);
+
+            if (! seen.insert (s.id).second)
+                continue;
+
+            s.file = file;
+            s.map = maps->get (s.id);
+            s.inUse = maps->isInUse (s.id);
+
+            if (now.current && now.current->id == s.id)
+                s.status = "hearing";
+            else if (queued (s.id))
+                s.status = "queued";
+            else if (s.map != nullptr && isSameFile (s.map->track, file))
+                s.status = s.map->track.analysis < analysisVersion ? "older" : "heard";
+            else if (s.map != nullptr)
+                s.status = s.map->source == "imported" ? "imported" : "changed";
+            else if (auto failed = failure (s.id))
+                s.status = "failed", s.error = failed->error;
+            else
+                s.status = maps->isSkipped (s.id) ? "skipped" : "new";
+
+            list.push_back (std::move (s));
+        }
+    }
+
+    for (auto& map : maps->all())
+    {
+        if (seen.contains (map->id()))
+            continue;
+
+        Song s { map->id(), map->style, map->title, {}, map, map->source == "imported" ? "imported" : "gone", maps->isInUse (map->id()), {} };
+        list.push_back (std::move (s));
+    }
+
+    std::sort (list.begin(), list.end(), [] (auto& a, auto& b)
+    {
+        return a.style != b.style ? naturalLess (a.style, b.style) : naturalLess (a.title, b.title);
+    });
 
     return list;
 }
 
+std::vector<Styles::ReferenceFolder> Styles::referenceFolders (const std::filesystem::path& root) const
+{
+    std::vector<ReferenceFolder> folders;
+    const auto all = songs (root);
+    const auto heardStyles = names();
+
+    for (auto& [name, path] : styleFoldersIn (root))
+    {
+        ReferenceFolder folder { name, path };
+
+        for (auto& s : all)
+        {
+            if (s.style != name)
+                continue;
+
+            folder.files += s.file ? 1 : 0;
+            folder.unheard += s.status == "new" || s.status == "changed" || s.status == "failed" ? 1 : 0;
+            folder.gone += s.status == "gone" ? 1 : 0;
+        }
+
+        if (std::find (heardStyles.begin(), heardStyles.end(), name) != heardStyles.end())
+            folder.style = name;
+
+        folders.push_back (std::move (folder));
+    }
+
+    std::sort (folders.begin(), folders.end(), [] (auto& a, auto& b) { return naturalLess (a.name, b.name); });
+    return folders;
+}
+
+//==============================================================================
+std::vector<std::string> Styles::names() const
+{
+    std::set<std::string> styles;
+
+    for (auto& map : maps->all())
+        if (maps->isInUse (map->id()))
+            styles.insert (map->style);
+
+    return { styles.begin(), styles.end() };
+}
+
 std::shared_ptr<const StyleProfile> Styles::get (const std::string& name) const
 {
-    std::lock_guard lock (mutex);
+    const auto version = maps->getVersion();
+    std::vector<std::shared_ptr<const SongMap>> inUse;
 
-    for (auto& [n, p] : profiles)
-        if (juce::String (n).equalsIgnoreCase (juce::String (name)))
-            return p;
+    for (auto& map : maps->all())
+        if (lower (map->style) == lower (name) && maps->isInUse (map->id()))
+            inUse.push_back (map);
 
-    return {};
+    if (inUse.empty())
+        return {};
+
+    {
+        std::lock_guard lock (cacheMutex);
+
+        if (auto it = cache.find (lower (name)); it != cache.end() && it->second.version == version)
+            return it->second.profile;
+    }
+
+    auto profile = std::make_shared<StyleProfile>();
+    profile->name = inUse.front()->style;
+    profile->folder = maps->getStyleFolder (profile->name).value_or (std::filesystem::path());
+
+    for (auto& map : inUse)
+        profile->tracks.push_back (map->track);
+
+    // How close each track's sounds are to the other tracks': the yardstick for fit.
+    if (profile->tracks.size() > 1)
+    {
+        for (auto role : allRoles)
+        {
+            double sum = 0;
+            int count = 0;
+
+            for (size_t i = 0; i < profile->tracks.size(); ++i)
+                if (auto it = profile->tracks[i].sounds.find (role); it != profile->tracks[i].sounds.end())
+                    for (auto& s : it->second)
+                        sum += profile->fit (role, s, i), ++count;
+
+            if (count > 0)
+                profile->typicalFit[role] = static_cast<float> (sum / count);
+        }
+    }
+
+    std::lock_guard lock (cacheMutex);
+    cache[lower (name)] = { version, profile };
+    return profile;
 }
 
-Styles::Progress Styles::getProgress() const
-{
-    std::lock_guard lock (mutex);
-    return progress;
-}
-
-void Styles::wait()
-{
-    if (thread.joinable())
-        thread.join();
-}
-
-std::string Styles::add (const std::filesystem::path& tracksFolder, std::string name, ProgressCallback callback)
+//==============================================================================
+std::string Styles::add (const std::filesystem::path& tracksFolder, std::string name)
 {
     std::error_code ec;
     const auto absolute = std::filesystem::weakly_canonical (std::filesystem::absolute (tracksFolder), ec);
@@ -486,176 +640,374 @@ std::string Styles::add (const std::filesystem::path& tracksFolder, std::string 
     if (name.empty())
         name = absolute.filename().string();
 
-    StyleProfile profile;
+    const auto files = audioFilesIn (absolute);
 
-    if (auto existing = get (name))
-        profile = *existing;
+    if (files.empty())
+        throw std::runtime_error ("There are no audio files in " + absolute.string());
 
-    profile.name = name;
-    profile.folder = absolute;
+    maps->setStyleFolder (name, absolute);
 
-    std::lock_guard lock (mutex);
+    // New tracks and changed ones; skipped tracks wait until they're asked for by name.
+    std::vector<std::pair<std::string, std::filesystem::path>> todo;
 
-    if (progress.running)
-        throw std::runtime_error ("Style \"" + progress.style + "\" is being analysed; try again when it's done");
+    for (auto& file : files)
+    {
+        const auto id = songId (name, file);
+        auto map = maps->get (id);
 
-    if (thread.joinable())
-        thread.join();
+        if ((map == nullptr || ! isSameFile (map->track, file)) && ! maps->isSkipped (id))
+            todo.emplace_back (name, file);
+    }
 
-    progress = { true, name, 0, 0, 0, {} };
-    cancel = false;
-    thread = std::thread ([this, profile = std::move (profile), callback]() mutable { analyse (std::move (profile), callback); });
+    hear (todo);
     return name;
 }
 
-void Styles::remove (const std::string& name)
+void Styles::hear (const std::vector<std::pair<std::string, std::filesystem::path>>& songs)
 {
-    auto profile = get (name);
-
-    if (profile == nullptr)
-        throw std::runtime_error ("No style named \"" + name + "\"");
-
-    std::lock_guard lock (mutex);
-    profiles.erase (profile->name);
-    std::error_code ec;
-    std::filesystem::remove (fileFor (profile->name), ec);
-}
-
-void Styles::analyse (StyleProfile profile, ProgressCallback callback)
-{
-    auto report = [&] (auto&& change)
+    std::vector<std::string> ids;
     {
-        Progress now;
+        std::lock_guard lock (mutex);
+
+        if (progress.queued.empty() && ! progress.current)
         {
-            std::lock_guard lock (mutex);
-            change (progress);
-            now = progress;
+            progress.tracks = progress.analysed = progress.failed = 0;
+            progress.error.clear();
         }
 
-        if (callback)
-            callback (now);
-    };
-
-    const auto files = audioFilesIn (profile.folder);
-    std::error_code ec;
-    report ([&] (Progress& p) { p.tracks = static_cast<int> (files.size()); });
-
-    std::string error;
-
-    try
-    {
-        if (files.empty())
-            throw std::runtime_error ("There are no audio files in " + profile.folder.string());
-
-        // Tracks heard before and unchanged are kept; the rest are heard now. The style is saved
-        // after each, so it's usable while it grows and an interrupted analysis carries on later.
-        std::vector<StyleProfile::Track> tracks;
-        std::vector<std::filesystem::path> todo;
-
-        for (auto& file : files)
+        for (auto& [style, file] : songs)
         {
-            const auto size = static_cast<int64_t> (std::filesystem::file_size (file, ec));
-            const auto modified = modifiedTime (file);
-            auto cached = std::find_if (profile.tracks.begin(), profile.tracks.end(), [&] (auto& t)
+            Progress::Item item { songId (style, file), style, file.stem().string(), file };
+            ids.push_back (item.id);
+
+            if ((progress.current && progress.current->id == item.id)
+                || std::any_of (progress.queued.begin(), progress.queued.end(), [&] (auto& i) { return i.id == item.id; }))
+                continue;
+
+            progress.queued.push_back (std::move (item));
+            ++progress.tracks;
+        }
+
+        saveQueue();
+    }
+
+    maps->setSkipped (ids, false);
+    start();
+    notify();
+}
+
+void Styles::start()
+{
+    std::unique_lock lock (mutex);
+
+    if (progress.running || progress.paused || progress.queued.empty() || ! models.getStatus().ready)
+        return;
+
+    // Claimed before the lock is let go: a hearing that just finished may still be reporting,
+    // which takes the lock.
+    progress.running = true;
+    auto finished = std::move (thread);
+    lock.unlock();
+
+    if (finished.joinable())
+        finished.join();
+
+    lock.lock();
+    thread = std::thread ([this] { run(); });
+}
+
+void Styles::pause()
+{
+    {
+        std::lock_guard lock (mutex);
+        progress.paused = true;
+        pausing = true;
+        saveQueue();
+    }
+
+    notify();
+}
+
+void Styles::resume()
+{
+    {
+        std::lock_guard lock (mutex);
+        progress.paused = false;
+        pausing = false;
+        saveQueue();
+    }
+
+    start();
+    notify();
+}
+
+void Styles::unqueue (const std::vector<std::string>& ids)
+{
+    {
+        std::lock_guard lock (mutex);
+        const std::set<std::string> gone (ids.begin(), ids.end());
+        const auto before = progress.queued.size();
+        std::erase_if (progress.queued, [&] (auto& i) { return gone.contains (i.id); });
+        progress.tracks -= static_cast<int> (before - progress.queued.size());
+        saveQueue();
+    }
+
+    notify();
+}
+
+void Styles::clearQueue()
+{
+    {
+        std::lock_guard lock (mutex);
+        progress.tracks -= static_cast<int> (progress.queued.size());
+        progress.queued.clear();
+        saveQueue();
+    }
+
+    notify();
+}
+
+void Styles::forget (const std::vector<std::string>& ids)
+{
+    unqueue (ids);
+
+    for (auto& id : ids)
+        maps->remove (id);
+
+    maps->setSkipped (ids, true);
+    notify();
+}
+
+Styles::Progress Styles::getProgress() const
+{
+    std::lock_guard lock (mutex);
+    return progress;
+}
+
+void Styles::run()
+{
+    std::unique_ptr<Separator> separator;
+
+    for (;;)
+    {
+        Progress::Item item;
+        {
+            std::lock_guard lock (mutex);
+
+            if (cancel || pausing || progress.queued.empty())
             {
-                return isSameFile (t, file, size, modified, analysisVersion);
+                progress.running = false;
+                break;
+            }
+
+            item = progress.queued.front();
+            progress.queued.erase (progress.queued.begin());
+            progress.current = item;
+            progress.currentProgress = 0;
+            progress.currentStarted = now();
+            progress.style = item.style;
+            saveQueue();
+        }
+
+        notify();
+
+        const auto started = now();
+        std::string error;
+        bool stopped = false;
+
+        try
+        {
+            if (separator == nullptr)
+                separator = std::make_unique<Separator> (models);
+
+            auto track = hearTrack (*separator, clap, item.file, {}, [&] (double fraction)
+            {
+                if (cancel || pausing)
+                    return false;
+
+                {
+                    std::lock_guard lock (mutex);
+                    progress.currentProgress = fraction;
+                }
+
+                notify();
+                return true;
             });
 
-            if (cached != profile.tracks.end())
+            std::error_code ec;
+            track.size = static_cast<int64_t> (std::filesystem::file_size (item.file, ec));
+            track.modified = modifiedTime (item.file);
+            track.analysis = analysisVersion;
+
+            SongMap map;
+            map.style = item.style;
+            map.title = item.title;
+            map.heardAt = now();
+            map.track = std::move (track);
+            maps->put (std::move (map));
+        }
+        catch (const std::exception& e)
+        {
+            stopped = cancel || pausing;
+            error = e.what();
+        }
+
+        {
+            std::lock_guard lock (mutex);
+            progress.current.reset();
+
+            if (stopped)
             {
-                tracks.push_back (*cached);
-                tracks.back().path = file.string();
-                report ([] (Progress& p) { ++p.analysed; });
+                // Heard again from the start next time.
+                progress.queued.insert (progress.queued.begin(), item);
             }
             else
             {
-                todo.push_back (file);
+                const auto t = now();
+                progress.recent.insert (progress.recent.begin(), { item, error.empty(), error, (t - started) / 1000.0, t });
+
+                if (progress.recent.size() > 200)
+                    progress.recent.resize (200);
+
+                if (error.empty())
+                    ++progress.analysed;
+                else
+                    ++progress.failed, progress.error = error;
+
+                // The time a song takes, from the last ten heard.
+                std::vector<double> took;
+
+                for (auto& d : progress.recent)
+                    if (d.ok && took.size() < 10)
+                        took.push_back (d.seconds);
+
+                if (! took.empty())
+                    progress.secondsPerSong = std::accumulate (took.begin(), took.end(), 0.0) / static_cast<double> (took.size());
             }
+
+            saveQueue();
         }
 
-        std::unique_ptr<Separator> separator;
-
-        for (auto& file : todo)
-        {
-            if (cancel)
-                throw std::runtime_error ("Stopped");
-
-            try
-            {
-                if (separator == nullptr)
-                    separator = std::make_unique<Separator> (models);
-
-                auto track = hearTrack (*separator, clap, file);
-                track.size = static_cast<int64_t> (std::filesystem::file_size (file, ec));
-                track.modified = modifiedTime (file);
-                track.analysis = analysisVersion;
-                tracks.push_back (std::move (track));
-                publish (profile, tracks);
-                report ([] (Progress& p) { ++p.analysed; });
-            }
-            catch (const std::exception&)
-            {
-                report ([] (Progress& p) { ++p.failed; });
-            }
-        }
-
-        if (tracks.empty())
-            throw std::runtime_error ("None of the tracks could be read");
-
-        // Also when nothing was new: tracks may have gone from the folder.
-        publish (profile, tracks);
-    }
-    catch (const std::exception& e)
-    {
-        error = e.what();
+        notify();
     }
 
-    report ([&] (Progress& p)
-    {
-        p.running = false;
-        p.error = error;
-    });
+    notify();
 }
 
-void Styles::publish (StyleProfile& profile, const std::vector<StyleProfile::Track>& tracks)
+//==============================================================================
+void Styles::saveQueue()
 {
-    profile.tracks = tracks;
-    profile.typicalFit.clear();
+    auto songs = Json::array();
 
-    // How close each track's sounds are to the other tracks': the yardstick for fit.
-    if (profile.tracks.size() > 1)
+    if (progress.current)
+        songs.push_back ({ { "style", progress.current->style }, { "file", progress.current->file.string() } });
+
+    for (auto& item : progress.queued)
+        songs.push_back ({ { "style", item.style }, { "file", item.file.string() } });
+
+    try
     {
-        for (auto role : allRoles)
+        std::filesystem::create_directories (maps->getFolder());
+        const auto file = maps->getFolder() / "queue.json";
+        const auto temp = file.string() + ".tmp";
         {
-            double sum = 0;
-            int count = 0;
-
-            for (size_t i = 0; i < profile.tracks.size(); ++i)
-                if (auto it = profile.tracks[i].sounds.find (role); it != profile.tracks[i].sounds.end())
-                    for (auto& s : it->second)
-                        sum += profile.fit (role, s, i), ++count;
-
-            if (count > 0)
-                profile.typicalFit[role] = static_cast<float> (sum / count);
+            std::ofstream out (temp, std::ios::trunc);
+            out << Json { { "paused", progress.paused }, { "songs", songs } }.dump (2);
         }
+        std::filesystem::rename (temp, file);
     }
-
-    std::filesystem::create_directories (folder);
-    const auto file = fileFor (profile.name);
-    const auto temp = file.string() + ".tmp";
-
+    catch (const std::exception&)
     {
-        std::ofstream out (temp, std::ios::trunc);
-        out << profile.toJson().dump();
+        // The queue lives on here; only a restart would lose it.
     }
-
-    std::filesystem::rename (temp, file);
-
-    std::lock_guard lock (mutex);
-    profiles[profile.name] = std::make_shared<StyleProfile> (profile);
 }
 
-StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::filesystem::path& path, std::optional<double> knownTempo)
+void Styles::loadQueue()
+{
+    std::lock_guard lock (mutex);
+    std::error_code ec;
+
+    try
+    {
+        std::ifstream in (maps->getFolder() / "queue.json");
+
+        if (! in)
+            return;
+
+        const auto j = Json::parse (in);
+        progress.paused = j.value ("paused", false);
+        pausing = progress.paused;
+
+        for (auto& s : j.value ("songs", Json::array()))
+        {
+            const std::filesystem::path file = s.value ("file", "");
+            const auto style = s.value ("style", "");
+
+            if (! style.empty() && std::filesystem::is_regular_file (file, ec))
+                progress.queued.push_back ({ songId (style, file), style, file.stem().string(), file });
+        }
+
+        progress.tracks = static_cast<int> (progress.queued.size());
+    }
+    catch (const std::exception&)
+    {
+        // A damaged queue is started again by hearing the folders.
+    }
+}
+
+void Styles::migrate (const std::filesystem::path& oldProfilesFolder)
+{
+    std::error_code ec;
+
+    for (auto& entry : std::filesystem::directory_iterator (oldProfilesFolder, ec))
+    {
+        if (entry.path().extension() != ".json")
+            continue;
+
+        try
+        {
+            StyleProfile profile;
+            {
+                std::ifstream in (entry.path());
+                auto j = Json::parse (in);
+
+                if (j.value ("version", 0) != fileVersion)
+                    continue;
+
+                profile = StyleProfile::fromJson (j);
+            }
+
+            const auto heardAt = juce::File (entry.path().string()).getLastModificationTime().toMilliseconds();
+
+            for (auto& track : profile.tracks)
+            {
+                SongMap map;
+                map.style = profile.name;
+                map.title = std::filesystem::path (track.path).stem().string();
+                map.heardAt = heardAt;
+                map.track = track;
+
+                if (maps->get (map.id()) == nullptr)
+                    maps->put (std::move (map));
+            }
+
+            if (! profile.folder.empty())
+                maps->setStyleFolder (profile.name, profile.folder);
+
+            // Kept, out of the way, in case something went wrong.
+            const auto kept = oldProfilesFolder / "Before maps";
+            std::filesystem::create_directories (kept);
+            std::filesystem::rename (entry.path(), kept / entry.path().filename(), ec);
+        }
+        catch (const std::exception&)
+        {
+            // A damaged profile is left where it is.
+        }
+    }
+}
+
+StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::filesystem::path& path, std::optional<double> knownTempo,
+                               const std::function<bool (double)>& progress)
 {
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
@@ -786,6 +1138,9 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
         for (auto& [role, hit] : loudest)
             if (rmsDb (hit.audio) > silentDb)
                 track.sounds[role].push_back (clap.embedAudio (hit.audio.data(), hit.audio.size()));
+
+        if (progress && ! progress ((w + 1.0) / windowsPerTrack))
+            throw std::runtime_error ("Stopped");
     }
 
     // One tempo for the track, from all its stretches' kicks (or hats, without a kick); then the

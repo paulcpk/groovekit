@@ -8,6 +8,7 @@
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
 #include "listening/Listening.h"
+#include "listening/Maps.h"
 #include "live/AudioDevices.h"
 #include "live/LiveEngine.h"
 #include "music/Notes.h"
@@ -430,6 +431,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
 
     if (method.starts_with ("listening.") || method.starts_with ("styles."))
         return callListening (method, params);
+
+    if (method.starts_with ("maps."))
+        return callMaps (method, params);
 
     if (method.starts_with ("chats."))
         return callChats (method, params);
@@ -1951,12 +1955,6 @@ Json ApiHandler::callListening (const std::string& method, const Json& params)
             return { { "name", name }, { "progress", listening->getStatus()["styles"] } };
         }
 
-        if (method == "styles.remove")
-        {
-            listening->getStyles().remove (readParam<std::string> (params, "name"));
-            return { { "removed", params["name"] } };
-        }
-
         auto style = [&]
         {
             auto profile = listening->getStyles().get (readParam<std::string> (params, "name"));
@@ -2197,6 +2195,235 @@ Json ApiHandler::callGuides (const std::string& method, const Json& params)
     catch (const std::invalid_argument& e)
     {
         throw RpcError (invalidParams, e.what());
+    }
+
+    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+// The song maps: every reference track heard once, curated in the References tab.
+Json ApiHandler::callMaps (const std::string& method, const Json& params)
+{
+    if (listening == nullptr)
+        throw RpcError (operationFailed, "listening isn't available in this engine");
+
+    auto& styles = listening->getStyles();
+    auto& maps = styles.getMaps();
+    const auto root = referencesFolder.empty() ? listening::Styles::getReferencesFolder() : referencesFolder;
+
+    auto ids = [&]
+    {
+        return readParam<std::vector<std::string>> (params, "ids");
+    };
+
+    // The songs asked for, as they stand.
+    auto songsFor = [&] (const std::vector<std::string>& wanted)
+    {
+        std::vector<listening::Styles::Song> found;
+
+        for (auto& song : styles.songs (root))
+            if (std::find (wanted.begin(), wanted.end(), song.id) != wanted.end())
+                found.push_back (song);
+
+        return found;
+    };
+
+    auto songJson = [] (const listening::Styles::Song& s)
+    {
+        Json j { { "id", s.id }, { "style", s.style }, { "title", s.title }, { "status", s.status }, { "inUse", s.inUse } };
+
+        if (s.file)
+            j["file"] = s.file->string();
+
+        if (! s.error.empty())
+            j["error"] = s.error;
+
+        if (s.map != nullptr)
+            j["map"] = { { "source", s.map->source }, { "heardAt", s.map->heardAt }, { "analysis", s.map->track.analysis },
+                         { "tempo", std::round (s.map->track.tempo * 10) / 10 }, { "lufs", std::round (s.map->track.lufs * 10) / 10 } };
+
+        return j;
+    };
+
+    try
+    {
+        if (method == "maps.list")
+        {
+            auto list = Json::array();
+
+            for (auto& song : styles.songs (root))
+                list.push_back (songJson (song));
+
+            return { { "folder", maps.getFolder().string() }, { "references", root.string() }, { "songs", list } };
+        }
+
+        if (method == "maps.status")
+        {
+            const auto p = styles.getProgress();
+            auto item = [] (const listening::Styles::Progress::Item& i)
+            {
+                return Json { { "id", i.id }, { "style", i.style }, { "title", i.title } };
+            };
+
+            auto queued = Json::array(), recent = Json::array();
+
+            for (auto& i : p.queued)
+                queued.push_back (item (i));
+
+            for (auto& d : p.recent)
+            {
+                auto j = item (d.item);
+                j["ok"] = d.ok;
+                j["seconds"] = std::round (d.seconds * 10) / 10;
+                j["at"] = d.at;
+
+                if (! d.error.empty())
+                    j["error"] = d.error;
+
+                recent.push_back (j);
+            }
+
+            Json result { { "running", p.running }, { "paused", p.paused }, { "queued", queued }, { "recent", recent },
+                          { "secondsPerSong", std::round (p.secondsPerSong * 10) / 10 }, { "ready", listening->getModels().getStatus().ready } };
+
+            if (p.current)
+            {
+                result["current"] = item (*p.current);
+                result["current"]["progress"] = p.currentProgress;
+                result["current"]["started"] = p.currentStarted;
+            }
+
+            return result;
+        }
+
+        if (method == "maps.get")
+        {
+            const auto id = readParam<std::string> (params, "id");
+            auto map = maps.get (id);
+
+            if (map == nullptr)
+                throw RpcError (invalidParams, "No map for \"" + id + "\" (maps.list)");
+
+            // What was heard, without the sound fingerprints (only how many there are).
+            auto j = map->toJson();
+            auto& sounds = j["track"]["sounds"];
+
+            for (auto& [role, list] : sounds.items())
+                list = list.size();
+
+            j["id"] = id;
+            j["inUse"] = maps.isInUse (id);
+            j["current"] = map->track.analysis >= listening::currentAnalysisVersion();
+            return j;
+        }
+
+        if (method == "maps.setInUse")
+        {
+            maps.setInUse (ids(), readParam<bool> (params, "inUse"));
+            listening->notifyChanged();
+            return { { "changed", params["ids"].size() } };
+        }
+
+        if (method == "maps.hear")
+        {
+            std::vector<std::pair<std::string, std::filesystem::path>> todo;
+
+            for (auto& song : songsFor (ids()))
+                if (song.file)
+                    todo.emplace_back (song.style, *song.file);
+
+            styles.hear (todo);
+            return { { "queued", todo.size() } };
+        }
+
+        if (method == "maps.hearNew")
+        {
+            const auto style = params.value ("style", std::string());
+            std::vector<std::pair<std::string, std::filesystem::path>> todo;
+
+            for (auto& song : styles.songs (root))
+                if (song.file && (style.empty() || song.style == style) && (song.status == "new" || song.status == "changed" || song.status == "failed"))
+                    todo.emplace_back (song.style, *song.file);
+
+            styles.hear (todo);
+            return { { "queued", todo.size() } };
+        }
+
+        if (method == "maps.pause")     { styles.pause();       return { { "paused", true } }; }
+        if (method == "maps.resume")    { styles.resume();      return { { "paused", false } }; }
+        if (method == "maps.clearQueue") { styles.clearQueue(); return { { "cleared", true } }; }
+
+        if (method == "maps.unqueue")
+        {
+            styles.unqueue (ids());
+            return { { "unqueued", params["ids"].size() } };
+        }
+
+        if (method == "maps.forget")
+        {
+            styles.forget (ids());
+            return { { "forgotten", params["ids"].size() } };
+        }
+
+        if (method == "maps.unskip")
+        {
+            maps.setSkipped (ids(), false);
+            listening->notifyChanged();
+            return { { "unskipped", params["ids"].size() } };
+        }
+
+        // Out of the references: the audio goes to "Not used" beside the style folders (nothing is
+        // deleted), the map with it.
+        if (method == "maps.removeReferences")
+        {
+            int moved = 0;
+            std::error_code ec;
+
+            for (auto& song : songsFor (ids()))
+            {
+                if (song.file)
+                {
+                    const auto styleFolder = song.file->parent_path();
+                    const auto base = song.file->lexically_relative (root).string().starts_with ("..") ? styleFolder.parent_path() : root;
+                    const auto folder = base / "Not used" / song.style;
+                    std::filesystem::create_directories (folder);
+
+                    auto target = juce::File ((folder / song.file->filename()).string()).getNonexistentSibling (false);
+
+                    if (! juce::File (song.file->string()).moveFileTo (target))
+                        throw RpcError (operationFailed, "Couldn't move " + song.file->string() + " to " + folder.string());
+
+                    ++moved;
+                }
+
+                maps.remove (song.id);
+                maps.setSkipped ({ song.id }, false);
+            }
+
+            styles.unqueue (ids());
+            return { { "moved", moved } };
+        }
+
+        if (method == "maps.export")
+        {
+            const std::filesystem::path zip = readParam<std::string> (params, "path");
+            const auto count = maps.exportZip (ids(), zip);
+            return { { "path", zip.string() }, { "count", count } };
+        }
+
+        if (method == "maps.import")
+        {
+            const auto result = maps.importZip (readParam<std::string> (params, "path"));
+            listening->notifyChanged();
+            return { { "added", result.added }, { "kept", result.kept } };
+        }
+    }
+    catch (const RpcError&)
+    {
+        throw;
+    }
+    catch (const std::runtime_error& e)
+    {
+        throw RpcError (operationFailed, e.what());
     }
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");

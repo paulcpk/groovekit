@@ -49,6 +49,9 @@ struct StyleProfile
         std::vector<float> balance;                 // the mix's spectral balance (dB per band)
         std::map<Role, float> levels;               // each stem's level against the mix, dB
         std::map<Role, std::vector<Embedding>> sounds;
+
+        model::Json toJson() const;
+        static Track fromJson (const model::Json&);
     };
 
     std::vector<Track> tracks;
@@ -73,23 +76,39 @@ struct StyleProfile
 /** Hears a track as a style's references are heard: six stretches through its middle, each
     split into drums, bass and the rest, with what each part sounds like, the parts' levels, the
     mix's loudness and balance, and the groove (the tempo from the kick unless it's known). Blocks
-    for several seconds. Throws if the file can't be read or is shorter than 8 seconds. */
-StyleProfile::Track hearTrack (Separator&, Clap&, const std::filesystem::path&, std::optional<double> knownTempo = {});
+    for several seconds. Throws if the file can't be read or is shorter than 8 seconds. progress
+    hears how far it is (0 to 1); returning false stops it with an error. */
+StyleProfile::Track hearTrack (Separator&, Clap&, const std::filesystem::path&, std::optional<double> knownTempo = {},
+                               const std::function<bool (double)>& progress = {});
 
-/** The user's styles: one profile per folder of reference tracks, built in the background
-    (separation and listening take a few seconds per track) and kept in a folder of JSON files.
-    Thread-safe. */
+/** The version of hearTrack: maps heard by an older one are used for what they have, and can be
+    heard again. */
+int currentAnalysisVersion();
+
+class MapStore;
+struct SongMap;
+
+/** The user's styles, learnt from their reference tracks: every track is heard once into a song
+    map (MapStore), and a style is the maps of its folder that are in use. Tracks are heard one at
+    a time from a queue (separation and listening take a few seconds per track), which is kept on
+    disk and carries on after a restart. Thread-safe. */
 class Styles
 {
 public:
-    Styles (const Models&, Clap&, std::filesystem::path folder);
+    /** Maps go in mapsFolder. Styles heard before maps (one profile per style in
+        oldProfilesFolder) become maps the first time. */
+    Styles (const Models&, Clap&, std::filesystem::path mapsFolder, std::filesystem::path oldProfilesFolder = {});
     ~Styles();
 
+    /** Where styles were kept before maps. */
     static std::filesystem::path getDefaultFolder();
 
     /** Where the user keeps reference tracks, one folder per style: GROOVEKIT_REFERENCES, or
         ~/Music/GrooveKit/References. */
     static std::filesystem::path getReferencesFolder();
+
+    MapStore& getMaps()                 { return *maps; }
+    const MapStore& getMaps() const     { return *maps; }
 
     /** A folder of reference tracks in the references folder, and how it stands against the
         style heard from it: tracks not heard yet (new or changed) and heard ones that are gone. */
@@ -106,47 +125,103 @@ public:
         Not used, which hold whole albums, full mixes and leftovers. */
     std::vector<ReferenceFolder> referenceFolders (const std::filesystem::path& root) const;
 
-    struct Progress
+    /** A reference track and how it stands: its audio (if it's here), its map (if it's heard),
+        whether it's in use, and its status: "new", "changed" (since it was heard), "older" (heard
+        by an older hearing), "heard", "queued", "hearing", "failed", "skipped", "imported" (a map
+        without audio here) or "gone" (heard here, its audio since removed). */
+    struct Song
     {
-        bool running = false;
-        std::string style;
-        int tracks = 0, analysed = 0, failed = 0;
+        std::string id, style, title;
+        std::optional<std::filesystem::path> file;
+        std::shared_ptr<const SongMap> map;
+        std::string status;
+        bool inUse = true;
         std::string error;
     };
 
-    using ProgressCallback = std::function<void (const Progress&)>;
+    /** Every song in the references folder's style folders (and the folders styles were heard
+        from elsewhere), and every map, by style and title. */
+    std::vector<Song> songs (const std::filesystem::path& root) const;
+
+    /** Hearing, now and next. A batch counts the songs queued since the queue was last empty. */
+    struct Progress
+    {
+        bool running = false, paused = false;
+        std::string style;                          // the song being heard's
+        int tracks = 0, analysed = 0, failed = 0;   // in this batch
+        std::string error;                          // why the last song failed
+
+        struct Item { std::string id, style, title; std::filesystem::path file; };
+        std::optional<Item> current;
+        double currentProgress = 0;                 // 0 to 1
+        int64_t currentStarted = 0;                 // ms since 1970
+        std::vector<Item> queued;
+
+        struct Done { Item item; bool ok = true; std::string error; double seconds = 0; int64_t at = 0; };
+        std::vector<Done> recent;                   // newest first
+        double secondsPerSong = 0;                  // of the songs heard lately
+    };
+
+    using Observer = std::function<void()>;
+
+    /** Called (from any thread) whenever hearing moves on or a map changes. */
+    void setObserver (Observer);
 
     std::vector<std::string> names() const;
+
+    /** The style learnt from its maps in use, or null without any. */
     std::shared_ptr<const StyleProfile> get (const std::string& name) const;
 
-    /** Adds a folder of reference tracks as a style (named after the folder unless named) and
-        starts analysing it. Adding it again re-analyses new and changed tracks. Throws if
-        another analysis is running. */
-    std::string add (const std::filesystem::path& folder, std::string name, ProgressCallback);
-    void remove (const std::string& name);
+    /** Queues a folder's tracks that aren't heard yet or changed since, as a style (named after
+        the folder unless named), and starts hearing. Returns the style's name. */
+    std::string add (const std::filesystem::path& folder, std::string name);
+
+    /** Queues songs (style and audio file) to be heard, again if they were. */
+    void hear (const std::vector<std::pair<std::string, std::filesystem::path>>& songs);
+
+    /** Hearing stops after the stretch it's on, and the song goes back to the front of the
+        queue; resume carries on. start begins hearing the queue unless paused. */
+    void pause();
+    void resume();
+    void start();
+
+    /** Takes songs out of the queue, or all of them. */
+    void unqueue (const std::vector<std::string>& ids);
+    void clearQueue();
+
+    /** Deletes songs' maps and skips them. */
+    void forget (const std::vector<std::string>& ids);
 
     Progress getProgress() const;
+
+    /** Waits until the queue is empty or paused. */
     void wait();
 
-    /** Stops a running analysis and waits for it. */
+    /** Stops hearing (the queue is kept) and waits for it. */
     void stop();
 
 private:
     const Models& models;
     Clap& clap;
-    const std::filesystem::path folder;
+    std::unique_ptr<MapStore> maps;
 
     mutable std::mutex mutex;
-    std::map<std::string, std::shared_ptr<const StyleProfile>> profiles;
     Progress progress;
     std::thread thread;
-    std::atomic<bool> cancel { false };
+    std::atomic<bool> cancel { false }, pausing { false };
+    Observer observer;
 
-    void analyse (StyleProfile, ProgressCallback);
+    struct Cached { uint64_t version = 0; std::shared_ptr<const StyleProfile> profile; };
+    mutable std::mutex cacheMutex;
+    mutable std::map<std::string, Cached> cache;
 
-    /** Makes the profile with these tracks the style's, on disk and here. */
-    void publish (StyleProfile&, const std::vector<StyleProfile::Track>&);
-    std::filesystem::path fileFor (const std::string& name) const;
+    void run();
+    void notify();
+
+    /** Writes the queue to queue.json; the caller holds the lock. */
+    void saveQueue();
+    void loadQueue();
+    void migrate (const std::filesystem::path& oldProfilesFolder);
 };
 
 } // namespace gk::listening

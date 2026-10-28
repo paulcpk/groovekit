@@ -1,4 +1,5 @@
 #include "Listening.h"
+#include "Maps.h"
 
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
@@ -104,9 +105,13 @@ Listening::Listening (library::SampleLibrary& l, Files files)
       models (files.models),
       clap (models),
       index (l, clap, files.soundIndex),
-      styles (models, clap, files.styles),
+      styles (models, clap, files.maps.empty() ? files.styles.parent_path() / "maps" : files.maps, files.styles),
       taste (files.taste)
 {
+    styles.setObserver ([this] { notify(); });
+
+    // Carries on with the songs queued before a restart.
+    styles.start();
 }
 
 Listening::~Listening()
@@ -151,7 +156,8 @@ Json Listening::getStatus() const
     if (! m.error.empty())
         modelsJson["error"] = m.error;
 
-    Json stylesJson { { "running", s.running }, { "names", styles.names() } };
+    Json stylesJson { { "running", s.running }, { "paused", s.paused }, { "names", styles.names() }, { "queued", s.queued.size() },
+                      { "secondsPerSong", round (s.secondsPerSong, 0.1) }, { "mapsVersion", styles.getMaps().getVersion() } };
 
     if (! s.style.empty())
     {
@@ -160,6 +166,10 @@ Json Listening::getStatus() const
         stylesJson["analysed"] = s.analysed;
         stylesJson["failed"] = s.failed;
     }
+
+    if (s.current)
+        stylesJson["current"] = { { "id", s.current->id }, { "style", s.current->style }, { "title", s.current->title },
+                                  { "progress", round (s.currentProgress, 0.001) }, { "started", s.currentStarted } };
 
     if (! s.error.empty())
         stylesJson["error"] = s.error;
@@ -177,7 +187,10 @@ void Listening::download()
         notify();
 
         if (s.ready && ! s.downloading)
+        {
             startIndexing();
+            styles.start();
+        }
     });
 
     notify();
@@ -229,7 +242,7 @@ std::string Listening::addStyle (const std::filesystem::path& folder, const std:
     if (! models.getStatus().ready)
         throw std::runtime_error ("The listening models aren't downloaded yet (listening.download)");
 
-    auto added = styles.add (folder, name, [this] (const Styles::Progress&) { notify(); });
+    auto added = styles.add (folder, name);
     notify();
     return added;
 }

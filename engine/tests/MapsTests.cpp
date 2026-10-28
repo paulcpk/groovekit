@@ -1,0 +1,310 @@
+// Song maps: reference tracks heard once, kept, curated and shared.
+
+#include "TestHelpers.h"
+
+#include "api/ApiHandler.h"
+#include "library/SampleLibrary.h"
+#include "listening/Listening.h"
+#include "listening/Maps.h"
+#include "session/Session.h"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <fstream>
+
+using namespace gk;
+using namespace gk::listening;
+using model::Json;
+namespace fs = std::filesystem;
+
+namespace
+{
+    fs::path freshDir (const std::string& name)
+    {
+        auto dir = test::tempDir() / name;
+        fs::remove_all (dir);
+        fs::create_directories (dir);
+        return dir;
+    }
+
+    void writeFile (const fs::path& file, size_t bytes)
+    {
+        fs::create_directories (file.parent_path());
+        std::ofstream out (file, std::ios::binary);
+        out << std::string (bytes, 'x');
+    }
+
+    /** A map as hearing this file would make it. */
+    SongMap heardFrom (const std::string& style, const fs::path& file, int analysis = currentAnalysisVersion())
+    {
+        SongMap m;
+        m.style = style;
+        m.title = file.stem().string();
+        m.heardAt = 1;
+        m.track.path = file.string();
+        m.track.size = static_cast<int64_t> (fs::file_size (file));
+        m.track.modified = static_cast<int64_t> (fs::last_write_time (file).time_since_epoch().count());
+        m.track.analysis = analysis;
+        m.track.tempo = 132;
+        return m;
+    }
+
+    SongMap someMap (const std::string& style, const std::string& title, double tempo = 130)
+    {
+        SongMap m;
+        m.style = style;
+        m.title = title;
+        m.track.path = "/Users/someone/Music/" + title + ".mp3";
+        m.track.analysis = currentAnalysisVersion();
+        m.track.tempo = tempo;
+        return m;
+    }
+
+    std::string statusOf (const std::vector<Styles::Song>& songs, const std::string& id)
+    {
+        for (auto& s : songs)
+            if (s.id == id)
+                return s.status;
+
+        return "missing";
+    }
+}
+
+TEST_CASE ("Song maps are kept with the user's choices, and shared as zips")
+{
+    const auto dir = freshDir ("maps-store");
+    const auto one = someMap ("Berlin Techno", "Artist - One");
+    const auto two = someMap ("Berlin Techno", "Artist - Two", 134);
+
+    {
+        MapStore store (dir / "Maps");
+        store.put (one);
+        store.put (two);
+        CHECK (store.isInUse (one.id()));
+        store.setInUse ({ one.id() }, false);
+        store.setSkipped ({ "Berlin Techno/Not this one" }, true);
+        store.setStyleFolder ("Berlin Techno", "/refs/Berlin Techno");
+    }
+
+    // On disk: a file per song in a folder per style, and the choices in the index.
+    CHECK (fs::exists (dir / "Maps" / "Berlin Techno" / "Artist - One.json"));
+    MapStore store (dir / "Maps");
+    REQUIRE (store.all().size() == 2);
+    CHECK_FALSE (store.isInUse (one.id()));
+    CHECK (store.isInUse (two.id()));
+    CHECK (store.isSkipped ("Berlin Techno/Not this one"));
+    CHECK (store.getStyleFolder ("Berlin Techno") == fs::path ("/refs/Berlin Techno"));
+    CHECK (store.get (two.id())->track.tempo == 134);
+
+    std::ifstream indexFile (dir / "Maps" / "index.json");
+    const auto index = Json::parse (indexFile);
+    CHECK (index["songs"].size() == 2);
+
+    // A zip for someone else: no paths from this Mac, and the receiver's own maps win.
+    const auto zip = dir / "Berlin Techno maps.zip";
+    CHECK (store.exportZip ({ one.id(), two.id(), "Berlin Techno/No map" }, zip) == 2);
+
+    MapStore theirs (dir / "Their maps");
+    theirs.put (someMap ("Berlin Techno", "Artist - Two"));
+    const auto imported = theirs.importZip (zip);
+    CHECK (imported.added == 1);
+    CHECK (imported.kept == 1);
+    REQUIRE (theirs.get (one.id()) != nullptr);
+    CHECK (theirs.get (one.id())->source == "imported");
+    CHECK (theirs.get (one.id())->track.path == "Artist - One.mp3");
+    CHECK (theirs.get (two.id())->source == "heard");
+
+    // Names from a zip can't reach outside the maps folder.
+    const auto evil = dir / "evil.zip";
+    {
+        juce::ZipFile::Builder builder;
+        const auto text = someMap ("../../Escaped", "../../../x").toJson().dump();
+        builder.addEntry (new juce::MemoryInputStream (text.data(), text.size(), true), 9, "../../Escaped/x.json", juce::Time::getCurrentTime());
+        juce::FileOutputStream out (juce::File (evil.string()));
+        REQUIRE (builder.writeToStream (out, nullptr));
+    }
+
+    CHECK (theirs.importZip (evil).added == 1);
+    CHECK_FALSE (fs::exists (dir / "Escaped"));
+    CHECK_FALSE (fs::exists (dir.parent_path() / "Escaped"));
+    CHECK (theirs.get ("../../Escaped/../../../x") != nullptr);
+}
+
+TEST_CASE ("Reference songs stand against their maps, and wait in a queue that outlives a restart")
+{
+    const auto dir = freshDir ("maps-songs");
+    const auto refs = dir / "References";
+    const auto folder = refs / "Berlin Techno";
+
+    for (auto name : { "heard", "older", "changed", "new" })
+        writeFile (folder / (std::string (name) + ".wav"), 1000);
+
+    writeFile (refs / "Albums" / "album.wav", 1000);
+
+    Models models (dir / "no-models");
+    Clap clap (models);
+
+    {
+        Styles styles (models, clap, dir / "Maps");
+        auto& maps = styles.getMaps();
+        maps.put (heardFrom ("Berlin Techno", folder / "heard.wav"));
+        maps.put (heardFrom ("Berlin Techno", folder / "older.wav", 1));
+
+        auto changed = heardFrom ("Berlin Techno", folder / "changed.wav");
+        changed.track.size = 5;
+        maps.put (changed);
+
+        maps.put (someMap ("Berlin Techno", "gone"));
+        auto imported = someMap ("Berlin Techno", "theirs");
+        imported.source = "imported";
+        maps.put (imported);
+
+        auto songs = styles.songs (refs);
+        CHECK (songs.size() == 6);
+        CHECK (statusOf (songs, "Berlin Techno/heard") == "heard");
+        CHECK (statusOf (songs, "Berlin Techno/older") == "older");
+        CHECK (statusOf (songs, "Berlin Techno/changed") == "changed");
+        CHECK (statusOf (songs, "Berlin Techno/new") == "new");
+        CHECK (statusOf (songs, "Berlin Techno/gone") == "gone");
+        CHECK (statusOf (songs, "Berlin Techno/theirs") == "imported");
+
+        // Hearing a folder queues what's new or changed; without the models it waits.
+        CHECK (styles.add (folder, "") == "Berlin Techno");
+        auto progress = styles.getProgress();
+        CHECK_FALSE (progress.running);
+        REQUIRE (progress.queued.size() == 2);
+        CHECK (progress.tracks == 2);
+        CHECK (statusOf (styles.songs (refs), "Berlin Techno/new") == "queued");
+
+        // Forgotten: the map goes, and hearing the folder again leaves it out.
+        styles.forget ({ "Berlin Techno/changed" });
+        CHECK (maps.get ("Berlin Techno/changed") == nullptr);
+        CHECK (statusOf (styles.songs (refs), "Berlin Techno/changed") == "skipped");
+        CHECK (styles.getProgress().queued.size() == 1);
+        styles.add (folder, "");
+        CHECK (styles.getProgress().queued.size() == 1);
+
+        // The style is the maps in use.
+        CHECK (styles.names() == std::vector<std::string> { "Berlin Techno" });
+        CHECK (styles.get ("berlin techno")->tracks.size() == 4);
+        maps.setInUse ({ "Berlin Techno/heard", "Berlin Techno/older" }, false);
+        CHECK (styles.get ("Berlin Techno")->tracks.size() == 2);
+        maps.setInUse ({ "Berlin Techno/gone", "Berlin Techno/theirs" }, false);
+        CHECK (styles.get ("Berlin Techno") == nullptr);
+        CHECK (styles.names().empty());
+
+        auto folders = styles.referenceFolders (refs);
+        REQUIRE (folders.size() == 1);
+        CHECK (folders[0].files == 4);
+        CHECK (folders[0].unheard == 0);
+        CHECK (folders[0].gone == 1);
+
+        styles.pause();
+    }
+
+    // After a restart: still queued, still paused.
+    Styles styles (models, clap, dir / "Maps");
+    CHECK (styles.getProgress().queued.size() == 1);
+    CHECK (styles.getProgress().paused);
+    styles.clearQueue();
+    CHECK (styles.getProgress().queued.empty());
+}
+
+TEST_CASE ("Styles heard before maps become maps")
+{
+    const auto dir = freshDir ("maps-migrate");
+    StyleProfile old;
+    old.name = "Industrial Techno";
+    old.folder = "/refs/Industrial Techno";
+
+    for (auto title : { "One", "Two" })
+    {
+        StyleProfile::Track t;
+        t.path = std::string ("/refs/Industrial Techno/") + title + ".mp3";
+        t.analysis = currentAnalysisVersion();
+        t.tempo = 140;
+        old.tracks.push_back (t);
+    }
+
+    fs::create_directories (dir / "styles");
+    {
+        std::ofstream out (dir / "styles" / "Industrial Techno.json");
+        out << old.toJson().dump();
+    }
+
+    Models models (dir / "no-models");
+    Clap clap (models);
+    Styles styles (models, clap, dir / "Maps", dir / "styles");
+
+    CHECK (styles.getMaps().all().size() == 2);
+    CHECK (styles.getMaps().get ("Industrial Techno/Two") != nullptr);
+    CHECK (styles.getMaps().getStyleFolder ("Industrial Techno") == fs::path ("/refs/Industrial Techno"));
+    CHECK (styles.get ("Industrial Techno")->tracks.size() == 2);
+    CHECK_FALSE (fs::exists (dir / "styles" / "Industrial Techno.json"));
+    CHECK (fs::exists (dir / "styles" / "Before maps" / "Industrial Techno.json"));
+}
+
+TEST_CASE ("The References tab's methods tick, queue, forget, move out and share songs")
+{
+    const auto dir = freshDir ("maps-api");
+    const auto refs = dir / "References";
+    const auto folder = refs / "Hard Techno";
+    writeFile (folder / "keep.wav", 1000);
+    writeFile (folder / "drop.wav", 1000);
+
+    library::SampleLibrary library (dir / "library.json");
+    listening::Listening::Files files { dir / "no-models", dir / "sounds.bin", dir / "styles", dir / "taste.json", dir / "Maps" };
+    listening::Listening listening (library, files);
+    listening.getStyles().getMaps().put (heardFrom ("Hard Techno", folder / "keep.wav"));
+
+    Session session (Session::createEmptyProject());
+    ApiHandler handler (session, test::getEngineContext(), &library, nullptr, nullptr, &listening);
+    handler.referencesFolder = refs;
+
+    Json response;
+    ApiHandler::Client client;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+
+    auto call = [&] (const std::string& method, Json params = Json::object())
+    {
+        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        INFO (response.dump());
+        CHECK_FALSE (response.contains ("error"));
+        return response["result"];
+    };
+
+    auto songs = call ("maps.list")["songs"];
+    REQUIRE (songs.size() == 2);
+    CHECK (songs[0]["id"] == "Hard Techno/drop");
+    CHECK (songs[0]["status"] == "new");
+    CHECK (songs[1]["status"] == "heard");
+    CHECK (songs[1]["map"]["tempo"] == 132);
+
+    auto map = call ("maps.get", { { "id", "Hard Techno/keep" } });
+    CHECK (map["track"]["tempo"] == 132);
+    CHECK (map["current"] == true);
+
+    call ("maps.setInUse", { { "ids", { "Hard Techno/keep" } }, { "inUse", false } });
+    CHECK (call ("maps.list")["songs"][1]["inUse"] == false);
+
+    CHECK (call ("maps.hearNew")["queued"] == 1);
+    CHECK (call ("maps.status")["queued"].size() == 1);
+    CHECK (call ("maps.list")["songs"][0]["status"] == "queued");
+
+    call ("maps.forget", { { "ids", { "Hard Techno/drop" } } });
+    CHECK (call ("maps.list")["songs"][0]["status"] == "skipped");
+    CHECK (call ("maps.hearNew")["queued"] == 0);
+    call ("maps.unskip", { { "ids", { "Hard Techno/drop" } } });
+    CHECK (call ("maps.list")["songs"][0]["status"] == "new");
+
+    // Shared and taken back in.
+    const auto zip = dir / "maps.zip";
+    CHECK (call ("maps.export", { { "ids", { "Hard Techno/keep" } }, { "path", zip.string() } })["count"] == 1);
+    CHECK (call ("maps.import", { { "path", zip.string() } })["kept"] == 1);
+
+    // Out of the references: moved to Not used, never deleted.
+    CHECK (call ("maps.removeReferences", { { "ids", { "Hard Techno/drop" } } })["moved"] == 1);
+    CHECK_FALSE (fs::exists (folder / "drop.wav"));
+    CHECK (fs::exists (refs / "Not used" / "Hard Techno" / "drop.wav"));
+    CHECK (call ("maps.list")["songs"].size() == 1);
+}
