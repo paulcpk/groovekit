@@ -17,7 +17,7 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 
 `kind` is `execute`, `undo` or `redo`. For undo, `ops` are the entry's inverse.
 
-While the listening models download, the library is heard or a style is analysed, `listening` notifications carry the same status as `listening.status`.
+While the listening models download, the library is heard or reference songs are heard into maps (and when a map or a choice changes), `listening` notifications carry the same status as `listening.status`.
 
 While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second. While there's signal, `levels` notifications (`{ inserts: { id: [left, right] }, channels: { id: peak } }`, linear peaks since the last one) arrive at the same rate, and once more when it stops. When "Automate" is pressed in the bar above a plugin's window, a `createAutomation` notification (`{ target, value }`) asks the UI to make the automation clip.
 
@@ -103,14 +103,26 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `guides.remove` | `id` | `{ removed }`: `restored` (an edited built-in guide is back as it shipped), `deleted` (one of the user's own) or `nothing` |
 | `melody.voice` | `recording?` (a voice message's id, default the latest), `from?`, `to?` (seconds, else the sung part found), `tempo?` (`"song"`: hummed at the song's tempo), `key?`, `register?` (`bass`, `chords`, `lead`, `high`), `lowest?`, `highest?`, `snapToScale?` (default true) | `{ notes: [{ start, length, key, velocity }], length, heardTempo, heardKey?, key?, transposed, recording, from, to }`: the melody hummed or sung in a voice message, on the song's grid (ticks from its start) in the song's key (or `key`), moved by octaves into the register. `voiceTranscript` notifications carry `recording` and, when a sung part was heard, `melody: { from, to, notes }` |
 | `melody.reference` | `track` (words of its file name), `style?`, `from?`, `length?` (seconds, default 24), `part?` (`lead`, `chords` or `bass`), `key?`, `register?`, `lowest?`, `highest?`, `snapToScale?` (default false) | the same, with `track`, `from`, `seconds` and `part`: a stretch of a style's reference track split into stems and transcribed (Basic Pitch, its 230 KB model downloaded next to the listening models the first time), its lead the top line of everything but drums and bass |
-| `listening.status` | | `{ models: { ready, downloading, progress, totalBytes, error? }, index: { running, total, embedded, failed, samples, librarySize }, styles: { running, names, style?, tracks?, analysed?, failed?, error? } }` |
+| `listening.status` | | `{ models: { ready, downloading, progress, totalBytes, error? }, index: { running, total, embedded, failed, samples, librarySize }, styles: { running, paused, names, queued, secondsPerSong, mapsVersion, style?, tracks?, analysed?, failed?, current?: { id, style, title, progress, started }, error? } }`; `mapsVersion` goes up with every change to a map or a choice |
 | `listening.download` | | the status; downloads the listening models (ONNX Runtime, CLAP and htdemucs, about 400 MB) once into `<app data>/models/listening`, then hears the library. `listening` notifications follow |
 | `listening.index` | | the status; hears library samples that haven't been yet (the engine also does this when it starts and after scans) |
-| `styles.list` | | `{ styles: [{ name, folder, tracks, tempo?, guide }], progress }`; `guide`: the style guide with the same name, or null |
+| `styles.list` | | `{ styles: [{ name, folder, tracks, tempo?, guide }], progress }`: the styles with song maps in use; `guide`: the style guide with the same name, or null |
 | `styles.references` | | `{ folder, exists, folders: [{ name, path, files, style, unheard, gone, guide }] }`: the references folder (`~/Music/GrooveKit/References`, or `GROOVEKIT_REFERENCES`) and each style folder in it (not `Albums`, `Mixes` or `Not used`): its audio files, the style heard from it, tracks new or changed since (`unheard`) and gone, and the guide with its name. Tracks are recognised by name, size and date, so a moved folder isn't heard again |
 | `styles.createReferences` | | the same, after creating the folder |
-| `styles.add` | `path` (a folder of reference tracks), `name?` (default: the folder's) | `{ name, progress }`; analyses the tracks in the background (separated into drums, bass and the rest, about 15 s a track), saving the style after each. Adding a folder again only analyses new and changed tracks |
-| `styles.remove` | `name` | `{ removed }` |
+| `styles.add` | `path` (a folder of reference tracks), `name?` (default: the folder's) | `{ name, progress }`; queues the folder's tracks not heard yet or changed since (not skipped ones) to be heard into maps |
+| `maps.list` | | `{ folder, references, songs: [{ id, style, title, file?, status, inUse, error?, map?: { source, heardAt, analysis, tempo, lufs } }] }`: every song in the references folder's style folders and every map. `id` is `<style>/<title>` (the file name without its extension). `status`: `new`, `changed` (since it was heard), `older` (heard by an older hearing), `heard`, `queued`, `hearing`, `failed`, `skipped`, `imported` (someone's map; the audio isn't here) or `gone` (heard here, the audio since removed) |
+| `maps.status` | | `{ running, paused, ready, current?: { id, style, title, progress, started }, queued: [{ id, style, title }], recent: [{ id, style, title, ok, seconds, at, error? }], secondsPerSong }`: the hearing queue (`ready`: the models are in; without them it waits) |
+| `maps.get` | `id` | the map: `{ id, style, title, source, heardAt, inUse, current, track: { path, analysis, tempo, swing?, density, lufs, balance, levels, sounds } }` (`sounds`: how many fingerprints per part) |
+| `maps.setInUse` | `ids`, `inUse` | `{ changed }`; a style learns from the maps in use (all, until unticked) |
+| `maps.hear` | `ids` | `{ queued }`; queues the songs (with audio here) to be heard, again if they were, and stops skipping them |
+| `maps.hearNew` | `style?` | `{ queued }`; queues every new, changed or failed song (of a style) |
+| `maps.pause` / `maps.resume` | | hearing stops after the stretch it's on (the song starts over on resume); the queue is kept on disk and carries on after a restart unless paused |
+| `maps.unqueue` | `ids` | takes songs out of the queue; `maps.clearQueue` takes all of them |
+| `maps.forget` | `ids` | `{ forgotten }`; deletes the maps and skips the songs |
+| `maps.unskip` | `ids` | stops skipping them |
+| `maps.removeReferences` | `ids` | `{ moved }`; moves the songs' audio to `Not used/<style>` beside the style folders (nothing is deleted) and drops their maps |
+| `maps.export` | `ids`, `path` (a .zip) | `{ path, count }`; the maps, one folder per style, with file names in place of paths and an `index.json` |
+| `maps.import` | `path` | `{ added, kept }`; adds a zip's maps as imported; a song heard here keeps its own |
 | `styles.describe` | `name` | `{ name, folder, tracks, trackNames, tempo: { median, min, max }, swing, onsetsPerBeat, lufs, balance (ten bands, dB of the mix), levels (each part against the mix, dB), sounds: { part: words } }` |
 | `styles.compare` | `name`, `start?`, `end?` (ticks) | `{ style, parts: { part: { fit, sounds, referencesSound } }, tempo, groove: { swing?, hitsPerBeat }, referencesGroove, loudness, balance, levels, channels, notes }`: renders the mix and hears it as the style's tracks were heard (split into drums, bass and the rest), then compares part by part; `channels` lists which channels mostly play which part (by their first sample's category), and `notes` name the biggest differences first |
 

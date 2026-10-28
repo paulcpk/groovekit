@@ -10,6 +10,7 @@ import { previewSample, stopPreview } from "@/features/shell/actions";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { call, engine, useEngine } from "@/state/engine";
+import { openMaps } from "@/features/agent/maps";
 import { addStyle, canListen, downloadModels, needsHearing, rateSample, refreshReferences, useListening, useListeningStatus, type ListeningStatus, type ReferenceFolder } from "./listening";
 
 interface Sample {
@@ -698,10 +699,11 @@ function Listening({ status }: { status?: ListeningStatus }) {
       ))}
 
       {analysis.running && (
-        <div className="mt-1 flex flex-col gap-1">
+        <button type="button" title="See every song being heard" onClick={() => openMaps("processing")}
+          className="mt-1 flex flex-col gap-1 rounded-[4px] text-left hover:text-fg">
           <span>Listening to {analysis.style}… {analysis.analysed ?? 0} of {analysis.tracks ?? "?"} tracks</span>
-          <div className="h-1 overflow-hidden rounded-full bg-bg"><div className="h-full bg-agent transition-[width]" style={{ width: `${((analysis.analysed ?? 0) / Math.max(1, analysis.tracks ?? 1)) * 100}%` }} /></div>
-        </div>
+          <div className="h-1 w-full overflow-hidden rounded-full bg-bg"><div className="h-full bg-agent transition-[width]" style={{ width: `${((analysis.analysed ?? 0) / Math.max(1, analysis.tracks ?? 1)) * 100}%` }} /></div>
+        </button>
       )}
       {analysis.error && !analysis.running && <div className="mt-1 text-rec">{analysis.error}</div>}
       {models.ready && styles.length === 0 && !analysis.running && (

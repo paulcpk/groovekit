@@ -11,6 +11,8 @@ import { deleteChat, newChat, openChat, refreshChats, retry, send, setApiKey, st
 import { MARKDOWN } from "./markdown";
 import { NotesView } from "./NotesView";
 import { StylesView } from "./StylesView";
+import { MapsView } from "./MapsView";
+import { useAgentView, type AgentView } from "./maps";
 import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, transcriptText, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
 
 const SUGGESTIONS = [
@@ -57,16 +59,18 @@ function toolSummary(input: unknown) {
 }
 
 export function AgentPanel() {
-  const [view, setView] = useState<"chat" | "notes" | "styles" | "changes" | "chats">("chat");
+  const view = useAgentView((s) => s.view);
+  const setView = (v: AgentView) => useAgentView.setState({ view: v });
   const items = useAgent((s) => s.items);
   const running = useAgent((s) => s.running);
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line px-2">
-        <Tabs<"chat" | "notes" | "styles" | "changes"> value={view === "chats" ? "chat" : view} onChange={setView}
+        <Tabs<Exclude<AgentView, "chats">> value={view === "chats" ? "chat" : view} onChange={setView}
           items={[{ value: "chat", label: "Chat" }, { value: "notes", label: "Notes", title: "What the agent should always keep in mind" },
-            { value: "styles", label: "Styles", title: "How the agent makes each style" }, { value: "changes", label: "Changes" }]} />
+            { value: "styles", label: "Styles", title: "How the agent makes each style" },
+            { value: "maps", label: "Maps", title: "Your reference tracks, heard into song maps" }, { value: "changes", label: "Changes" }]} />
         <div className="flex-1" />
         {(view === "chat" || view === "chats") && (
           <>
@@ -81,7 +85,7 @@ export function AgentPanel() {
         )}
       </div>
       <div className="min-h-0 flex-1">
-        {view === "chat" ? <Chat /> : view === "chats" ? <Conversations onOpen={() => setView("chat")} /> : view === "notes" ? <NotesView /> : view === "styles" ? <StylesView /> : <Activity />}
+        {view === "chat" ? <Chat /> : view === "chats" ? <Conversations onOpen={() => setView("chat")} /> : view === "notes" ? <NotesView /> : view === "styles" ? <StylesView /> : view === "maps" ? <MapsView /> : <Activity />}
       </div>
     </div>
   );

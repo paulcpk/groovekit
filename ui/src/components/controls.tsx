@@ -38,9 +38,9 @@ export function IconButton({ className, size = "md", ...props }: ButtonProps) {
 
 /** Small square toggles for mute/solo-like states. */
 export function ToggleChip({ on, onClick, label, title, tone = "accent", className }: {
-  on: boolean; onClick: (e: React.MouseEvent) => void; label: string; title?: string; tone?: "accent" | "rec" | "dim"; className?: string;
+  on: boolean; onClick: (e: React.MouseEvent) => void; label: string; title?: string; tone?: "accent" | "rec" | "dim" | "agent"; className?: string;
 }) {
-  const onClass = tone === "rec" ? "bg-rec text-white" : tone === "dim" ? "bg-faint text-fg" : "bg-accent text-black";
+  const onClass = tone === "rec" ? "bg-rec text-white" : tone === "dim" ? "bg-faint text-fg" : tone === "agent" ? "bg-agent text-black" : "bg-accent text-black";
   return (
     <button
       type="button"
