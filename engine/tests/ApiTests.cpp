@@ -651,7 +651,7 @@ TEST_CASE ("Style guides are listed, read, edited, restored, and set as the song
 
     Harness h;
     auto list = h.call ("guides.list")["result"];
-    CHECK (list["guides"].size() == 13);
+    CHECK (list["guides"].size() == 12);
     CHECK (list["style"].is_null());
 
     // By id or by name.
@@ -660,6 +660,11 @@ TEST_CASE ("Style guides are listed, read, edited, restored, and set as the song
     CHECK (dnb["builtIn"] == true);
     CHECK (dnb["targets"].contains ("tempo"));
     CHECK (h.call ("guides.get", { { "id", "polka" } }).contains ("error"));
+
+    // By the other name a guide goes by: schranz is hard techno, Berghain is Berlin techno.
+    CHECK (h.call ("guides.get", { { "id", "Schranz" } })["result"]["id"] == "hard-techno");
+    CHECK (h.call ("guides.get", { { "id", "Berghain" } })["result"]["id"] == "berlin-techno");
+    CHECK (h.call ("guides.get", { { "id", "tresor" } })["result"]["id"] == "industrial-techno");
 
     // No style yet, then the song's.
     CHECK (h.call ("guides.get").contains ("error"));
@@ -683,7 +688,7 @@ TEST_CASE ("Style guides are listed, read, edited, restored, and set as the song
     auto own = h.call ("guides.save", { { "text", "# Dub techno\n\nDeep chords in fog.\n" } })["result"];
     CHECK (own["id"] == "dub-techno");
     CHECK (own["builtIn"] == false);
-    CHECK (h.call ("guides.list")["result"]["guides"].size() == 14);
+    CHECK (h.call ("guides.list")["result"]["guides"].size() == 13);
     CHECK (h.call ("guides.remove", { { "id", "dub-techno" } })["result"]["removed"] == "deleted");
 
     ::unsetenv ("GROOVEKIT_GUIDES");

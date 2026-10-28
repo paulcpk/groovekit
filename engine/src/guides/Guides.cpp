@@ -283,9 +283,28 @@ std::optional<Guide> GuideStore::find (const std::string& idOrName) const
 {
     const auto wanted = simplified (idOrName);
 
+    // A name can carry another in brackets, "Hard techno (Schranz)": either one finds it.
+    auto names = [] (const std::string& name)
+    {
+        std::vector<std::string> all { simplified (name) };
+        const auto open = name.find ('('), close = name.rfind (')');
+
+        if (open != std::string::npos && close != std::string::npos && close > open)
+        {
+            all.push_back (simplified (name.substr (0, open)));
+            all.push_back (simplified (name.substr (open + 1, close - open - 1)));
+        }
+
+        return all;
+    };
+
     for (auto& g : list())
-        if (simplified (g.id) == wanted || simplified (g.name) == wanted)
+    {
+        const auto all = names (g.name);
+
+        if (simplified (g.id) == wanted || std::find (all.begin(), all.end(), wanted) != all.end())
             return g;
+    }
 
     return {};
 }
