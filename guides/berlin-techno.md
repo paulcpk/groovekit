@@ -1,10 +1,10 @@
-# Berlin techno
+# Berlin techno (Berghain)
 
-Hypnotic, dark, physical. A growling, rolling low end moves the body; quiet, detailed highs give the ears something to hold on to. Few parts, played for a long time, changing slowly.
+Hypnotic, dark, physical: the sound of Berghain's main floor. A growling, rolling low end moves the body; quiet, detailed highs give the ears something to hold on to. Few parts, played for a long time, changing slowly. Subtle and aggressive at once.
 
 ```targets
 {
-  "tempo": [128, 145],
+  "tempo": [128, 138],
   "swing": [0, 8],
   "partsAtOnce": 6,
   "topAtOnce": 3,
@@ -28,6 +28,8 @@ Hypnotic, dark, physical. A growling, rolling low end moves the body; quiet, det
 
 The low end makes you move, the highs keep your ears busy while the rumble does. Everything serves the groove: the kick and the rumble under it are the track, the rest is detail around them. It should feel heavy but never harsh, relentless but never cluttered. Dark rooms, concrete, a long night: tension that builds over minutes, not seconds.
 
+It is slower and deeper than people expect. The residents who shaped it played around 128 to 132 BPM, older records pitched down a few percent so they roll rather than rush; newer residents play a little faster and heavier, up to the high 130s. It has a house sensibility underneath: a driving, determined bassline or a single melody can carry a track, as long as it repeats and stays in its place. Its pay-offs come slowly, never as sudden drops.
+
 The most common mistake is too much: too many percussion loops, loud claps, bright noisy hats, fills everywhere. That is how someone who has never been to a club imagines techno. Real Berlin techno is mostly kick, rumble and space.
 
 ## The parts
@@ -37,7 +39,7 @@ The most common mistake is too much: too many percussion loops, loud claps, brig
 - **Hats**: quiet, small and dry or slightly roomy. A closed hat on the off-beats or 16ths, maybe an open hat or ride later. Ticks and shuffles, not hiss. Words: "subtle dry closed hat", "tight ticking hi hat", "soft metallic ride".
 - **Clap or snare**: optional, and quiet: a dry clap or rim on 2 and 4 sits far back, often only in some sections. Never the loudest thing after the kick. Words: "dry tight clap", "short rimshot", "muted snare".
 - **Percussion**: one loop or a few sparse hits at most: toms, rims, metal, clicks, playing a pattern that answers the kick. Words: "industrial metallic percussion", "hypnotic tom loop", "sparse dark percussion".
-- **Music**: one idea, repeated: a stab, a drone, a short dark chord, a filtered synth line. Lives in the mids, moves slowly (filter, delay, reverb send). Words: "dark atmospheric stab", "hypnotic acid line", "ominous drone pad", "detuned dub chord".
+- **Music**: one idea, repeated: a stab, a drone, a short dark chord, a filtered synth line, or a driving bassline with a house feel in the low mids. Lives in the mids, moves slowly (filter, delay, reverb send); a melody, if any, is short, plain and haunting. Words: "dark atmospheric stab", "hypnotic acid line", "ominous drone pad", "detuned dub chord", "driving deep bassline".
 - **Atmosphere (fx)**: a far-away texture, noise sweep or reverb wash, very low in the mix, mainly for transitions. Words: "dark industrial atmosphere", "distant warehouse noise", "eerie texture".
 
 ## Build it in this order
@@ -60,7 +62,7 @@ After each step, review the song: if the highs got busier than the target or the
 
 ## Arrangement
 
-- Long and slow: 6 to 8 minutes, changes every 16 or 32 bars, by adding or removing one part or by slowly opening a filter.
+- Long and slow: 6 to 8 minutes, changes every 16 or 32 bars, by adding or removing one part or by slowly opening a filter. Builds are gradual and the pay-off comes late; no big drop.
 - An intro of kick, rumble and hats that a DJ can mix; a long middle that builds tension; one breakdown where the kick drops out and the atmosphere and music carry it; back in with the full groove; an outro that strips back down.
 - At most six parts at once, even at the peak.
 
@@ -72,3 +74,8 @@ After each step, review the song: if the highs got busier than the target or the
 - No busy melodies, no major-key cheer, no big chord progressions.
 - No fills and crashes at every 4 bars.
 - Don't leave the low end thin to make room for the highs: it's the other way round.
+- Don't rush it: above about 138 BPM it turns into hard techno.
+
+## Listen to
+
+Berghain's residents and their official mixes: Marcel Dettmann (Berghain 02), Ben Klock (Berghain 04), Len Faki (Berghain 03), Marcel Fengler (Berghain 05), Norman Nodge (Berghain 06), Function (Berghain 07), Fiedel (Berghain 08); newer residents Fadi Mohem, Sedef Adasi and Héctor Oaks.

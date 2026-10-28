@@ -651,7 +651,7 @@ TEST_CASE ("Style guides are listed, read, edited, restored, and set as the song
 
     Harness h;
     auto list = h.call ("guides.list")["result"];
-    CHECK (list["guides"].size() == 12);
+    CHECK (list["guides"].size() == 13);
     CHECK (list["style"].is_null());
 
     // By id or by name.
@@ -683,7 +683,7 @@ TEST_CASE ("Style guides are listed, read, edited, restored, and set as the song
     auto own = h.call ("guides.save", { { "text", "# Dub techno\n\nDeep chords in fog.\n" } })["result"];
     CHECK (own["id"] == "dub-techno");
     CHECK (own["builtIn"] == false);
-    CHECK (h.call ("guides.list")["result"]["guides"].size() == 13);
+    CHECK (h.call ("guides.list")["result"]["guides"].size() == 14);
     CHECK (h.call ("guides.remove", { { "id", "dub-techno" } })["result"]["removed"] == "deleted");
 
     ::unsetenv ("GROOVEKIT_GUIDES");
