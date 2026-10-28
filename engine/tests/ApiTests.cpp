@@ -98,7 +98,7 @@ TEST_CASE ("The API renders and analyses")
         Json::parse (R"({ "type": "addChannel", "channel": { "id": "b", "instrument": { "type": "sampler", "layers": [
                          { "id": "l", "pitchTracking": false, "sample": ")" + beep + R"(" } ] } } })"),
         Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "b", "start": 0, "length": 240, "velocity": 127 } ] } })"),
-        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 960, "pattern": "p" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 960, "pattern": "p" } })"),
     }) } });
 
     auto output = (test::tempDir() / "api-render.wav").string();
@@ -305,7 +305,7 @@ TEST_CASE ("Mix analysis finds sources that mask each other")
             { "channel": "bassA", "start": 0, "length": 960, "key": 45 },
             { "channel": "bassB", "start": 0, "length": 960, "key": 45 },
             { "channel": "hat", "start": 0, "length": 120 }, { "channel": "hat", "start": 480, "length": 120 } ] } })"),
-        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 1920, "pattern": "p" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 1920, "pattern": "p" } })"),
     }) } });
 
     auto r = h.call ("analyzeMix");
@@ -331,7 +331,7 @@ TEST_CASE ("Mastering reaches a target loudness with the limiter")
                          { "id": "l", "sample": ")" + bass + R"(", "rootKey": 45 } ] } } })"),
         Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "b", "start": 0, "length": 960, "key": 45 },
                          { "channel": "b", "start": 1920, "length": 960, "key": 48 } ] } })"),
-        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 15360, "pattern": "p" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 15360, "pattern": "p" } })"),
     }) } });
 
     auto r = h.call ("master", { { "targetLufs", -10 }, { "ceilingDb", -1 } });
@@ -365,7 +365,7 @@ TEST_CASE ("Mastering converges on quiet material and keeps true peak under the 
                          { "channel": "k", "start": 0, "length": 240 }, { "channel": "k", "start": 960, "length": 240 },
                          { "channel": "k", "start": 1920, "length": 240 }, { "channel": "k", "start": 2880, "length": 240 },
                          { "channel": "b", "start": 480, "length": 400, "key": 45 }, { "channel": "b", "start": 2400, "length": 400, "key": 48 } ] } })"),
-        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 15360, "pattern": "p" } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 15360, "pattern": "p" } })"),
     }) } });
 
     auto r = h.call ("master", { { "targetLufs", -9 }, { "ceilingDb", -1 } });
@@ -502,7 +502,7 @@ TEST_CASE ("Renders take a format and can include stems")
              Json::parse (R"({ "type": "addChannel", "channel": { "id": "b", "insert": "drums", "instrument": { "type": "sampler", "layers": [
                               { "id": "l", "pitchTracking": false, "sample": ")" + test::fixture ("beep.wav").string() + R"(" } ] } } })"),
              Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "b", "start": 0, "length": 240 } ] } })"),
-             Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 960, "pattern": "p" } })") })
+             Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 960, "pattern": "p" } })") })
     {
         readValue (r, json, commands.emplace_back());
     }
@@ -522,42 +522,65 @@ TEST_CASE ("Renders take a format and can include stems")
     CHECK (h.call ("render", { { "bitDepth", 12 } })["error"]["code"] == -32602);
 }
 
-TEST_CASE ("Tracks are numbered lanes that need no adding")
+TEST_CASE ("Rows are numbered, need no adding, and move with their clips and settings")
 {
     Harness h;
     auto r = h.call ("execute", Json::parse (R"({ "commands": [
         { "type": "addPattern", "pattern": { "id": "p", "notes": [] } },
-        { "type": "addClip", "clip": { "type": "pattern", "id": "a", "track": 0, "start": 0, "length": 960, "pattern": "p" } },
-        { "type": "addClip", "clip": { "type": "pattern", "id": "b", "track": 5, "start": 0, "length": 960, "pattern": "p" } },
-        { "type": "updateTrack", "track": 3, "changes": { "name": "Drums", "mute": true } } ] })"));
+        { "type": "addClip", "clip": { "type": "pattern", "id": "a", "row": 0, "start": 0, "length": 960, "pattern": "p" } },
+        { "type": "addClip", "clip": { "type": "pattern", "id": "b", "row": 5, "start": 0, "length": 960, "pattern": "p" } },
+        { "type": "updateRow", "row": 3, "changes": { "name": "Drums", "mute": true } } ] })"));
     REQUIRE (r.contains ("result"));
 
-    auto& tracks = h.session.getProject().playlist.tracks;
-    REQUIRE (tracks.size() == 4);
-    CHECK (tracks[0] == model::PlaylistTrack {});
-    CHECK (tracks[3].name == "Drums");
-    CHECK (tracks[3].mute);
+    auto& rows = h.session.getProject().playlist.rows;
+    REQUIRE (rows.size() == 4);
+    CHECK (rows[0] == model::PlaylistRow {});
+    CHECK (rows[3].name == "Drums");
+    CHECK (rows[3].mute);
 
-    auto trackOf = [&] (const char* id)
+    auto rowOf = [&] (const char* id)
     {
         for (auto& clip : h.session.getProject().playlist.clips)
             if (model::getClipId (clip) == id)
-                return model::getClipTrack (clip);
+                return model::getClipRow (clip);
 
         return -1;
     };
 
-    // Inserting moves the tracks below down, with their clips and settings.
-    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "insertTrack", "track": 1 } ] })"));
-    CHECK (trackOf ("a") == 0);
-    CHECK (trackOf ("b") == 6);
-    CHECK (h.session.getProject().playlist.tracks[4].name == "Drums");
+    // Inserting moves the rows below down, with their clips and settings.
+    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "insertRow", "row": 1 } ] })"));
+    CHECK (rowOf ("a") == 0);
+    CHECK (rowOf ("b") == 6);
+    CHECK (h.session.getProject().playlist.rows[4].name == "Drums");
 
-    // Removing takes the track's clips and moves the ones below up.
-    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "removeTrack", "track": 0 } ] })"));
-    CHECK (trackOf ("a") == -1);
-    CHECK (trackOf ("b") == 5);
-    CHECK (h.session.getProject().playlist.tracks[3].name == "Drums");
+    // Removing takes the row's clips and moves the ones below up.
+    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "removeRow", "row": 0 } ] })"));
+    CHECK (rowOf ("a") == -1);
+    CHECK (rowOf ("b") == 5);
+    CHECK (h.session.getProject().playlist.rows[3].name == "Drums");
+
+    // Moving rows takes their clips, names, mute and solo along; the rows in between close up.
+    // Now: a in no row, b in 5, Drums (muted) in 3.
+    h.call ("execute", Json::parse (R"({ "commands": [
+        { "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 3, "start": 0, "length": 960, "pattern": "p" } },
+        { "type": "addClip", "clip": { "type": "pattern", "id": "d", "row": 4, "start": 0, "length": 960, "pattern": "p" } },
+        { "type": "updateRow", "row": 4, "changes": { "solo": true } } ] })"));
+    REQUIRE (h.call ("execute", Json::parse (R"({ "commands": [ { "type": "moveRows", "row": 3, "count": 2, "to": 0 } ] })")).contains ("result"));
+    CHECK (rowOf ("c") == 0);
+    CHECK (rowOf ("d") == 1);
+    CHECK (rowOf ("b") == 5);
+    CHECK (h.session.getProject().playlist.rows[0].name == "Drums");
+    CHECK (h.session.getProject().playlist.rows[0].mute);
+    CHECK (h.session.getProject().playlist.rows[1].solo);
+    CHECK (h.session.getProject().playlist.rows[3] == model::PlaylistRow {});
+
+    // And down again, past an empty row.
+    h.call ("execute", Json::parse (R"({ "commands": [ { "type": "moveRows", "row": 0, "to": 2 } ] })"));
+    CHECK (rowOf ("c") == 2);
+    CHECK (rowOf ("d") == 0);
+    CHECK (h.session.getProject().playlist.rows[2].name == "Drums");
+    CHECK (h.session.getProject().playlist.rows[0].solo);
+    CHECK (h.call ("execute", Json::parse (R"({ "commands": [ { "type": "moveRows", "row": 0, "count": 5, "to": 997 } ] })")).contains ("error"));
 }
 
 TEST_CASE ("The agent's conversations are kept, listed, reopened and deleted")

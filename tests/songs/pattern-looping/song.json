@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Pattern looping",
   "tempo": 120,
   "channels": [
@@ -13,10 +13,10 @@
   ],
   "patterns": [{ "id": "one", "length": 960, "notes": [{ "channel": "beep", "start": 0, "length": 240, "velocity": 127 }] }],
   "playlist": {
-    "tracks": [],
+    "rows": [],
     "clips": [
-      { "type": "pattern", "id": "loop", "track": 0, "start": 0, "length": 3840, "pattern": "one" },
-      { "type": "pattern", "id": "offset", "track": 0, "start": 3840, "length": 1920, "pattern": "one", "offset": 480 }
+      { "type": "pattern", "id": "loop", "row": 0, "start": 0, "length": 3840, "pattern": "one" },
+      { "type": "pattern", "id": "offset", "row": 0, "start": 3840, "length": 1920, "pattern": "one", "offset": 480 }
     ]
   },
   "mixer": { "inserts": [{ "id": "master" }] }

@@ -90,7 +90,7 @@ export const TOOL_GROUPS: ToolGroup[
     tools: [
       {
         name: "edit_project",
-        does: "Adds and changes channels, sampler layers, patterns, notes, playlist tracks, clips, inserts, effects and sends. If any command fails, nothing changes and the error names the field.",
+        does: "Adds and changes channels, sampler layers, patterns, notes, arrangement rows, clips, inserts, effects and sends. If any command fails, nothing changes and the error names the field.",
       },
       { name: "get_summary", does: "A compact overview: tempo, channels and samples, patterns, clips in bars, mixer." },
       { name: "get_project", does: "The exact song.json, or any part of it by JSON Pointer." },
@@ -139,7 +139,7 @@ export const TOOL_GROUPS: ToolGroup[
     tools: [
       {
         name: "record",
-        does: "Sets the input device and sends MIDI clock so the hardware follows GrooveKit, calibrates the round trip once, then records every output into its own insert and playlist track. Silent takes are skipped; each take is levelled to about −20 LUFS.",
+        does: "Sets the input device and sends MIDI clock so the hardware follows GrooveKit, calibrates the round trip once, then records every output into its own insert and arrangement row. Silent takes are skipped; each take is levelled to about −20 LUFS.",
       },
     ],
   },

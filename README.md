@@ -2,7 +2,7 @@
 
 An agent-first music production app, with AI agents as first-class producers. The human is the director; the agent arranges, mixes, automates and masters.
 
-Songs are built from channels (a built-in multi-layer sampler, GrooveKit's own Triad synth, or hosted VST3/AU instruments), patterns of notes that any number of channels share, a playlist of free tracks holding pattern, audio and automation clips, and a mixer of inserts with effects, sends and routing. Everything the UI can do, an agent can do through the same API, and every change is undoable. Hum a melody into a voice message, or point at a reference track, and the agent turns it into notes in the song's key; every sample in the library has a key or a root note to match it against.
+Songs are built from channels (a built-in multi-layer sampler, GrooveKit's own Triad synth, or hosted VST3/AU instruments), patterns of notes that any number of channels share, an arrangement of free rows holding pattern, audio and automation clips, and a mixer of inserts with effects, sends and routing. Everything the UI can do, an agent can do through the same API, and every change is undoable. Hum a melody into a voice message, or point at a reference track, and the agent turns it into notes in the song's key; every sample in the library has a key or a root note to match it against.
 
 Status: early development. The engine, command API, MCP server, sample library, analysis, mastering, live playback and recording (including clock-synced hardware), plugin hosting and a first desktop UI work. See [docs/architecture.md](docs/architecture.md) and [docs/roadmap.md](docs/roadmap.md).
 

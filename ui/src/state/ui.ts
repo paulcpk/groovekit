@@ -24,7 +24,7 @@ export interface UiState {
 
   /** Playlist pixels per quarter note. */
   playlistZoom: number;
-  trackHeight: number;
+  rowHeight: number;
   /** Snap in ticks; 0 snaps to bars, 1 is effectively off. */
   snap: number;
   pianoZoom: number;
@@ -64,7 +64,7 @@ export const useUi = create<UiState>(() => ({
   selectedClips: [],
   rackView: "rack",
   playlistZoom: 24,
-  trackHeight: 44,
+  rowHeight: 44,
   snap: 960,
   pianoZoom: 80,
   pianoKeyHeight: 12,
@@ -82,7 +82,7 @@ export const useUi = create<UiState>(() => ({
 
 const persisted: (keyof UiState)[] = [
   "sidebarTab", "sidebarOpen", "bottomPanel", "bottomOpen", "bottomHeight", "sidebarWidth",
-  "rackView", "playlistZoom", "trackHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize", "loopDrop",
+  "rackView", "playlistZoom", "rowHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize", "loopDrop",
 ];
 
 useUi.subscribe((state) => {

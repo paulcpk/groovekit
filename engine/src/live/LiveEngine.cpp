@@ -392,11 +392,11 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             start = end + 1;
         }
 
-        // Mute and solo of playlist tracks, clips, channels and inserts: everything is switched
+        // Mute and solo of playlist rows, clips, channels and inserts: everything is switched
         // on or off where it is (one solo changes who else is heard), without rebuilding.
         const auto isFlag = [] (const std::string& k) { return k == "mute" || k == "solo"; };
 
-        if ((keys.size() == 4 && keys[0] == "playlist" && (keys[1] == "tracks" || keys[1] == "clips") && isFlag (keys[3]))
+        if ((keys.size() == 4 && keys[0] == "playlist" && (keys[1] == "rows" || keys[1] == "clips") && isFlag (keys[3]))
             || (keys.size() == 3 && keys[0] == "channels" && isFlag (keys[2]))
             || (keys.size() == 4 && keys[0] == "mixer" && keys[1] == "inserts" && isFlag (keys[3])))
         {
@@ -429,8 +429,8 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
 
         // What only the UI shows: names, colours, which rack list a channel is in, the song's key.
         if ((keys.size() == 1 && (keys[0] == "key" || keys[0] == "name" || keys[0] == "style")) || (keys.size() == 3 && keys[0] == "channels" && (keys[2] == "name" || keys[2] == "color" || keys[2] == "group"))
-            || (keys.size() == 4 && keys[0] == "playlist" && keys[1] == "tracks" && (keys[3] == "name" || keys[3] == "color"))
-            || (keys.size() == 3 && keys[0] == "playlist" && keys[1] == "tracks" && op.op == PatchOpOp::add && op.value && op.value->empty()))
+            || (keys.size() == 4 && keys[0] == "playlist" && keys[1] == "rows" && (keys[3] == "name" || keys[3] == "color"))
+            || (keys.size() == 3 && keys[0] == "playlist" && keys[1] == "rows" && op.op == PatchOpOp::add && op.value && op.value->empty()))
             continue;
 
         // /channels/<i>/instrument/...: a sampler takes its new settings while it plays.
@@ -743,7 +743,7 @@ Project LiveEngine::projectToPlay() const
 
     if (auto length = playPatternLength())
     {
-        project.playlist.clips.push_back (PatternClip { .id = "pattern-mode", .track = 0, .start = 0,
+        project.playlist.clips.push_back (PatternClip { .id = "pattern-mode", .row = 0, .start = 0,
                                                         .length = *length, .pattern = *playPattern });
     }
 
@@ -920,7 +920,7 @@ void LiveEngine::startRecording (const std::vector<RecordTarget>& targets, const
 
         auto track = edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr, false);
         // Recorded files are named "_<track name>_Take_<n>.wav".
-        track->setName (juce::String ("track" + std::to_string (t.track + 1) + "-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S").toStdString()));
+        track->setName (juce::String ("track" + std::to_string (t.row + 1) + "-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S").toStdString()));
         track->getOutput().setOutputToTrack (compiled.insertTracks.at (t.insert));
 
         auto destination = input->setTarget (track->itemID, true, nullptr);
@@ -1012,7 +1012,7 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             Id id;
 
             for (int n = 1; id.empty() || used.contains (id); ++n)
-                id = "rec-" + std::to_string (r.target.track + 1) + "-" + std::to_string (n);
+                id = "rec-" + std::to_string (r.target.row + 1) + "-" + std::to_string (n);
 
             used.insert (id);
 
@@ -1045,7 +1045,7 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
 
             AudioClip ac;
             ac.id = id;
-            ac.track = r.target.track;
+            ac.row = r.target.row;
             ac.start = toTicks (te::TimePosition::fromSeconds (start));
             ac.length = std::max<Ticks> (1, toTicks (te::TimePosition::fromSeconds (end)) - ac.start);
 
@@ -1066,7 +1066,7 @@ std::vector<Id> LiveEngine::stopRecording (const ExecuteOptions& options)
             channel.group = ChannelGroup::arrangement;
             channel.instrument = SamplerInstrument { .layers = { layer } };
 
-            if (auto track = findTrack (project, r.target.track); track != nullptr && ! track->name.empty())
+            if (auto track = findRow (project, r.target.row); track != nullptr && ! track->name.empty())
                 channel.name = track->name + " " + id.substr (id.rfind ('-') + 1);
             else
                 channel.name = "Take " + id.substr (4);

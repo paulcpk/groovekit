@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Project } from "@groovekit/schema/project";
 import { barRange, barsAt, describeFit, fitCommands, fitSpeed, formatBars, suggestedBars, tempoFor } from "../src/lib/fit.ts";
 
-const song = (tempo: number) => ({ schemaVersion: 4, tempo, channels: [], patterns: [], playlist: { tracks: [], clips: [] }, mixer: { inserts: [] } }) as Project;
+const song = (tempo: number) => ({ schemaVersion: 5, tempo, channels: [], patterns: [], playlist: { rows: [], clips: [] }, mixer: { inserts: [] } }) as Project;
 
 describe("fitting samples to the song", () => {
   it("fills the chosen bars at any tempo", () => {
@@ -34,8 +34,8 @@ describe("fitting samples to the song", () => {
     const doc = song(120);
     doc.channels.push({ id: "loop", group: "arrangement", instrument: { type: "sampler", layers: [{ id: "sample", sample: "/loop.wav", sourceTempo: 120 }] } });
     doc.playlist.clips.push(
-      { type: "audio", id: "whole", track: 0, start: 0, length: 7680, channel: "loop" },
-      { type: "audio", id: "cut", track: 0, start: 7680, length: 1920, channel: "loop" },
+      { type: "audio", id: "whole", row: 0, start: 0, length: 7680, channel: "loop" },
+      { type: "audio", id: "cut", row: 0, start: 7680, length: 1920, channel: "loop" },
     );
     // 4 s at 120 BPM is 2 bars; made 4.
     const commands = fitCommands(doc, doc.channels[0], 4, { sourceTempo: tempoFor(doc, 4, 4), resample: true });

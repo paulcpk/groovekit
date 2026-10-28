@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Reverse",
   "tempo": 120,
   "channels": [
@@ -14,6 +14,6 @@
     }
   ],
   "patterns": [],
-  "playlist": { "tracks": [], "clips": [{ "type": "audio", "id": "a", "track": 0, "start": 0, "length": 576, "channel": "kick" }] },
+  "playlist": { "rows": [], "clips": [{ "type": "audio", "id": "a", "row": 0, "start": 0, "length": 576, "channel": "kick" }] },
   "mixer": { "inserts": [{ "id": "master" }] }
 }

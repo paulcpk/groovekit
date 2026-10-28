@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Effect automation",
   "tempo": 120,
   "channels": [
@@ -22,13 +22,13 @@
     }
   ],
   "playlist": {
-    "tracks": [],
+    "rows": [],
     "clips": [
-      { "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 3840, "pattern": "p" },
+      { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 3840, "pattern": "p" },
       {
         "type": "automation",
         "id": "closed",
-        "track": 1,
+        "row": 1,
         "start": 0,
         "length": 960,
         "target": { "scope": "effect", "insert": "filtered", "effect": "lp", "param": "frequency" },
@@ -37,7 +37,7 @@
       {
         "type": "automation",
         "id": "open",
-        "track": 1,
+        "row": 1,
         "start": 1920,
         "length": 960,
         "target": { "scope": "effect", "insert": "filtered", "effect": "lp", "param": "frequency" },

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Solo",
   "tempo": 120,
   "channels": [
@@ -24,11 +24,11 @@
     { "id": "other", "notes": [{ "channel": "other", "start": 0, "length": 240, "velocity": 127 }] }
   ],
   "playlist": {
-    "tracks": [{ "solo": true }],
+    "rows": [{ "solo": true }],
     "clips": [
-      { "type": "pattern", "id": "heard", "track": 0, "start": 0, "length": 960, "pattern": "soloed" },
-      { "type": "pattern", "id": "channelNotSoloed", "track": 0, "start": 960, "length": 960, "pattern": "other" },
-      { "type": "pattern", "id": "trackNotSoloed", "track": 1, "start": 1920, "length": 960, "pattern": "soloed" }
+      { "type": "pattern", "id": "heard", "row": 0, "start": 0, "length": 960, "pattern": "soloed" },
+      { "type": "pattern", "id": "channelNotSoloed", "row": 0, "start": 960, "length": 960, "pattern": "other" },
+      { "type": "pattern", "id": "trackNotSoloed", "row": 1, "start": 1920, "length": 960, "pattern": "soloed" }
     ]
   },
   "mixer": { "inserts": [{ "id": "master" }] }

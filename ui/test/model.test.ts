@@ -3,7 +3,7 @@ import type { Project } from "@groovekit/schema/project";
 import { formatPosition, patternLength, snapTicks, ticksPerBar, uniqueId } from "../src/lib/model.ts";
 import { dbToFader, faderToDb } from "../src/components/fader.tsx";
 
-const doc = { schemaVersion: 4, tempo: 120, channels: [], patterns: [], playlist: { tracks: [], clips: [] }, mixer: { inserts: [] } } as Project;
+const doc = { schemaVersion: 5, tempo: 120, channels: [], patterns: [], playlist: { rows: [], clips: [] }, mixer: { inserts: [] } } as Project;
 
 describe("model helpers", () => {
   it("formats positions as bar.beat.16th", () => {

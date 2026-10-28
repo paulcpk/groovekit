@@ -26,8 +26,8 @@ export type Pan = number;
 /** MIDI note number; 60 is C4. */
 export type Key = number;
 
-/** Playlist track number, 0 at the top. Any clip can go on any track, and a track needs no setting up first. */
-export type Lane = number;
+/** Arrangement row number, 0 at the top. Any clip can go in any row, and a row needs no setting up first. */
+export type Row = number;
 
 export interface TimeSignature {
   numerator?: number;
@@ -288,12 +288,12 @@ export interface Pattern {
   notes: Note[];
 }
 
-/** A playlist lane. Tracks only arrange: how clips sound is set by their channels and the mixer. */
-export interface PlaylistTrack {
+/** An arrangement row. Rows only arrange: how clips sound is set by their channels and the mixer. */
+export interface PlaylistRow {
   name?: string;
   color?: string;
   mute?: boolean;
-  /** While any track is soloed, only soloed tracks play. */
+  /** While any row is soloed, only soloed rows play. */
   solo?: boolean;
 }
 
@@ -301,7 +301,7 @@ export interface PlaylistTrack {
 export interface PatternClip {
   type: "pattern";
   id: Id;
-  track: Lane;
+  row: Row;
   start: Ticks;
   length: TickLength;
   mute?: boolean;
@@ -313,7 +313,7 @@ export interface PatternClip {
 export interface AudioClip {
   type: "audio";
   id: Id;
-  track: Lane;
+  row: Row;
   start: Ticks;
   length: TickLength;
   mute?: boolean;
@@ -350,7 +350,7 @@ export interface AutomationPoint {
 export interface AutomationClip {
   type: "automation";
   id: Id;
-  track: Lane;
+  row: Row;
   start: Ticks;
   length: TickLength;
   mute?: boolean;
@@ -361,8 +361,8 @@ export interface AutomationClip {
 export type Clip = PatternClip | AudioClip | AutomationClip;
 
 export interface Playlist {
-  /** Settings of tracks 0, 1, 2 and so on; tracks past the end of the list have the defaults. */
-  tracks: PlaylistTrack[];
+  /** Settings of rows 0, 1, 2 and so on; rows past the end of the list have the defaults. */
+  rows: PlaylistRow[];
   clips: Clip[];
 }
 
@@ -419,8 +419,8 @@ export interface Mixer {
 
 /** A GrooveKit project (song.json). Times are integer ticks at 960 PPQ unless a field says otherwise. */
 export interface Project {
-  /** 4 since sampler layers follow the keys played by default (3: playlist tracks are numbered lanes and audio clips play sampler channels). Older songs are converted when they open. */
-  schemaVersion: 4;
+  /** 5 since the playlist's lanes are rows (playlist.rows, and each clip's row); 4 since sampler layers follow the keys played by default (3: playlist lanes are numbered and audio clips play sampler channels). Older songs are converted when they open. */
+  schemaVersion: 5;
   name?: string;
   /** Beats per minute. */
   tempo: number;

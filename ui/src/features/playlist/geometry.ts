@@ -5,7 +5,7 @@ export const CLIP_HEADER_H = 14;
 
 export interface Geometry {
   pxPerTick: number;
-  trackHeight: number;
+  rowHeight: number;
   /** Snap step in ticks. */
   snap: number;
   bar: number;

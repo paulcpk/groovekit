@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Sends",
   "tempo": 120,
   "channels": [
@@ -29,7 +29,7 @@
       ]
     }
   ],
-  "playlist": { "tracks": [], "clips": [{ "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 1920, "pattern": "p" }] },
+  "playlist": { "rows": [], "clips": [{ "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 1920, "pattern": "p" }] },
   "mixer": {
     "inserts": [
       { "id": "master" },

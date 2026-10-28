@@ -340,51 +340,93 @@ namespace
                 e.insertAt (notes, toJson (note), {});
         }
 
-        /** Moves the clips on tracks from `from` down by `by` (up when negative). */
-        void shiftClips (Lane from, int by)
+        /** Moves the clips in rows from `from` down by `by` (up when negative). */
+        void shiftClips (Row from, int by)
         {
             auto& clips = e.array ("/playlist/clips");
 
             for (size_t i = 0; i < clips.size(); ++i)
             {
-                const auto track = clips[i].value ("track", 0);
+                const auto row = clips[i].value ("row", 0);
 
-                if (track < from)
+                if (row < from)
                     continue;
 
-                if (track + by > maxLane)
-                    throw CommandError ("track " + std::to_string (maxLane) + " is the last; its clips can't move further down");
+                if (row + by > maxRow)
+                    throw CommandError ("row " + std::to_string (maxRow) + " is the last; its clips can't move further down");
 
-                e.tx.replace (join (join ("/playlist/clips", i), "track"), track + by);
+                e.tx.replace (join (join ("/playlist/clips", i), "row"), row + by);
             }
         }
 
-        static constexpr Lane maxLane = 999;
+        static constexpr Row maxRow = 999;
 
-        void operator() (const InsertTrack& c)
+        void operator() (const InsertRow& c)
         {
-            shiftClips (c.track, 1);
+            shiftClips (c.row, 1);
 
-            if (static_cast<size_t> (c.track) < e.array ("/playlist/tracks").size())
-                e.insertAt ("/playlist/tracks", Json::object(), c.track);
+            if (static_cast<size_t> (c.row) < e.array ("/playlist/rows").size())
+                e.insertAt ("/playlist/rows", Json::object(), c.row);
         }
 
-        void operator() (const UpdateTrack& c)
+        void operator() (const UpdateRow& c)
         {
-            // Tracks before it that have no settings yet get the defaults.
-            while (e.array ("/playlist/tracks").size() <= static_cast<size_t> (c.track))
-                e.insertAt ("/playlist/tracks", Json::object(), {});
+            // Rows before it that have no settings yet get the defaults.
+            while (e.array ("/playlist/rows").size() <= static_cast<size_t> (c.row))
+                e.insertAt ("/playlist/rows", Json::object(), {});
 
-            e.applyChanges (join ("/playlist/tracks", static_cast<size_t> (c.track)), c.changes);
+            e.applyChanges (join ("/playlist/rows", static_cast<size_t> (c.row)), c.changes);
         }
 
-        void operator() (const RemoveTrack& c)
+        void operator() (const RemoveRow& c)
         {
-            e.removeWhere ("/playlist/clips", [&] (const Json& clip) { return clip.value ("track", 0) == c.track; });
-            shiftClips (c.track + 1, -1);
+            e.removeWhere ("/playlist/clips", [&] (const Json& clip) { return clip.value ("row", 0) == c.row; });
+            shiftClips (c.row + 1, -1);
 
-            if (static_cast<size_t> (c.track) < e.array ("/playlist/tracks").size())
-                e.tx.remove (join ("/playlist/tracks", static_cast<size_t> (c.track)));
+            if (static_cast<size_t> (c.row) < e.array ("/playlist/rows").size())
+                e.tx.remove (join ("/playlist/rows", static_cast<size_t> (c.row)));
+        }
+
+        void operator() (const MoveRows& c)
+        {
+            const int from = c.row, count = c.count, to = c.to;
+
+            if (to + count - 1 > maxRow)
+                throw CommandError ("row " + std::to_string (maxRow) + " is the last; these rows can't move further down");
+
+            if (from == to)
+                return;
+
+            // Where each row goes: the moved block lands at `to`, the rows it passes close the gap.
+            auto moved = [&] (int row)
+            {
+                if (row >= from && row < from + count)  return to + (row - from);
+                if (to > from && row >= from + count && row < to + count)  return row - count;
+                if (to < from && row >= to && row < from)  return row + count;
+                return row;
+            };
+
+            auto& clips = e.array ("/playlist/clips");
+
+            for (size_t i = 0; i < clips.size(); ++i)
+                if (const auto row = clips[i].value ("row", 0); moved (row) != row)
+                    e.tx.replace (join (join ("/playlist/clips", i), "row"), moved (row));
+
+            // The rows' settings move with them; rows without settings have the defaults.
+            const auto& rows = e.array ("/playlist/rows");
+            const auto size = std::max ({ rows.size(), static_cast<size_t> (from + count), static_cast<size_t> (to + count) });
+            auto reordered = Json::array();
+
+            for (size_t i = 0; i < size; ++i)
+                reordered.push_back (Json::object());
+
+            for (size_t i = 0; i < rows.size(); ++i)
+                reordered[static_cast<size_t> (moved (static_cast<int> (i)))] = rows[i];
+
+            while (! reordered.empty() && reordered.back().empty())
+                reordered.erase (reordered.size() - 1);
+
+            e.tx.replace ("/playlist/rows", reordered);
         }
 
         void operator() (const AddClip& c)
@@ -548,9 +590,10 @@ std::string describeCommand (const Command& command)
         else if constexpr (std::is_same_v<T, AddNotes>)         return "Add " + std::to_string (c.notes.size()) + " notes to " + c.pattern;
         else if constexpr (std::is_same_v<T, RemoveNotes>)      return "Remove notes from " + c.pattern;
         else if constexpr (std::is_same_v<T, SetNotes>)         return "Set " + c.channel + " notes in " + c.pattern;
-        else if constexpr (std::is_same_v<T, InsertTrack>)      return "Insert track " + std::to_string (c.track + 1);
-        else if constexpr (std::is_same_v<T, UpdateTrack>)      return "Update track " + std::to_string (c.track + 1);
-        else if constexpr (std::is_same_v<T, RemoveTrack>)      return "Remove track " + std::to_string (c.track + 1);
+        else if constexpr (std::is_same_v<T, InsertRow>)        return "Insert row " + std::to_string (c.row + 1);
+        else if constexpr (std::is_same_v<T, UpdateRow>)        return "Update row " + std::to_string (c.row + 1);
+        else if constexpr (std::is_same_v<T, RemoveRow>)        return "Remove row " + std::to_string (c.row + 1);
+        else if constexpr (std::is_same_v<T, MoveRows>)         return c.count == 1 ? "Move row " + std::to_string (c.row + 1) : "Move " + std::to_string (c.count) + " rows";
         else if constexpr (std::is_same_v<T, AddClip>)          return "Add clip " + getClipId (c.clip);
         else if constexpr (std::is_same_v<T, UpdateClip>)       return "Update clip " + c.clip;
         else if constexpr (std::is_same_v<T, RemoveClip>)       return "Remove clip " + c.clip;

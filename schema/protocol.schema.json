@@ -24,9 +24,10 @@
         { "$ref": "#/$defs/AddNotes" },
         { "$ref": "#/$defs/RemoveNotes" },
         { "$ref": "#/$defs/SetNotes" },
-        { "$ref": "#/$defs/InsertTrack" },
-        { "$ref": "#/$defs/UpdateTrack" },
-        { "$ref": "#/$defs/RemoveTrack" },
+        { "$ref": "#/$defs/InsertRow" },
+        { "$ref": "#/$defs/UpdateRow" },
+        { "$ref": "#/$defs/RemoveRow" },
+        { "$ref": "#/$defs/MoveRows" },
         { "$ref": "#/$defs/AddClip" },
         { "$ref": "#/$defs/UpdateClip" },
         { "$ref": "#/$defs/RemoveClip" },
@@ -269,37 +270,50 @@
       }
     },
 
-    "InsertTrack": {
-      "description": "Inserts an empty track at this number: it and the tracks below move down one, with their clips.",
+    "InsertRow": {
+      "description": "Inserts an empty row at this number: it and the rows below move down one, with their clips.",
       "type": "object",
-      "required": ["type", "track"],
+      "required": ["type", "row"],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "insertTrack" },
-        "track": { "$ref": "project.schema.json#/$defs/Lane" }
+        "type": { "const": "insertRow" },
+        "row": { "$ref": "project.schema.json#/$defs/Row" }
       }
     },
 
-    "UpdateTrack": {
-      "description": "Names, colours, mutes or solos a track. Any track number works; tracks need no adding first.",
+    "UpdateRow": {
+      "description": "Names, colours, mutes or solos a row. Any row number works; rows need no adding first.",
       "type": "object",
-      "required": ["type", "track", "changes"],
+      "required": ["type", "row", "changes"],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "updateTrack" },
-        "track": { "$ref": "project.schema.json#/$defs/Lane" },
+        "type": { "const": "updateRow" },
+        "row": { "$ref": "project.schema.json#/$defs/Row" },
         "changes": { "$ref": "#/$defs/Changes" }
       }
     },
 
-    "RemoveTrack": {
-      "description": "Removes the track's clips and settings; the tracks below move up one.",
+    "RemoveRow": {
+      "description": "Removes the row's clips and settings; the rows below move up one.",
       "type": "object",
-      "required": ["type", "track"],
+      "required": ["type", "row"],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "removeTrack" },
-        "track": { "$ref": "project.schema.json#/$defs/Lane" }
+        "type": { "const": "removeRow" },
+        "row": { "$ref": "project.schema.json#/$defs/Row" }
+      }
+    },
+
+    "MoveRows": {
+      "description": "Moves count rows starting at row, with their names, colours, mute and solo and their clips, so the first of them lands at to; the rows in between shift to make room. Nothing changes how anything sounds.",
+      "type": "object",
+      "required": ["type", "row", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "moveRows" },
+        "row": { "$ref": "project.schema.json#/$defs/Row" },
+        "count": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 1 },
+        "to": { "$ref": "project.schema.json#/$defs/Row" }
       }
     },
 

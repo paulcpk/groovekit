@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Clip pitch",
   "tempo": 120,
   "channels": [
@@ -10,6 +10,6 @@
     }
   ],
   "patterns": [],
-  "playlist": { "tracks": [], "clips": [{ "type": "audio", "id": "up", "track": 0, "start": 0, "length": 1920, "channel": "clicks" }] },
+  "playlist": { "rows": [], "clips": [{ "type": "audio", "id": "up", "row": 0, "start": 0, "length": 1920, "channel": "clicks" }] },
   "mixer": { "inserts": [{ "id": "master" }] }
 }

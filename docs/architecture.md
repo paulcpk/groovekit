@@ -1,12 +1,12 @@
 # GrooveKit — Architecture
 
-Open-source (AGPLv3) hobby project: an agent-first DAW with FL Studio's workflow, a clean minimal Ableton-style look, and AI agents as first-class producers. The human is the director; the agent does arrangement, mixing, automation and mastering.
+Open-source (AGPLv3) hobby project: an agent-first DAW with a pattern-based workflow, a clean, minimal look, and AI agents as first-class producers. The human is the director; the agent does arrangement, mixing, automation and mastering.
 
 ## Goals
 
 - Headless audio engine as the core; any UI (desktop, web, iPad) can be built on top.
 - Solid VST3/AU plugin hosting, including opening plugin windows (e.g. Massive) and creating automation clips from their knobs.
-- FL Studio semantics: channel rack with step patterns, sampler, piano roll, playlist with toggleable tracks and automation lanes, mixer. Own visual design, no Image-Line artwork, icons or trademarks.
+- Pattern-based: a channel rack with step patterns, a sampler, a piano roll, an arrangement of rows that can be muted and soloed, automation clips, and a mixer. Its own visual design, artwork and icons.
 - Primary use case: record grooves from an Elektron Digitakt II (via Overbridge), then iterate with an AI on arrangement and mastering.
 - Mac first, Windows later.
 
@@ -48,10 +48,10 @@ The UI and the agent are peers: both talk to the engine through the same command
 
 ## Project model
 
-- Groove Kit owns its own FL-style model as the source of truth: channels, patterns, playlist tracks, clips (pattern, audio, automation), mixer inserts and sends, plugin states.
+- Groove Kit owns its own FL-style model as the source of truth: channels, patterns, arrangement rows, clips (pattern, audio, automation), mixer inserts and sends, plugin states.
 - The engine compiles this model into a Tracktion Edit behind the scenes: each channel becomes a hidden Tracktion track with its instrument; pattern placements become MIDI clips on those tracks; automation clips become automation curves.
 - Step sequencer and piano roll edit the same note data (steps are short notes), so a step pattern can be opened in the piano roll.
-- FL semantics: a pattern holds notes for many channels, and a pattern clip plays all of them. Playlist tracks are numbered lanes that only arrange (name, colour, mute, solo); any clip can go on any track, and a track needs no adding first. Everything about how a clip sounds and where it plays belongs to its channel and the mixer.
+- Patterns: a pattern holds notes for many channels, and a pattern clip plays all of them. The arrangement's rows are numbered and only arrange (name, colour, mute, solo); any clip can go in any row, a row needs no adding first, and rows move with their clips. Everything about how a clip sounds and where it plays belongs to its channel and the mixer.
 - Timebase: integer ticks at 960 PPQ. One fixed tempo and 4/4 at first; tempo and time-signature changes later.
 - A channel's instrument is either the built-in sampler or a hosted plugin. The sampler is polyphonic and holds one or more layers (sample, root note, key and velocity range, gain, pan, volume envelope, one-shot or hold, loop, fades, normalize, polarity, swapped sides and transient shaping), so one channel can stack several samples. Envelopes have delay, attack, hold, decay, sustain and release with curves; the channel's modulation moves volume and cutoff with LFOs and resonance, pan and pitch with envelopes and LFOs, and its filter is a 12 or 24 dB/octave state-variable one (low-pass, high-pass, band-pass, notch). Transient shaping is done once per sample and shared.
 - Mixer: each channel routes to an insert. Inserts have effect slots, volume, pan and sends to other inserts; everything ends at the master insert. Sends exist from the start.
@@ -90,7 +90,7 @@ The UI and the agent are peers: both talk to the engine through the same command
 - Keys and melodies: a song can have a key. Every library sample is heard for one (chroma from spectral peaks, overtones discounted and the bass weighted, the sample's tuning measured first, then the Krumhansl-Kessler profiles), but a key in the file name wins, since names are usually right and loop keys are easily heard a fifth or a mode off; one-shots, drums included, have their root note from their pitch through the body (a kick's from its tail). Search can keep what goes with a key and say how far to transpose it. Melodies come from a voice message (YIN pitch tracking at 10 ms, notes cut at consonants and pitch jumps, the sung part told from speech by notes that hold their pitch) or from a stretch of a reference track (separated, then transcribed with Spotify's Basic Pitch); either is placed on the song's grid (the hummed tempo found from the rhythm, preferring simple note lengths), moved into the song's key and scale, and into a register.
 - Effects: GrooveKit's own seven-band EQ, compressor, multiband compressor (three or four Linkwitz-Riley bands, each compressing down and lifting up with its own stereo width, then a master compressor and a ceiling), reverb, delay, chorus, distortion, exciter (analog-style stages with generated harmonics), bitcrusher, stereo field and mastering limiter, Tracktion's phaser and filters, and the user's VST3/AU plugins. Effects that draw live measurements (gain reduction, band levels, the stereo image) keep them for `mixer.meter`.
 - Triad (`plugins/triad`): GrooveKit's three-oscillator synth, a JUCE VST3 built with the engine. The app carries it in `Resources/Plug-Ins` and the engine registers it without a scan (the build tree's copy during development); its symbols are hidden so its JUCE never mixes with the engine's. Every insert effect sits between a tap and a blend that mix the dry signal back in (the slot's mix), delay-compensated for the effect's latency.
-- Ableton devices cannot be hosted; FL plugins only where Image-Line ships them as VST/AU.
+- Devices built into other DAWs can't be hosted; only plugins shipped as VST3 or AU.
 
 ## Crash handling
 

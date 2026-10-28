@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn";
 import { call, engine, execute, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
-/** Picks inputs to record, each into its own playlist track, from a bar for a number of bars. */
+/** Picks inputs to record, each into its own arrangement row, from a bar for a number of bars. */
 export function RecordDialog() {
   const open = useUi((s) => s.recordOpen);
   const doc = useEngine((s) => s.doc);
@@ -35,7 +35,7 @@ export function RecordDialog() {
 
   const start = async () => {
     if (!doc || chosen.size === 0) return;
-    const targets = await ensureTracks(doc, [...chosen]);
+    const targets = await ensureRows(doc, [...chosen]);
     await call("record.start", {
       targets, fromBar, ...(timed ? { bars } : {}), dropSilent, ...(normalize ? { normalizeLufs: -20 } : {}),
     });
@@ -87,24 +87,24 @@ export function RecordDialog() {
           Calibrate
         </Button>
       </div>
-      <div className="mt-3 text-2xs text-faint">Each input records into its own playlist track. GrooveKit starts clock-synced hardware with the take (Settings → MIDI clock).</div>
+      <div className="mt-3 text-2xs text-faint">Each input records into its own arrangement row. GrooveKit starts clock-synced hardware with the take (Settings → MIDI clock).</div>
     </Dialog>
   );
 }
 
-/** A playlist track per input, named after it: one of that name, or the next empty one below
+/** An arrangement row per input, named after it: one of that name, or the next empty one below
     the song's clips. */
-async function ensureTracks(doc: Project, inputs: string[]) {
+async function ensureRows(doc: Project, inputs: string[]) {
   const commands: Command[] = [];
-  const taken = new Set([...doc.playlist.clips.map((c) => c.track), ...doc.playlist.tracks.flatMap((t, i) => (t.name ? [i] : []))]);
+  const taken = new Set([...doc.playlist.clips.map((c) => c.row), ...doc.playlist.rows.flatMap((r, i) => (r.name ? [i] : []))]);
   let next = Math.max(-1, ...taken) + 1;
   const targets = inputs.map((input) => {
-    const existing = doc.playlist.tracks.findIndex((t) => t.name === input);
-    if (existing >= 0) return { input, track: existing };
-    const track = next++;
-    commands.push({ type: "updateTrack", track, changes: { name: input } });
-    return { input, track };
+    const existing = doc.playlist.rows.findIndex((r) => r.name === input);
+    if (existing >= 0) return { input, row: existing };
+    const row = next++;
+    commands.push({ type: "updateRow", row, changes: { name: input } });
+    return { input, row };
   });
-  if (commands.length) await execute(commands, { label: `Add ${commands.length} track${commands.length === 1 ? "" : "s"} for recording` });
+  if (commands.length) await execute(commands, { label: `Add ${commands.length} row${commands.length === 1 ? "" : "s"} for recording` });
   return targets;
 }

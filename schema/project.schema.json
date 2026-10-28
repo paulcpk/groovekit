@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "tempo", "channels", "patterns", "playlist", "mixer"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "description": "4 since sampler layers follow the keys played by default (3: playlist tracks are numbered lanes and audio clips play sampler channels). Older songs are converted when they open.", "const": 4 },
+    "schemaVersion": { "description": "5 since the playlist's lanes are rows (playlist.rows, and each clip's row); 4 since sampler layers follow the keys played by default (3: playlist lanes are numbered and audio clips play sampler channels). Older songs are converted when they open.", "const": 5 },
     "name": { "type": "string", "default": "" },
     "tempo": { "description": "Beats per minute.", "type": "number", "minimum": 20, "maximum": 999 },
     "key": {
@@ -35,7 +35,7 @@
     "TickLength": { "description": "Duration in ticks (960 per quarter note).", "type": "integer", "minimum": 1 },
     "Pan": { "description": "-1 is hard left, 0 centre, 1 hard right.", "type": "number", "minimum": -1, "maximum": 1 },
     "Key": { "description": "MIDI note number; 60 is C4.", "type": "integer", "minimum": 0, "maximum": 127 },
-    "Lane": { "description": "Playlist track number, 0 at the top. Any clip can go on any track, and a track needs no setting up first.", "type": "integer", "minimum": 0, "maximum": 999 },
+    "Row": { "description": "Arrangement row number, 0 at the top. Any clip can go in any row, and a row needs no setting up first.", "type": "integer", "minimum": 0, "maximum": 999 },
 
     "TimeSignature": {
       "type": "object",
@@ -334,23 +334,23 @@
 
     "Playlist": {
       "type": "object",
-      "required": ["tracks", "clips"],
+      "required": ["rows", "clips"],
       "additionalProperties": false,
       "properties": {
-        "tracks": { "description": "Settings of tracks 0, 1, 2 and so on; tracks past the end of the list have the defaults.", "type": "array", "items": { "$ref": "#/$defs/PlaylistTrack" } },
+        "rows": { "description": "Settings of rows 0, 1, 2 and so on; rows past the end of the list have the defaults.", "type": "array", "items": { "$ref": "#/$defs/PlaylistRow" } },
         "clips": { "type": "array", "items": { "$ref": "#/$defs/Clip" } }
       }
     },
 
-    "PlaylistTrack": {
-      "description": "A playlist lane. Tracks only arrange: how clips sound is set by their channels and the mixer.",
+    "PlaylistRow": {
+      "description": "An arrangement row. Rows only arrange: how clips sound is set by their channels and the mixer.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string", "default": "" },
         "color": { "type": "string" },
         "mute": { "type": "boolean", "default": false },
-        "solo": { "description": "While any track is soloed, only soloed tracks play.", "type": "boolean", "default": false }
+        "solo": { "description": "While any row is soloed, only soloed rows play.", "type": "boolean", "default": false }
       }
     },
 
@@ -362,12 +362,12 @@
     "PatternClip": {
       "description": "Plays a pattern, repeating it every pattern length until the clip ends.",
       "type": "object",
-      "required": ["type", "id", "track", "start", "length", "pattern"],
+      "required": ["type", "id", "row", "start", "length", "pattern"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "pattern" },
         "id": { "$ref": "#/$defs/Id" },
-        "track": { "$ref": "#/$defs/Lane" },
+        "row": { "$ref": "#/$defs/Row" },
         "start": { "$ref": "#/$defs/Ticks" },
         "length": { "$ref": "#/$defs/TickLength" },
         "mute": { "type": "boolean", "default": false },
@@ -378,12 +378,12 @@
 
     "AudioClip": {
       "type": "object",
-      "required": ["type", "id", "track", "start", "length", "channel"],
+      "required": ["type", "id", "row", "start", "length", "channel"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "audio" },
         "id": { "$ref": "#/$defs/Id" },
-        "track": { "$ref": "#/$defs/Lane" },
+        "row": { "$ref": "#/$defs/Row" },
         "start": { "$ref": "#/$defs/Ticks" },
         "length": { "$ref": "#/$defs/TickLength" },
         "mute": { "type": "boolean", "default": false },
@@ -397,12 +397,12 @@
     "AutomationClip": {
       "description": "Drives one parameter. A target follows the points of all its unmuted clips; before the first point it holds the first value, after a clip it holds that clip's last value until the next point. Points past the clip's length are ignored.",
       "type": "object",
-      "required": ["type", "id", "track", "start", "length", "target", "points"],
+      "required": ["type", "id", "row", "start", "length", "target", "points"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "automation" },
         "id": { "$ref": "#/$defs/Id" },
-        "track": { "$ref": "#/$defs/Lane" },
+        "row": { "$ref": "#/$defs/Row" },
         "start": { "$ref": "#/$defs/Ticks" },
         "length": { "$ref": "#/$defs/TickLength" },
         "mute": { "type": "boolean", "default": false },

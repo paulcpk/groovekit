@@ -10,7 +10,7 @@ export const instructions = `GrooveKit is a music production app (a DAW) that yo
 
 Talking and doing: when the user asks a question, wants your opinion or ideas, or thinks out loud ("what would make the drop hit harder?", "is the bass too busy?", "where could this go next?"), talk: answer, explain why, offer two or three concrete options with what each would do to the sound, and ask back where their taste decides. Don't change the song until they ask you to or agree to an option. Look before you give an opinion: read the song (get_summary), and render it or compare it with the style's references when the question is about how it sounds, so what you say is about this song, not techno in general. Argue from the song's style guide and the user's notes where they apply, and say plainly when something works against them. When the user asks for a change, make it.
 
-Model: channels (instruments: the built-in sampler with one or more sample layers, or a plugin) feed mixer inserts; patterns hold notes for any channels; the playlist holds pattern, audio and automation clips on numbered tracks (0, 1, 2, ...: any clip on any track, no setup needed; tracks only arrange, with a name, mute and solo). How a clip sounds and where it plays is set by its channel and the mixer, never by its track. Inserts chain effects, sends and a fader, and feed other inserts or master.
+Model: channels (instruments: the built-in sampler with one or more sample layers, or a plugin) feed mixer inserts; patterns hold notes for any channels; the playlist (the arrangement) holds pattern, audio and automation clips in numbered rows (a clip's row: 0, 1, 2, ...; any clip in any row, no setup needed; rows only arrange, with a name, mute and solo, and moveRows reorders them with their clips). How a clip sounds and where it plays is set by its channel and the mixer, never by its row. Inserts chain effects, sends and a fader, and feed other inserts or master.
 
 Units: time is integer ticks at 960 per quarter note (in 4/4 a 16th is 240, a beat 960, a bar 3840). Volumes in dB, pan -1..1, velocity 1-127, keys are MIDI numbers (60 = C4). Sample paths are absolute or relative to the project folder.
 
@@ -272,7 +272,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
       description: `Records audio inputs into clips, e.g. the user's Digitakt II over USB (16 tracks; each can be an audio or a MIDI track, so some outputs are silent).
 - devices: lists audio input devices, inputs and MIDI outputs.
 - setup: selects the input device (e.g. "Digitakt II") and turns on MIDI clock to a MIDI output (e.g. "Elektron Digitakt II"), so the hardware starts and stops with GrooveKit and follows its tempo.
-- start: records the given inputs (or "all": Main, Track 1-16 and the Delay, Reverb and Chorus returns; per-track outputs are dry) from fromBar for bars bars, each into its own insert and playlist track (named after the input). Silent takes are skipped, and each take's channel gain is set so it plays at about -20 LUFS (hardware outputs arrive quiet). Returns at once; the takes become clips when it stops.
+- start: records the given inputs (or "all": Main, Track 1-16 and the Delay, Reverb and Chorus returns; per-track outputs are dry) from fromBar for bars bars, each into its own insert and arrangement row (named after the input). Silent takes are skipped, and each take's channel gain is set so it plays at about -20 LUFS (hardware outputs arrive quiet). Returns at once; the takes become clips when it stops.
 - stop: stops early.
 - calibrate: once per setup, with the hardware playing clean hits on the given input (a kick track), measures the round trip so takes land on the grid.`,
       inputSchema: {
@@ -305,21 +305,21 @@ Opening, creating or saving as switches the user's window too, so only do it whe
             const slug = (n: string) => "rec-" + n.toLowerCase().replace(/[^a-z0-9]+/g, "");
             const doc = engine.document!;
             const commands: unknown[] = [];
-            // Each input records onto the playlist track of its name, or the next free one below the song.
-            const used = new Set<number>([...doc.playlist.clips.map((c) => c.track), ...doc.playlist.tracks.flatMap((t, i) => (t.name ? [i] : []))]);
+            // Each input records into the arrangement row of its name, or the next free one below the song.
+            const used = new Set<number>([...doc.playlist.clips.map((c) => c.row), ...doc.playlist.rows.flatMap((r, i) => (r.name ? [i] : []))]);
             let next = Math.max(-1, ...used) + 1;
-            const tracks = new Map<string, number>();
+            const rows = new Map<string, number>();
             for (const name of names) {
               const id = slug(name);
               if (!doc.mixer.inserts.some((i) => i.id === id)) commands.push({ type: "addInsert", insert: { id, name } });
-              const existing = doc.playlist.tracks.findIndex((t) => t.name === name);
-              const track = existing >= 0 ? existing : next++;
-              if (existing < 0) commands.push({ type: "updateTrack", track, changes: { name } });
-              tracks.set(name, track);
+              const existing = doc.playlist.rows.findIndex((r) => r.name === name);
+              const row = existing >= 0 ? existing : next++;
+              if (existing < 0) commands.push({ type: "updateRow", row, changes: { name } });
+              rows.set(name, row);
             }
-            if (commands.length) await engine.call("execute", { commands, group: groups.next(), label: "Add recording tracks" });
+            if (commands.length) await engine.call("execute", { commands, group: groups.next(), label: "Add recording rows" });
             return engine.call("record.start", {
-              targets: names.map((name) => ({ input: name, insert: slug(name), track: tracks.get(name) })),
+              targets: names.map((name) => ({ input: name, insert: slug(name), row: rows.get(name) })),
               fromBar: args.fromBar ?? 1,
               bars: args.bars ?? 8,
               dropSilent: true,

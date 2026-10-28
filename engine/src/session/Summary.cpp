@@ -142,30 +142,30 @@ Json summarizeProject (const Project& project)
         patterns.push_back (std::move (j));
     }
 
-    auto tracks = Json::array();
+    auto rows = Json::array();
 
-    // Tracks with clips or a name, by number.
-    std::map<Lane, Json> lanes;
+    // Rows with clips or a name, by number.
+    std::map<Row, Json> lanes;
 
     for (auto& clip : project.playlist.clips)
-        lanes[getClipTrack (clip)].push_back (describeClip (clip, ts));
+        lanes[getClipRow (clip)].push_back (describeClip (clip, ts));
 
-    for (size_t i = 0; i < project.playlist.tracks.size(); ++i)
-        if (! project.playlist.tracks[i].name.empty() && ! lanes.contains (static_cast<Lane> (i)))
-            lanes[static_cast<Lane> (i)] = Json::array();
+    for (size_t i = 0; i < project.playlist.rows.size(); ++i)
+        if (! project.playlist.rows[i].name.empty() && ! lanes.contains (static_cast<Row> (i)))
+            lanes[static_cast<Row> (i)] = Json::array();
 
     for (auto& [lane, clips] : lanes)
     {
-        Json j { { "track", lane }, { "clips", clips } };
+        Json j { { "row", lane }, { "clips", clips } };
 
-        if (auto t = findTrack (project, lane))
+        if (auto t = findRow (project, lane))
         {
             if (! t->name.empty())   j["name"] = t->name;
             if (t->mute)             j["mute"] = true;
             if (t->solo)             j["solo"] = true;
         }
 
-        tracks.push_back (std::move (j));
+        rows.push_back (std::move (j));
     }
 
     auto inserts = Json::array();
@@ -214,7 +214,7 @@ Json summarizeProject (const Project& project)
 
     summary["channels"] = channels;
     summary["patterns"] = patterns;
-    summary["playlist"] = tracks;
+    summary["playlist"] = rows;
     summary["mixer"] = inserts;
     return summary;
 }

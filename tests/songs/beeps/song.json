@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Beeps",
   "tempo": 120,
   "channels": [
@@ -23,8 +23,8 @@
     }
   ],
   "playlist": {
-    "tracks": [],
-    "clips": [{ "type": "pattern", "id": "c1", "track": 0, "start": 0, "length": 3840, "pattern": "quarters" }]
+    "rows": [],
+    "clips": [{ "type": "pattern", "id": "c1", "row": 0, "start": 0, "length": 3840, "pattern": "quarters" }]
   },
   "mixer": { "inserts": [{ "id": "master" }] }
 }

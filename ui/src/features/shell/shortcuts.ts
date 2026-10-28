@@ -84,7 +84,7 @@ export function useShortcuts() {
           const span = Math.max(...selected.map((c) => c.start + c.length)) - Math.min(...selected.map((c) => c.start));
           addClips(copiesOf(doc, selected, span), selected.length === 1 ? "Duplicate clip" : `Duplicate ${selected.length} clips`);
         } else if (key === "v" && clipboard.length) {
-          // Pasted at the playhead, keeping their spacing and tracks.
+          // Pasted at the playhead, keeping their spacing and rows.
           const first = Math.min(...clipboard.map((c) => c.start));
           const at = useEngine.getState().transport.position;
           const clips = copiesOf(doc, clipboard, at - first);

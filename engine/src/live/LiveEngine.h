@@ -111,7 +111,7 @@ public:
     {
         std::string input;      // input device name, from getInputNames()
         model::Id insert;       // where the input is heard and the clip will play
-        model::Lane track = 0;  // playlist track for the new clip
+        model::Row row = 0;     // arrangement row for the new clip
     };
 
     std::vector<std::string> getInputNames() const;

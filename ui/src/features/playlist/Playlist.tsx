@@ -5,7 +5,7 @@ import { Button, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
 import { fitSpeed } from "@/lib/fit";
-import { audioSource, baseName, colorFor, laneCount, patternLength, snapTicks, songEnd, ticksPerBar, ticksPerBeat, uniqueId } from "@/lib/model";
+import { audioSource, baseName, colorFor, rowCount, patternLength, snapTicks, songEnd, ticksPerBar, ticksPerBeat, uniqueId } from "@/lib/model";
 import { getPeaks } from "@/lib/peaks";
 import { execute, reportError, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
@@ -14,31 +14,41 @@ import { HEADER_W, RULER_H, droppedSample, isSampleDrag, type DraggedSample, typ
 import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
-import { TrackHeader } from "./TrackHeader";
+import { RowHeader } from "./RowHeader";
 
 interface DragState {
   mode: "move" | "copy" | "resize" | "trim";
   ids: string[];
   dTicks: number;
-  dTracks: number;
+  dRows: number;
 }
 
 interface Rubber {
   x0: number; y0: number; x1: number; y1: number;
 }
 
+/** Rows selected by their headers (a run, from the first to the last), and a drag moving them. */
+interface RowRange {
+  from: number;
+  to: number;
+}
+
 export function Playlist() {
   const doc = useEngine((s) => s.doc)!;
-  const { playlistZoom, trackHeight, snap, selectedClips } = useUi();
+  const { playlistZoom, rowHeight, snap, selectedClips } = useUi();
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [viewWidth, setViewWidth] = useState(1200);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [rubber, setRubber] = useState<Rubber | null>(null);
+  const [rows, setRows] = useState<RowRange | null>(null);
+  const [rowDrag, setRowDrag] = useState<number | null>(null);
+  const rowAnchor = useRef(0);
+  const clipAnchor = useRef<string | null>(null);
 
   const g: Geometry = {
     pxPerTick: playlistZoom / 960,
-    trackHeight,
+    rowHeight,
     snap: snapTicks(snap, doc),
     bar: ticksPerBar(doc),
     beat: ticksPerBeat(doc),
@@ -48,8 +58,8 @@ export function Playlist() {
   const playedTo = useEngine((s) => Math.floor(s.transport.position / (8 * g.bar)) + 1) * 8 * g.bar;
   const endTicks = Math.max(songEnd(doc) + 16 * g.bar, playedTo + 8 * g.bar, Math.ceil(viewWidth / g.pxPerTick / g.bar + 4) * g.bar);
   const width = endTicks * g.pxPerTick;
-  // Tracks are numbered lanes: every one in use, and spare ones below to drop onto.
-  const count = laneCount(doc) + (drag?.dTracks && drag.dTracks > 0 ? drag.dTracks : 0);
+  // Rows are numbered: every one in use, and spare ones below to drop onto.
+  const count = rowCount(doc) + (drag?.dRows && drag.dRows > 0 ? drag.dRows : 0);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -63,40 +73,79 @@ export function Playlist() {
 
   // What each lane shows, with the drag in progress applied.
   const lanes = useMemo(() => {
-    const byTrack: { clip: Clip; start: number; length: number; ghost?: boolean }[][] = Array.from({ length: count }, () => []);
-    const clampTrack = (i: number) => Math.min(count - 1, Math.max(0, i));
+    const byRow: { clip: Clip; start: number; length: number; ghost?: boolean }[][] = Array.from({ length: count }, () => []);
+    const clampRow = (i: number) => Math.min(count - 1, Math.max(0, i));
 
     for (const clip of doc.playlist.clips) {
-      const index = clampTrack(clip.track);
+      const index = clampRow(clip.row);
       const dragged = drag?.ids.includes(clip.id) ? drag : null;
 
       if (!dragged) {
-        byTrack[index].push({ clip, start: clip.start, length: clip.length });
+        byRow[index].push({ clip, start: clip.start, length: clip.length });
       } else if (dragged.mode === "move" || dragged.mode === "copy") {
-        if (dragged.mode === "copy") byTrack[index].push({ clip, start: clip.start, length: clip.length });
-        byTrack[clampTrack(index + dragged.dTracks)].push({ clip, start: clip.start + dragged.dTicks, length: clip.length, ghost: dragged.mode === "copy" });
+        if (dragged.mode === "copy") byRow[index].push({ clip, start: clip.start, length: clip.length });
+        byRow[clampRow(index + dragged.dRows)].push({ clip, start: clip.start + dragged.dTicks, length: clip.length, ghost: dragged.mode === "copy" });
       } else if (dragged.mode === "resize") {
-        byTrack[index].push({ clip, start: clip.start, length: clip.length + dragged.dTicks });
+        byRow[index].push({ clip, start: clip.start, length: clip.length + dragged.dTicks });
       } else {
-        byTrack[index].push({ clip, start: clip.start + dragged.dTicks, length: clip.length - dragged.dTicks });
+        byRow[index].push({ clip, start: clip.start + dragged.dTicks, length: clip.length - dragged.dTicks });
       }
     }
-    return byTrack;
+    return byRow;
   }, [doc.playlist.clips, count, drag]);
+
+  // Pressing a row's header selects it (Shift: the rows from the last one pressed); dragging moves
+  // the selected rows, with their clips, names, mute and solo, so nothing sounds different.
+  const beginRowDrag = (e: React.PointerEvent, index: number) => {
+    let range: RowRange;
+    if (e.shiftKey && rows) range = { from: Math.min(rowAnchor.current, index), to: Math.max(rowAnchor.current, index) };
+    else if (rows && index >= rows.from && index <= rows.to) range = rows;
+    else {
+      range = { from: index, to: index };
+      rowAnchor.current = index;
+    }
+    setRows(range);
+    setUi({ selectedClips: [] });
+    let dRows = 0;
+
+    startDrag(e, (_dx, dy) => {
+      dRows = Math.max(-range.from, Math.round(dy / g.rowHeight));
+      setRowDrag(dRows);
+    }, (_dx, _dy, _ev, moved) => {
+      setRowDrag(null);
+      if (!moved || dRows === 0) return;
+      const count = range.to - range.from + 1;
+      void execute({ type: "moveRows", row: range.from, count, to: range.from + dRows },
+        { label: count === 1 ? "Move row" : `Move ${count} rows` });
+      setRows({ from: range.from + dRows, to: range.to + dRows });
+      rowAnchor.current += dRows;
+    }, "grabbing");
+  };
 
   const beginClipDrag = (e: React.PointerEvent, clip: Clip, edge: "left" | "right" | "body") => {
     e.stopPropagation();
+    setRows(null);
     const current = useUi.getState().selectedClips;
-    const selection = current.includes(clip.id) ? current : e.shiftKey ? [...current, clip.id] : [clip.id];
+    // Shift: everything in the row from the clip pressed last to this one; across rows, just this one.
+    const anchor = e.shiftKey ? doc.playlist.clips.find((c) => c.id === clipAnchor.current) : undefined;
+    let selection: string[];
+    if (anchor && anchor.row === clip.row && anchor.id !== clip.id) {
+      const [a, b] = [Math.min(anchor.start, clip.start), Math.max(anchor.start, clip.start)];
+      const between = doc.playlist.clips.filter((c) => c.row === clip.row && c.start >= a && c.start <= b).map((c) => c.id);
+      selection = [...new Set([...current, ...between])];
+    } else {
+      selection = current.includes(clip.id) ? current : e.shiftKey ? [...current, clip.id] : [clip.id];
+    }
+    if (!e.shiftKey || !anchor) clipAnchor.current = clip.id;
     setUi({ selectedClips: selection });
 
     const mode: DragState["mode"] = edge === "right" ? "resize" : edge === "left" ? "trim" : e.altKey ? "copy" : "move";
     const ids = edge === "body" ? selection : [clip.id];
     const moving = doc.playlist.clips.filter((c) => ids.includes(c.id));
     const earliest = Math.min(...moving.map((c) => c.start));
-    const topmost = Math.min(...moving.map((c) => c.track));
+    const topmost = Math.min(...moving.map((c) => c.row));
     const minStep = Math.min(g.snap, g.beat);
-    let state: DragState = { mode, ids, dTicks: 0, dTracks: 0 };
+    let state: DragState = { mode, ids, dTicks: 0, dRows: 0 };
 
     startDrag(e, (dx, dy) => {
       const t = dx / g.pxPerTick;
@@ -111,7 +160,7 @@ export function Playlist() {
         if (clip.type === "audio") dTicks = Math.max(dTicks, -secondsToTicks((clip.offset ?? 0), clip, doc));
       }
 
-      state = { mode, ids, dTicks, dTracks: mode === "move" || mode === "copy" ? Math.max(-topmost, Math.round(dy / g.trackHeight)) : 0 };
+      state = { mode, ids, dTicks, dRows: mode === "move" || mode === "copy" ? Math.max(-topmost, Math.round(dy / g.rowHeight)) : 0 };
       setDrag(state);
     }, (_dx, _dy, _ev, moved) => {
       setDrag(null);
@@ -122,6 +171,7 @@ export function Playlist() {
   const beginEmptyDrag = (e: React.PointerEvent, laneIndex: number) => {
     // Only presses on the lane itself, not ones bubbling up from a menu or dialog it owns.
     if (e.button !== 0 || !e.currentTarget.contains(e.target as Node)) return;
+    setRows(null);
     const box = content.current!.getBoundingClientRect();
     const x0 = e.clientX - box.left - HEADER_W;
     const y0 = e.clientY - box.top - RULER_H;
@@ -141,8 +191,8 @@ export function Playlist() {
       const [xa, xb] = [Math.min(r.x0, r.x1), Math.max(r.x0, r.x1)];
       const [ya, yb] = [Math.min(r.y0, r.y1), Math.max(r.y0, r.y1)];
       const hits = doc.playlist.clips.filter((c) => {
-        const top = c.track * g.trackHeight;
-        return c.start * g.pxPerTick < xb && (c.start + c.length) * g.pxPerTick > xa && top < yb && top + g.trackHeight > ya;
+        const top = c.row * g.rowHeight;
+        return c.start * g.pxPerTick < xb && (c.start + c.length) * g.pxPerTick > xa && top < yb && top + g.rowHeight > ya;
       }).map((c) => c.id);
       setUi({ selectedClips: ev.shiftKey ? [...new Set([...useUi.getState().selectedClips, ...hits])] : hits });
     }, "crosshair");
@@ -150,7 +200,7 @@ export function Playlist() {
 
   const gridStyle: React.CSSProperties = {
     width,
-    height: g.trackHeight,
+    height: g.rowHeight,
     backgroundImage: [
       "linear-gradient(to right, var(--color-grid-strong) 1px, transparent 1px)",
       g.beat * g.pxPerTick >= 6 ? "linear-gradient(to right, var(--color-grid) 1px, transparent 1px)" : "",
@@ -172,7 +222,8 @@ export function Playlist() {
 
           {lanes.map((laneClips, i) => (
             <div key={i} className="flex">
-              <TrackHeader track={doc.playlist.tracks[i] ?? {}} index={i} doc={doc} height={g.trackHeight} />
+              <RowHeader row={doc.playlist.rows[i] ?? {}} index={i} doc={doc} height={g.rowHeight}
+                selected={!!rows && i >= rows.from && i <= rows.to} onPress={beginRowDrag} />
               <div
                 className="relative border-b border-grid-strong"
                 style={gridStyle}
@@ -205,7 +256,7 @@ export function Playlist() {
                   <ClipView
                     key={clip.id + (ghost ? "-ghost" : "")}
                     clip={clip} doc={doc} ghost={ghost}
-                    left={start * g.pxPerTick} width={length * g.pxPerTick} height={g.trackHeight - 2}
+                    left={start * g.pxPerTick} width={length * g.pxPerTick} height={g.rowHeight - 2}
                     selected={selectedClips.includes(clip.id)}
                     pxPerTick={g.pxPerTick} snap={g.snap}
                     onPointerDown={beginClipDrag}
@@ -215,10 +266,17 @@ export function Playlist() {
             </div>
           ))}
 
-          {/* Room below the last track, so it never sits on the window's edge. */}
-          <div className="flex" style={{ height: 3 * g.trackHeight }}>
+          {/* Room below the last row, so it never sits on the window's edge. */}
+          <div className="flex" style={{ height: 3 * g.rowHeight }}>
             <div className="sticky left-0 z-10 shrink-0 border-r border-line bg-panel" style={{ width: HEADER_W }} />
           </div>
+
+          {rows && rowDrag !== null && (
+            <div
+              className="pointer-events-none absolute z-30 rounded-[3px] border-2 border-accent bg-accent/10"
+              style={{ left: 0, right: 0, top: RULER_H + (rows.from + rowDrag) * g.rowHeight, height: (rows.to - rows.from + 1) * g.rowHeight }}
+            />
+          )}
 
           {rubber && (
             <div
@@ -238,7 +296,7 @@ export function Playlist() {
 
 //==============================================================================
 function PlaylistToolbar({ doc }: { doc: Project }) {
-  const { selectedPattern, playlistZoom, trackHeight, followPlayhead } = useUi();
+  const { selectedPattern, playlistZoom, rowHeight, followPlayhead } = useUi();
   const pattern = doc.patterns.find((p) => p.id === selectedPattern);
 
   return (
@@ -266,8 +324,8 @@ function PlaylistToolbar({ doc }: { doc: Project }) {
       <IconButton size="sm" title="Follow the playhead" active={followPlayhead} onClick={() => setUi({ followPlayhead: !followPlayhead })}>
         <ScrollText size={13} />
       </IconButton>
-      <Button size="sm" title="Track height" onClick={() => setUi({ trackHeight: trackHeight >= 72 ? 32 : trackHeight + 20 })}>
-        {trackHeight <= 32 ? "S" : trackHeight <= 52 ? "M" : "L"}
+      <Button size="sm" title="Row height" onClick={() => setUi({ rowHeight: rowHeight >= 72 ? 32 : rowHeight + 20 })}>
+        {rowHeight <= 32 ? "S" : rowHeight <= 52 ? "M" : "L"}
       </Button>
       <div className="flex items-center">
         <IconButton size="sm" title="Zoom out (⌘ scroll)" onClick={() => setUi({ playlistZoom: Math.max(2, playlistZoom / 1.4) })}><Minus size={12} /></IconButton>
@@ -308,20 +366,20 @@ async function commitDrag(state: DragState, doc: Project) {
   const clips = doc.playlist.clips.filter((c) => state.ids.includes(c.id));
   const n = clips.length;
   const what = n === 1 ? "clip" : `${n} clips`;
-  const trackAfter = (c: Clip) => Math.min(999, Math.max(0, c.track + state.dTracks));
+  const rowAfter = (c: Clip) => Math.min(999, Math.max(0, c.row + state.dRows));
 
   if (state.mode === "move") {
-    if (state.dTicks === 0 && state.dTracks === 0) return;
+    if (state.dTicks === 0 && state.dRows === 0) return;
     await execute(clips.map((c) => ({
       type: "updateClip" as const, clip: c.id,
-      changes: { start: c.start + state.dTicks, ...(state.dTracks ? { track: trackAfter(c) } : {}) },
+      changes: { start: c.start + state.dTicks, ...(state.dRows ? { row: rowAfter(c) } : {}) },
     })), { label: `Move ${what}` });
   } else if (state.mode === "copy") {
     const taken = new Set(doc.playlist.clips.map((c) => c.id));
     const copies = clips.map((c) => {
       const id = uniqueId(c.id.replace(/-\d+$/, ""), taken);
       taken.add(id);
-      return { ...c, id, start: c.start + state.dTicks, track: trackAfter(c) };
+      return { ...c, id, start: c.start + state.dTicks, row: rowAfter(c) };
     });
     await execute(copies.map((clip) => ({ type: "addClip" as const, clip })), { label: `Copy ${what}` });
     setUi({ selectedClips: copies.map((c) => c.id) });
@@ -342,7 +400,7 @@ async function commitDrag(state: DragState, doc: Project) {
   }
 }
 
-function placePattern(doc: Project, track: number, start: number) {
+function placePattern(doc: Project, row: number, start: number) {
   const { selectedPattern } = useUi.getState();
   const pattern = doc.patterns.find((p) => p.id === selectedPattern);
   setUi({ selectedClips: [] });
@@ -352,13 +410,13 @@ function placePattern(doc: Project, track: number, start: number) {
     return;
   }
 
-  const clip: PatternClip = { type: "pattern", id: uniqueId(pattern.id, doc.playlist.clips), track, start, length: patternLength(pattern, doc), pattern: pattern.id };
+  const clip: PatternClip = { type: "pattern", id: uniqueId(pattern.id, doc.playlist.clips), row, start, length: patternLength(pattern, doc), pattern: pattern.id };
   void execute({ type: "addClip", clip }, { label: `Place ${pattern.name ?? pattern.id}` });
 }
 
 /** A sample dropped onto the playlist becomes a clip of a sampler channel listed with the
     arrangement's: one that already plays the whole file as it is, or a new one. */
-async function dropSample(doc: Project, sample: DraggedSample, track: number, start: number) {
+async function dropSample(doc: Project, sample: DraggedSample, row: number, start: number) {
   try {
     const duration = sample.durationSeconds ?? (await getPeaks(sample.path)).durationSeconds;
     // Loops fit the song as set (by their own tempo, so they fill as many bars as they're long).
@@ -377,7 +435,7 @@ async function dropSample(doc: Project, sample: DraggedSample, track: number, st
       group: "arrangement",
       instrument: { type: "sampler", layers: [{ id: "sample", sample: sample.path, ...(loopTempo ? { sourceTempo: loopTempo } : {}), ...(resample ? { resample } : {}) }] },
     };
-    const clip: AudioClip = { type: "audio", id: uniqueId(baseName(sample.path), doc.playlist.clips), track, start, length, channel: channel.id };
+    const clip: AudioClip = { type: "audio", id: uniqueId(baseName(sample.path), doc.playlist.clips), row, start, length, channel: channel.id };
     await execute([...(existing ? [] : [{ type: "addChannel" as const, channel }]), { type: "addClip", clip }], { label: `Add ${baseName(sample.path)}` });
     setUi({ selectedClips: [clip.id] });
     return clip;

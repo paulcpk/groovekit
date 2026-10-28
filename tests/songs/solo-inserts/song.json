@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Insert solo",
   "tempo": 120,
   "channels": [
@@ -34,11 +34,11 @@
     { "id": "kick", "notes": [{ "channel": "kick", "start": 0, "length": 240, "velocity": 127 }] }
   ],
   "playlist": {
-    "tracks": [],
+    "rows": [],
     "clips": [
-      { "type": "pattern", "id": "soloedInsert", "track": 0, "start": 0, "length": 960, "pattern": "drums" },
-      { "type": "pattern", "id": "otherInsert", "track": 0, "start": 960, "length": 960, "pattern": "other" },
-      { "type": "pattern", "id": "feedsSoloedInsert", "track": 0, "start": 1920, "length": 960, "pattern": "kick" }
+      { "type": "pattern", "id": "soloedInsert", "row": 0, "start": 0, "length": 960, "pattern": "drums" },
+      { "type": "pattern", "id": "otherInsert", "row": 0, "start": 960, "length": 960, "pattern": "other" },
+      { "type": "pattern", "id": "feedsSoloedInsert", "row": 0, "start": 1920, "length": 960, "pattern": "kick" }
     ]
   },
   "mixer": {

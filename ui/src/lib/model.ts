@@ -134,17 +134,17 @@ export function audioSource(doc: Project, clip: AudioClip) {
   };
 }
 
-/** The number of playlist tracks to show: every one in use or set up, a screenful at least,
+/** The number of arrangement rows to show: every one in use or set up, a screenful at least,
     and a few spare below. */
-export function laneCount(doc: Project) {
-  const used = Math.max(doc.playlist.tracks.length, ...doc.playlist.clips.map((c) => c.track + 1));
+export function rowCount(doc: Project) {
+  const used = Math.max(doc.playlist.rows.length, ...doc.playlist.clips.map((c) => c.row + 1));
   return Math.max(16, used + 4);
 }
 
-/** The first track from `from` with no clips. */
-export function firstEmptyLane(doc: Project, from = 0) {
-  const used = new Set(doc.playlist.clips.map((c) => c.track));
-  let lane = from;
-  while (used.has(lane)) lane++;
-  return lane;
+/** The first row from `from` with no clips. */
+export function firstEmptyRow(doc: Project, from = 0) {
+  const used = new Set(doc.playlist.clips.map((c) => c.row));
+  let row = from;
+  while (used.has(row)) row++;
+  return row;
 }

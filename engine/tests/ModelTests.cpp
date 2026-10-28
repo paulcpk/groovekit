@@ -11,7 +11,7 @@ namespace
     Json minimalProject()
     {
         return Json::parse (R"({
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "tempo": 120,
             "channels": [
                 { "id": "kick", "instrument": { "type": "sampler", "layers": [ { "id": "a", "sample": "kick.wav" } ] } }
@@ -20,8 +20,8 @@ namespace
                 { "id": "beat", "notes": [ { "channel": "kick", "start": 0, "length": 240 } ] }
             ],
             "playlist": {
-                "tracks": [],
-                "clips": [ { "type": "pattern", "id": "c1", "track": 0, "start": 0, "length": 3840, "pattern": "beat" } ]
+                "rows": [],
+                "clips": [ { "type": "pattern", "id": "c1", "row": 0, "start": 0, "length": 3840, "pattern": "beat" } ]
             },
             "mixer": { "inserts": [ { "id": "master" } ] }
         })");
@@ -136,7 +136,7 @@ TEST_CASE ("Schema errors report a JSON pointer")
 
     SECTION ("wrong schema version")
     {
-        j["schemaVersion"] = 5;
+        j["schemaVersion"] = 6;
         CHECK (readErrorPath (j) == "/schemaVersion");
     }
 }
@@ -201,7 +201,7 @@ TEST_CASE ("Automation targets are checked")
 {
     auto j = minimalProject();
     j["playlist"]["clips"].push_back (Json::parse (R"({
-        "type": "automation", "id": "a1", "track": 0, "start": 0, "length": 960,
+        "type": "automation", "id": "a1", "row": 0, "start": 0, "length": 960,
         "target": { "scope": "channel", "channel": "kick", "param": "cutoff" },
         "points": [ { "time": 0, "value": 0 } ]
     })"));
@@ -235,7 +235,7 @@ TEST_CASE ("Songs from schema 1 get channels for their audio clips")
     clips.push_back ({ { "type", "audio" }, { "id", "a3" }, { "track", "t1" }, { "start", 1920 }, { "length", 960 }, { "sample", "loops/Drum Loop.wav" }, { "reverse", true } });
 
     CHECK (migrateProject (j));
-    CHECK (j["schemaVersion"] == 4);
+    CHECK (j["schemaVersion"] == 5);
     CHECK_FALSE (migrateProject (j));
 
     auto project = parseProject (j);
@@ -277,11 +277,11 @@ TEST_CASE ("Schema 2 tracks become numbered lanes, and how they and their clips 
     auto project = parseProject (j);
     CHECK (issuePaths (project).empty());
 
-    REQUIRE (project.playlist.tracks.size() == 2);
-    CHECK (project.playlist.tracks[0].name == "Beat");
-    CHECK (project.playlist.tracks[1].mute);
-    CHECK (getClipTrack (project.playlist.clips[0]) == 0);
-    CHECK (getClipTrack (project.playlist.clips[1]) == 1);
+    REQUIRE (project.playlist.rows.size() == 2);
+    CHECK (project.playlist.rows[0].name == "Beat");
+    CHECK (project.playlist.rows[1].mute);
+    CHECK (getClipRow (project.playlist.clips[0]) == 0);
+    CHECK (getClipRow (project.playlist.clips[1]) == 1);
 
     // The audio channel is a sampler whose first layer holds the file and its settings.
     auto& loop = *findChannel (project, "loop");
@@ -305,7 +305,7 @@ TEST_CASE ("Schema 2 tracks become numbered lanes, and how they and their clips 
 
     auto& followed = std::get<AutomationClip> (project.playlist.clips.back());
     CHECK (followed.target.channel == "loop-2");
-    CHECK (followed.track == 0);
+    CHECK (followed.row == 0);
 }
 
 TEST_CASE ("Audio clips play a sampler's first layer")
@@ -313,9 +313,9 @@ TEST_CASE ("Audio clips play a sampler's first layer")
     auto j = minimalProject();
     j["channels"].push_back (Json::parse (R"({ "id": "synth", "instrument": { "type": "plugin", "plugin": { "format": "VST3", "uid": "x", "name": "Synth" } } })"));
     j["channels"].push_back (Json::parse (R"({ "id": "empty", "instrument": { "type": "sampler", "layers": [] } })"));
-    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "a", "track": 2, "start": 0, "length": 960, "channel": "kick" })"));
-    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "b", "track": 2, "start": 0, "length": 960, "channel": "synth" })"));
-    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "c", "track": 2, "start": 0, "length": 960, "channel": "empty" })"));
+    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "a", "row": 2, "start": 0, "length": 960, "channel": "kick" })"));
+    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "b", "row": 2, "start": 0, "length": 960, "channel": "synth" })"));
+    j["playlist"]["clips"].push_back (Json::parse (R"({ "type": "audio", "id": "c", "row": 2, "start": 0, "length": 960, "channel": "empty" })"));
 
     CHECK (issuePaths (parseProject (j)) == std::vector<std::string> { "/playlist/clips/2/channel", "/playlist/clips/3/channel" });
 }
@@ -378,7 +378,7 @@ TEST_CASE ("Songs from schema 3 follow the keys played where they sound the same
     notes.push_back ({ { "channel", "pad" }, { "start", 0 }, { "length", 960 }, { "key", 55 } });
 
     CHECK (migrateProject (j));
-    CHECK (j["schemaVersion"] == 4);
+    CHECK (j["schemaVersion"] == 5);
     const auto layer = [&] (int channel) { return j["channels"][static_cast<size_t> (channel)]["instrument"]["layers"][0]; };
 
     // The kick's notes are on C4 (the default key): it now plays on C4 at its own pitch.
@@ -393,4 +393,25 @@ TEST_CASE ("Songs from schema 3 follow the keys played where they sound the same
 
     CHECK (issuePaths (parseProject (j)).empty());
     CHECK_FALSE (migrateProject (j));
+}
+
+TEST_CASE ("Schema 4 lanes become rows")
+{
+    auto j = minimalProject();
+    j["schemaVersion"] = 4;
+    j["playlist"].erase ("rows");
+    j["playlist"]["tracks"] = Json::parse (R"([ {}, { "name": "Drums", "mute": true } ])");
+    j["playlist"]["clips"][0].erase ("row");
+    j["playlist"]["clips"][0]["track"] = 1;
+
+    CHECK (migrateProject (j));
+    CHECK (j["schemaVersion"] == 5);
+    CHECK_FALSE (j["playlist"].contains ("tracks"));
+    CHECK (j["playlist"]["rows"][1]["name"] == "Drums");
+    CHECK (j["playlist"]["clips"][0]["row"] == 1);
+    CHECK_FALSE (j["playlist"]["clips"][0].contains ("track"));
+
+    auto project = parseProject (j);
+    CHECK (getClipRow (project.playlist.clips[0]) == 1);
+    CHECK (findRow (project, 1)->mute);
 }

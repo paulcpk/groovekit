@@ -23,8 +23,8 @@ Ticks getSongEnd (const Project&);
 //==============================================================================
 /** Brings a song document written by an older GrooveKit up to the current schema, in place:
     tracks become numbered lanes, audio clips play sampler channels that hold their file,
-    settings and routing, and sampler layers follow the keys played where the song sounds the same
-    (4). Returns whether it changed anything. Safe to run on any document. */
+    settings and routing, sampler layers follow the keys played where the song sounds the same (4),
+    and the lanes are rows (5). Returns whether it changed anything. Safe to run on any document. */
 bool migrateProject (Json&);
 
 /** Parses and schema-checks a document. Throws ReadError. */
@@ -53,11 +53,11 @@ void validateOrThrow (const Project&);
 const Channel* findChannel (const Project&, const Id&);
 const Pattern* findPattern (const Project&, const Id&);
 /** A track's settings, or nullptr for a track that has the defaults. */
-const PlaylistTrack* findTrack (const Project&, Lane);
+const PlaylistRow* findRow (const Project&, Row);
 const Insert* findInsert (const Project&, const Id&);
 
 const Id& getClipId (const Clip&);
-Lane getClipTrack (const Clip&);
+Row getClipRow (const Clip&);
 Ticks getClipStart (const Clip&);
 TickLength getClipLength (const Clip&);
 bool isClipMuted (const Clip&);

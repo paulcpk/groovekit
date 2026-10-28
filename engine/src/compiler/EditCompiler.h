@@ -22,7 +22,7 @@ namespace gk
       (a sampler only when it might play notes)
     - each pattern clip becomes one MIDI clip per channel that has notes in the pattern,
       with the pattern repeated to fill the clip
-    - a channel's audio clips go on one hidden track per playlist track they're on, holding
+    - a channel's audio clips go on one hidden track per arrangement row they're in, holding
       the first layer's gain, pan and envelope, the channel's filter and a copy of the
       channel's fader, feeding the channel's insert
     - automation clips become automation curves on the targeted parameters

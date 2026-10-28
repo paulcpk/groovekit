@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Swing",
   "tempo": 120,
   "swing": 0.5,
@@ -22,6 +22,6 @@
       ]
     }
   ],
-  "playlist": { "tracks": [], "clips": [{ "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 3840, "pattern": "p" }] },
+  "playlist": { "rows": [], "clips": [{ "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 3840, "pattern": "p" }] },
   "mixer": { "inserts": [{ "id": "master" }] }
 }

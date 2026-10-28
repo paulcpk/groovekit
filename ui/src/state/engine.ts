@@ -35,7 +35,7 @@ export interface ChangeEvent {
   origin: string;
   label: string;
   time: number;
-  /** Ids of the channels, patterns, tracks, clips and inserts it touched. */
+  /** Ids of the channels, patterns, rows, clips and inserts it touched. */
   touched: string[];
 }
 
@@ -79,7 +79,7 @@ const set = useEngine.setState;
 const get = useEngine.getState;
 
 /** The ids a change touched: the element each op's path leads into, looked up in the newer
-    document. Playlist tracks have numbers, not ids: they show up as "track:<number>". */
+    document. Arrangement rows have numbers, not ids: they show up as "row:<number>". */
 function touchedIds(before: Project | undefined, after: Project, ops: PatchOp[]): string[] {
   const ids = new Set<string>();
   const collections: Record<string, (doc: Project) => { id: string }[] | undefined> = {
@@ -93,7 +93,7 @@ function touchedIds(before: Project | undefined, after: Project, ops: PatchOp[])
     const keys = parsePointer(op.path);
     const name = keys[0] === "playlist" || keys[0] === "mixer" ? `${keys[0]}/${keys[1]}` : keys[0];
     const index = Number(keys[name.includes("/") ? 2 : 1]);
-    if (name === "playlist/tracks" && !Number.isNaN(index)) ids.add(`track:${index}`);
+    if (name === "playlist/rows" && !Number.isNaN(index)) ids.add(`row:${index}`);
     const list = collections[name];
     if (!list || Number.isNaN(index)) continue;
 

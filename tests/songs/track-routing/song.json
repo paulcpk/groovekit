@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Track routing",
   "tempo": 120,
   "channels": [
@@ -29,11 +29,11 @@
   ],
   "patterns": [{ "id": "p", "notes": [{ "channel": "beep", "start": 0, "length": 240, "velocity": 127 }] }],
   "playlist": {
-    "tracks": [],
+    "rows": [],
     "clips": [
-      { "type": "audio", "id": "toBus", "track": 0, "start": 0, "length": 480, "channel": "beep-2" },
-      { "type": "audio", "id": "turnedDown", "track": 1, "start": 1920, "length": 480, "channel": "beep-2-2" },
-      { "type": "pattern", "id": "throughChannel", "track": 0, "start": 3840, "length": 960, "pattern": "p" }
+      { "type": "audio", "id": "toBus", "row": 0, "start": 0, "length": 480, "channel": "beep-2" },
+      { "type": "audio", "id": "turnedDown", "row": 1, "start": 1920, "length": 480, "channel": "beep-2-2" },
+      { "type": "pattern", "id": "throughChannel", "row": 0, "start": 3840, "length": 960, "pattern": "p" }
     ]
   },
   "mixer": { "inserts": [{ "id": "master" }, { "id": "bus", "volumeDb": -6 }] }

@@ -563,78 +563,108 @@ inline Json toJson (const SetNotes& v)
     return j;
 }
 
-/** Inserts an empty track at this number: it and the tracks below move down one, with their clips. */
-struct InsertTrack
+/** Inserts an empty row at this number: it and the rows below move down one, with their clips. */
+struct InsertRow
 {
-    Lane track {};
+    Row row {};
 
-    bool operator== (const InsertTrack&) const = default;
+    bool operator== (const InsertRow&) const = default;
 };
 
-inline void readValue (Reader& r, const Json& j, InsertTrack& out)
+inline void readValue (Reader& r, const Json& j, InsertRow& out)
 {
-    r.expectObject (j, { "type", "track" });
+    r.expectObject (j, { "type", "row" });
 
-    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "insertTrack"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "insertRow"); });
+    r.required (j, "row", [&] (const Json& v) { readValue (r, v, out.row); r.checkMin (out.row, 0); r.checkMax (out.row, 999); });
 }
 
-inline Json toJson (const InsertTrack& v)
+inline Json toJson (const InsertRow& v)
 {
     auto j = Json::object();
-    j["type"] = "insertTrack";
-    j["track"] = toJson (v.track);
+    j["type"] = "insertRow";
+    j["row"] = toJson (v.row);
     return j;
 }
 
-/** Names, colours, mutes or solos a track. Any track number works; tracks need no adding first. */
-struct UpdateTrack
+/** Names, colours, mutes or solos a row. Any row number works; rows need no adding first. */
+struct UpdateRow
 {
-    Lane track {};
+    Row row {};
     Changes changes;
 
-    bool operator== (const UpdateTrack&) const = default;
+    bool operator== (const UpdateRow&) const = default;
 };
 
-inline void readValue (Reader& r, const Json& j, UpdateTrack& out)
+inline void readValue (Reader& r, const Json& j, UpdateRow& out)
 {
-    r.expectObject (j, { "type", "track", "changes" });
+    r.expectObject (j, { "type", "row", "changes" });
 
-    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "updateTrack"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "updateRow"); });
+    r.required (j, "row", [&] (const Json& v) { readValue (r, v, out.row); r.checkMin (out.row, 0); r.checkMax (out.row, 999); });
     r.required (j, "changes", [&] (const Json& v) { readValue (r, v, out.changes); });
 }
 
-inline Json toJson (const UpdateTrack& v)
+inline Json toJson (const UpdateRow& v)
 {
     auto j = Json::object();
-    j["type"] = "updateTrack";
-    j["track"] = toJson (v.track);
+    j["type"] = "updateRow";
+    j["row"] = toJson (v.row);
     j["changes"] = toJson (v.changes);
     return j;
 }
 
-/** Removes the track's clips and settings; the tracks below move up one. */
-struct RemoveTrack
+/** Removes the row's clips and settings; the rows below move up one. */
+struct RemoveRow
 {
-    Lane track {};
+    Row row {};
 
-    bool operator== (const RemoveTrack&) const = default;
+    bool operator== (const RemoveRow&) const = default;
 };
 
-inline void readValue (Reader& r, const Json& j, RemoveTrack& out)
+inline void readValue (Reader& r, const Json& j, RemoveRow& out)
 {
-    r.expectObject (j, { "type", "track" });
+    r.expectObject (j, { "type", "row" });
 
-    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "removeTrack"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "removeRow"); });
+    r.required (j, "row", [&] (const Json& v) { readValue (r, v, out.row); r.checkMin (out.row, 0); r.checkMax (out.row, 999); });
 }
 
-inline Json toJson (const RemoveTrack& v)
+inline Json toJson (const RemoveRow& v)
 {
     auto j = Json::object();
-    j["type"] = "removeTrack";
-    j["track"] = toJson (v.track);
+    j["type"] = "removeRow";
+    j["row"] = toJson (v.row);
+    return j;
+}
+
+/** Moves count rows starting at row, with their names, colours, mute and solo and their clips, so the first of them lands at to; the rows in between shift to make room. Nothing changes how anything sounds. */
+struct MoveRows
+{
+    Row row {};
+    int count = 1;
+    Row to {};
+
+    bool operator== (const MoveRows&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, MoveRows& out)
+{
+    r.expectObject (j, { "type", "row", "count", "to" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "moveRows"); });
+    r.required (j, "row", [&] (const Json& v) { readValue (r, v, out.row); r.checkMin (out.row, 0); r.checkMax (out.row, 999); });
+    r.optional (j, "count", [&] (const Json& v) { readValue (r, v, out.count); r.checkMin (out.count, 1); r.checkMax (out.count, 1000); });
+    r.required (j, "to", [&] (const Json& v) { readValue (r, v, out.to); r.checkMin (out.to, 0); r.checkMax (out.to, 999); });
+}
+
+inline Json toJson (const MoveRows& v)
+{
+    auto j = Json::object();
+    j["type"] = "moveRows";
+    j["row"] = toJson (v.row);
+    j["count"] = toJson (v.count);
+    j["to"] = toJson (v.to);
     return j;
 }
 
@@ -1044,7 +1074,7 @@ inline Json toJson (const Patch& v)
     return j;
 }
 
-using Command = std::variant<SetTempo, SetKey, SetStyle, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
+using Command = std::variant<SetTempo, SetKey, SetStyle, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertRow, UpdateRow, RemoveRow, MoveRows, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
 
 inline void readValue (Reader& r, const Json& j, Command& out)
 {
@@ -1073,9 +1103,10 @@ inline void readValue (Reader& r, const Json& j, Command& out)
     if (tag == "addNotes") { readValue (r, j, out.emplace<AddNotes>()); return; }
     if (tag == "removeNotes") { readValue (r, j, out.emplace<RemoveNotes>()); return; }
     if (tag == "setNotes") { readValue (r, j, out.emplace<SetNotes>()); return; }
-    if (tag == "insertTrack") { readValue (r, j, out.emplace<InsertTrack>()); return; }
-    if (tag == "updateTrack") { readValue (r, j, out.emplace<UpdateTrack>()); return; }
-    if (tag == "removeTrack") { readValue (r, j, out.emplace<RemoveTrack>()); return; }
+    if (tag == "insertRow") { readValue (r, j, out.emplace<InsertRow>()); return; }
+    if (tag == "updateRow") { readValue (r, j, out.emplace<UpdateRow>()); return; }
+    if (tag == "removeRow") { readValue (r, j, out.emplace<RemoveRow>()); return; }
+    if (tag == "moveRows") { readValue (r, j, out.emplace<MoveRows>()); return; }
     if (tag == "addClip") { readValue (r, j, out.emplace<AddClip>()); return; }
     if (tag == "updateClip") { readValue (r, j, out.emplace<UpdateClip>()); return; }
     if (tag == "removeClip") { readValue (r, j, out.emplace<RemoveClip>()); return; }

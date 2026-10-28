@@ -521,6 +521,32 @@ namespace
     }
 }
 
+namespace
+{
+    /** 5: the playlist's lanes are rows: playlist.rows is playlist.rows, a clip's track its row. */
+    void renameLanesToRows (Json& doc)
+    {
+        if (! doc.contains ("playlist") || ! doc["playlist"].is_object())
+            return;
+
+        auto& playlist = doc["playlist"];
+
+        if (playlist.contains ("tracks"))
+        {
+            playlist["rows"] = std::move (playlist["tracks"]);
+            playlist.erase ("tracks");
+        }
+
+        if (playlist.contains ("clips") && playlist["clips"].is_array())
+            for (auto& clip : playlist["clips"])
+                if (clip.is_object() && clip.contains ("track"))
+                {
+                    clip["row"] = clip["track"];
+                    clip.erase ("track");
+                }
+    }
+}
+
 bool migrateProject (Json& doc)
 {
     if (! doc.is_object())
@@ -548,6 +574,13 @@ bool migrateProject (Json& doc)
         changed = true;
     }
 
+    if (doc.value ("schemaVersion", 0) == 4)
+    {
+        renameLanesToRows (doc);
+        doc["schemaVersion"] = 5;
+        changed = true;
+    }
+
     return changed;
 }
 
@@ -557,7 +590,7 @@ Project parseProject (const Json& json)
     Project project;
 
     // Current documents are read as they are; older ones through a converted copy.
-    if (json.is_object() && json.value ("schemaVersion", 0) < 4)
+    if (json.is_object() && json.value ("schemaVersion", 0) < 5)
     {
         auto copy = json;
         migrateProject (copy);
@@ -1007,15 +1040,15 @@ void validateOrThrow (const Project& project)
 //==============================================================================
 const Channel* findChannel (const Project& p, const Id& id)         { return findById (p.channels, id); }
 const Pattern* findPattern (const Project& p, const Id& id)         { return findById (p.patterns, id); }
-const PlaylistTrack* findTrack (const Project& p, Lane lane)
+const PlaylistRow* findRow (const Project& p, Row lane)
 {
-    return lane >= 0 && static_cast<size_t> (lane) < p.playlist.tracks.size() ? &p.playlist.tracks[static_cast<size_t> (lane)] : nullptr;
+    return lane >= 0 && static_cast<size_t> (lane) < p.playlist.rows.size() ? &p.playlist.rows[static_cast<size_t> (lane)] : nullptr;
 }
 
 const Insert* findInsert (const Project& p, const Id& id)           { return findById (p.mixer.inserts, id); }
 
 const Id& getClipId (const Clip& c)             { return std::visit ([] (auto& x) -> const Id& { return x.id; }, c); }
-Lane getClipTrack (const Clip& c)               { return std::visit ([] (auto& x) { return x.track; }, c); }
+Row getClipRow (const Clip& c)               { return std::visit ([] (auto& x) { return x.row; }, c); }
 Ticks getClipStart (const Clip& c)              { return std::visit ([] (auto& x) { return x.start; }, c); }
 TickLength getClipLength (const Clip& c)        { return std::visit ([] (auto& x) { return x.length; }, c); }
 bool isClipMuted (const Clip& c)                { return std::visit ([] (auto& x) { return x.mute; }, c); }

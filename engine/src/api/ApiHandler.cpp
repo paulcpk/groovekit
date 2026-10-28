@@ -661,7 +661,7 @@ Json ApiHandler::render (const Json& params)
             for (auto& c : project.channels)
                 c.solo = false;
 
-            for (auto& t : project.playlist.tracks)
+            for (auto& t : project.playlist.rows)
                 t.solo = false;
 
             auto stem = output.parent_path() / (output.stem().string() + "-" + insert.id + ".wav");
@@ -1114,12 +1114,12 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
 
         for (auto& t : params.value ("targets", Json::array()))
         {
-            if (! t.is_object() || ! t.contains ("input") || ! t.contains ("track") || ! t["track"].is_number_integer()
-                 || t["track"].get<int>() < 0 || t["track"].get<int>() > 999)
-                throw RpcError (invalidParams, "each target needs input and track (a playlist track number, 0-999), and optionally insert");
+            if (! t.is_object() || ! t.contains ("input") || ! t.contains ("row") || ! t["row"].is_number_integer()
+                 || t["row"].get<int>() < 0 || t["row"].get<int>() > 999)
+                throw RpcError (invalidParams, "each target needs input and row (an arrangement row number, 0-999), and optionally insert");
 
             targets.push_back ({ t["input"].get<std::string>(), t.value ("insert", std::string (model::masterInsertId)),
-                                 t["track"].get<int>() });
+                                 t["row"].get<int>() });
         }
 
         LiveEngine::RecordOptions options;

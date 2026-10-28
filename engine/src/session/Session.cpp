@@ -91,12 +91,12 @@ namespace
 Json Session::createEmptyProject()
 {
     return Json::parse (R"({
-        "schemaVersion": 2,
+        "schemaVersion": 5,
         "name": "",
         "tempo": 120,
         "channels": [],
         "patterns": [],
-        "playlist": { "tracks": [], "clips": [] },
+        "playlist": { "rows": [], "clips": [] },
         "mixer": { "inserts": [ { "id": "master", "name": "Master" } ] }
     })");
 }
@@ -128,13 +128,13 @@ std::unique_ptr<Session> Session::open (const std::filesystem::path& dir)
 
     auto doc = exists ? readJsonFile (songFile) : createEmptyProject();
 
-    // A song from an older GrooveKit is converted. From before numbered lanes (3), its history is
-    // set aside: its changes were recorded against the old layout and can't be undone in the new
-    // one. Later conversions leave the history as it is.
+    // A song from an older GrooveKit is converted. From before rows (5), its history is set aside:
+    // its changes were recorded against the old layout and names and can't be undone in the new
+    // ones.
     const auto version = doc.value ("schemaVersion", 0);
     const bool migrating = exists && migrateProject (doc);
 
-    if (migrating && version < 3 && std::filesystem::exists (dir / historyFileName))
+    if (migrating && version < 5 && std::filesystem::exists (dir / historyFileName))
     {
         std::error_code ec;
         std::filesystem::rename (dir / historyFileName, dir / "history-before-update.jsonl", ec);

@@ -19,8 +19,8 @@ using TickLength = int64_t;
 using Pan = double;
 /** MIDI note number; 60 is C4. */
 using Key = int;
-/** Playlist track number, 0 at the top. Any clip can go on any track, and a track needs no setting up first. */
-using Lane = int;
+/** Arrangement row number, 0 at the top. Any clip can go in any row, and a row needs no setting up first. */
+using Row = int;
 
 enum class ChannelGroup
 {
@@ -1234,19 +1234,19 @@ inline Json toJson (const Pattern& v)
     return j;
 }
 
-/** A playlist lane. Tracks only arrange: how clips sound is set by their channels and the mixer. */
-struct PlaylistTrack
+/** An arrangement row. Rows only arrange: how clips sound is set by their channels and the mixer. */
+struct PlaylistRow
 {
     std::string name = "";
     std::optional<std::string> color;
     bool mute = false;
-    /** While any track is soloed, only soloed tracks play. */
+    /** While any row is soloed, only soloed rows play. */
     bool solo = false;
 
-    bool operator== (const PlaylistTrack&) const = default;
+    bool operator== (const PlaylistRow&) const = default;
 };
 
-inline void readValue (Reader& r, const Json& j, PlaylistTrack& out)
+inline void readValue (Reader& r, const Json& j, PlaylistRow& out)
 {
     r.expectObject (j, { "name", "color", "mute", "solo" });
 
@@ -1256,7 +1256,7 @@ inline void readValue (Reader& r, const Json& j, PlaylistTrack& out)
     r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
 }
 
-inline Json toJson (const PlaylistTrack& v)
+inline Json toJson (const PlaylistRow& v)
 {
     auto j = Json::object();
     j["name"] = toJson (v.name);
@@ -1273,7 +1273,7 @@ inline Json toJson (const PlaylistTrack& v)
 struct PatternClip
 {
     Id id;
-    Lane track {};
+    Row row {};
     Ticks start {};
     TickLength length {};
     bool mute = false;
@@ -1286,11 +1286,11 @@ struct PatternClip
 
 inline void readValue (Reader& r, const Json& j, PatternClip& out)
 {
-    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "pattern", "offset" });
+    r.expectObject (j, { "type", "id", "row", "start", "length", "mute", "pattern", "offset" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "pattern"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
+    r.required (j, "row", [&] (const Json& v) { readValue (r, v, out.row); r.checkMin (out.row, 0); r.checkMax (out.row, 999); });
     r.required (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.required (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
@@ -1303,7 +1303,7 @@ inline Json toJson (const PatternClip& v)
     auto j = Json::object();
     j["type"] = "pattern";
     j["id"] = toJson (v.id);
-    j["track"] = toJson (v.track);
+    j["row"] = toJson (v.row);
     j["start"] = toJson (v.start);
     j["length"] = toJson (v.length);
     j["mute"] = toJson (v.mute);
@@ -1315,7 +1315,7 @@ inline Json toJson (const PatternClip& v)
 struct AudioClip
 {
     Id id;
-    Lane track {};
+    Row row {};
     Ticks start {};
     TickLength length {};
     bool mute = false;
@@ -1333,11 +1333,11 @@ struct AudioClip
 
 inline void readValue (Reader& r, const Json& j, AudioClip& out)
 {
-    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "channel", "offset", "fadeIn", "fadeOut" });
+    r.expectObject (j, { "type", "id", "row", "start", "length", "mute", "channel", "offset", "fadeIn", "fadeOut" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "audio"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
+    r.required (j, "row", [&] (const Json& v) { readValue (r, v, out.row); r.checkMin (out.row, 0); r.checkMax (out.row, 999); });
     r.required (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.required (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
@@ -1352,7 +1352,7 @@ inline Json toJson (const AudioClip& v)
     auto j = Json::object();
     j["type"] = "audio";
     j["id"] = toJson (v.id);
-    j["track"] = toJson (v.track);
+    j["row"] = toJson (v.row);
     j["start"] = toJson (v.start);
     j["length"] = toJson (v.length);
     j["mute"] = toJson (v.mute);
@@ -1443,7 +1443,7 @@ inline Json toJson (const AutomationPoint& v)
 struct AutomationClip
 {
     Id id;
-    Lane track {};
+    Row row {};
     Ticks start {};
     TickLength length {};
     bool mute = false;
@@ -1455,11 +1455,11 @@ struct AutomationClip
 
 inline void readValue (Reader& r, const Json& j, AutomationClip& out)
 {
-    r.expectObject (j, { "type", "id", "track", "start", "length", "mute", "target", "points" });
+    r.expectObject (j, { "type", "id", "row", "start", "length", "mute", "target", "points" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "automation"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
-    r.required (j, "track", [&] (const Json& v) { readValue (r, v, out.track); r.checkMin (out.track, 0); r.checkMax (out.track, 999); });
+    r.required (j, "row", [&] (const Json& v) { readValue (r, v, out.row); r.checkMin (out.row, 0); r.checkMax (out.row, 999); });
     r.required (j, "start", [&] (const Json& v) { readValue (r, v, out.start); r.checkMin (out.start, 0); });
     r.required (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 1); });
     r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
@@ -1472,7 +1472,7 @@ inline Json toJson (const AutomationClip& v)
     auto j = Json::object();
     j["type"] = "automation";
     j["id"] = toJson (v.id);
-    j["track"] = toJson (v.track);
+    j["row"] = toJson (v.row);
     j["start"] = toJson (v.start);
     j["length"] = toJson (v.length);
     j["mute"] = toJson (v.mute);
@@ -1505,8 +1505,8 @@ inline Json toJson (const Clip& v)
 
 struct Playlist
 {
-    /** Settings of tracks 0, 1, 2 and so on; tracks past the end of the list have the defaults. */
-    std::vector<PlaylistTrack> tracks;
+    /** Settings of rows 0, 1, 2 and so on; rows past the end of the list have the defaults. */
+    std::vector<PlaylistRow> rows;
     std::vector<Clip> clips;
 
     bool operator== (const Playlist&) const = default;
@@ -1514,16 +1514,16 @@ struct Playlist
 
 inline void readValue (Reader& r, const Json& j, Playlist& out)
 {
-    r.expectObject (j, { "tracks", "clips" });
+    r.expectObject (j, { "rows", "clips" });
 
-    r.required (j, "tracks", [&] (const Json& v) { readValue (r, v, out.tracks); });
+    r.required (j, "rows", [&] (const Json& v) { readValue (r, v, out.rows); });
     r.required (j, "clips", [&] (const Json& v) { readValue (r, v, out.clips); });
 }
 
 inline Json toJson (const Playlist& v)
 {
     auto j = Json::object();
-    j["tracks"] = toJson (v.tracks);
+    j["rows"] = toJson (v.rows);
     j["clips"] = toJson (v.clips);
     return j;
 }
@@ -1756,7 +1756,7 @@ inline void readValue (Reader& r, const Json& j, Project& out)
 {
     r.expectObject (j, { "schemaVersion", "name", "tempo", "key", "style", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
 
-    r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 4); });
+    r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 5); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.required (j, "tempo", [&] (const Json& v) { readValue (r, v, out.tempo); r.checkMin (out.tempo, 20); r.checkMax (out.tempo, 999); });
     r.optional (j, "key", [&] (const Json& v) { readValue (r, v, out.key.emplace()); r.checkMinLength (*out.key, 2); });
@@ -1772,7 +1772,7 @@ inline void readValue (Reader& r, const Json& j, Project& out)
 inline Json toJson (const Project& v)
 {
     auto j = Json::object();
-    j["schemaVersion"] = 4;
+    j["schemaVersion"] = 5;
     j["name"] = toJson (v.name);
     j["tempo"] = toJson (v.tempo);
 

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Filter automation",
   "tempo": 120,
   "channels": [
@@ -23,18 +23,18 @@
   ],
   "patterns": [{ "id": "p", "length": 3840, "notes": [{ "channel": "notes", "start": 0, "length": 240, "velocity": 127 }] }],
   "playlist": {
-    "tracks": [{ "name": "Beeps" }],
+    "rows": [{ "name": "Beeps" }],
     "clips": [
-      { "type": "pattern", "id": "beeps", "track": 0, "start": 0, "length": 7680, "pattern": "p" },
-      { "type": "audio", "id": "a1", "track": 1, "start": 960, "length": 480, "channel": "clips" },
-      { "type": "audio", "id": "a2", "track": 1, "start": 4800, "length": 480, "channel": "clips" },
+      { "type": "pattern", "id": "beeps", "row": 0, "start": 0, "length": 7680, "pattern": "p" },
+      { "type": "audio", "id": "a1", "row": 1, "start": 960, "length": 480, "channel": "clips" },
+      { "type": "audio", "id": "a2", "row": 1, "start": 4800, "length": 480, "channel": "clips" },
       {
-        "type": "automation", "id": "notesCutoff", "track": 2, "start": 0, "length": 7680,
+        "type": "automation", "id": "notesCutoff", "row": 2, "start": 0, "length": 7680,
         "target": { "scope": "channel", "channel": "notes", "param": "filterCutoff" },
         "points": [{ "time": 0, "value": 20000 }, { "time": 3839, "value": 20000 }, { "time": 3840, "value": 100 }]
       },
       {
-        "type": "automation", "id": "clipsCutoff", "track": 3, "start": 0, "length": 7680,
+        "type": "automation", "id": "clipsCutoff", "row": 3, "start": 0, "length": 7680,
         "target": { "scope": "channel", "channel": "clips", "param": "filterCutoff" },
         "points": [{ "time": 0, "value": 20000 }, { "time": 3839, "value": 20000 }, { "time": 3840, "value": 100 }]
       }

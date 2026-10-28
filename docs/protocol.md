@@ -122,7 +122,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 { "jsonrpc": "2.0", "id": 3, "error": { "code": 1, "message": "/channels/0: unknown property \"volme\"" } }
 ```
 
-Commands add, update or remove channels, sampler layers, patterns, notes, clips, inserts, effects and sends; `updateInstrument` changes a sampler's own settings (polyphony, filter). Playlist tracks are numbers: `updateTrack` names, colours, mutes or solos any of them, `insertTrack` and `removeTrack` move the tracks below (and their clips) down or up. `update*` commands take a `changes` object; `null` removes an optional field. Removals cascade: removing a channel removes its notes, its audio clips and the automation targeting it. A raw `patch` command (RFC 6902 add/remove/replace) covers everything else.
+Commands add, update or remove channels, sampler layers, patterns, notes, clips, inserts, effects and sends; `updateInstrument` changes a sampler's own settings (polyphony, filter). Arrangement rows are numbers: `updateRow` names, colours, mutes or solos any of them, `insertRow` and `removeRow` move the rows below (and their clips) down or up, and `moveRows` moves rows with their clips and settings, so nothing sounds different. `update*` commands take a `changes` object; `null` removes an optional field. Removals cascade: removing a channel removes its notes, its audio clips and the automation targeting it. A raw `patch` command (RFC 6902 add/remove/replace) covers everything else.
 
 ## History
 

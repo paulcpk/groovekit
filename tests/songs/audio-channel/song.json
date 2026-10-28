@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Audio channel envelope",
   "tempo": 120,
   "channels": [
@@ -22,8 +22,8 @@
   ],
   "patterns": [],
   "playlist": {
-    "tracks": [],
-    "clips": [{ "type": "audio", "id": "a", "track": 0, "start": 960, "length": 960, "offset": 0.25, "channel": "stereo_beep" }]
+    "rows": [],
+    "clips": [{ "type": "audio", "id": "a", "row": 0, "start": 960, "length": 960, "offset": 0.25, "channel": "stereo_beep" }]
   },
   "mixer": { "inserts": [{ "id": "master" }] }
 }

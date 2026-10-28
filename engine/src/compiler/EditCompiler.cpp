@@ -36,7 +36,7 @@ namespace
         Compiler (te::Engine& e, const Project& p, const CompileOptions& o)
             : engine (e), project (p), options (o),
               anyChannelSolo (std::any_of (p.channels.begin(), p.channels.end(), [] (auto& c) { return c.solo; })),
-              anyTrackSolo (std::any_of (p.playlist.tracks.begin(), p.playlist.tracks.end(), [] (auto& t) { return t.solo; })) {}
+              anyTrackSolo (std::any_of (p.playlist.rows.begin(), p.playlist.rows.end(), [] (auto& t) { return t.solo; })) {}
 
         CompiledEdit run()
         {
@@ -69,7 +69,7 @@ namespace
         };
 
         std::map<Id, std::map<Id, EffectInstance>> effectPlugins;
-        /** Audio clips' tracks, one per playlist track and channel, with the insert they feed. */
+        /** Audio clips' tracks, one per arrangement row and channel, with the insert they feed. */
         struct AudioClipTrack
         {
             te::AudioTrack* track;
@@ -78,7 +78,7 @@ namespace
             std::vector<sampler::AudioChannelPlugin::Clip> clips;
         };
 
-        std::map<std::pair<Lane, Id>, AudioClipTrack> audioClipTracks;
+        std::map<std::pair<Row, Id>, AudioClipTrack> audioClipTracks;
 
         //==============================================================================
         te::TimePosition toTime (Ticks ticks) const
@@ -97,9 +97,9 @@ namespace
             return p.is_relative() ? options.projectDir / p : p;
         }
 
-        bool isTrackMuted (Lane lane) const
+        bool isRowMuted (Row lane) const
         {
-            auto track = findTrack (project, lane);
+            auto track = findRow (project, lane);
             return track != nullptr ? track->mute || (anyTrackSolo && ! track->solo) : anyTrackSolo;
         }
 
@@ -348,7 +348,7 @@ namespace
 
                 auto& pattern = *found;
                 const auto loopLength = getPatternLength (pattern, project.timeSignature);
-                const bool muted = pc->mute || isTrackMuted (pc->track);
+                const bool muted = pc->mute || isRowMuted (pc->row);
 
                 std::map<Id, std::vector<const Note*>> notesByChannel;
 
@@ -391,9 +391,9 @@ namespace
             }
         }
 
-        /** Where a channel's audio clips on a playlist track play: the first layer's gain, pan and
+        /** Where a channel's audio clips in an arrangement row play: the first layer's gain, pan and
             envelope and the channel's filter, then the channel's volume and pan, into its insert. */
-        AudioClipTrack& getAudioClipTrack (Lane lane, const Channel& channel)
+        AudioClipTrack& getAudioClipTrack (Row lane, const Channel& channel)
         {
             const auto key = std::make_pair (lane, channel.id);
 
@@ -430,7 +430,7 @@ namespace
                 if (! file.existsAsFile())
                     throw std::runtime_error ("Audio clip \"" + ac->id + "\": file not found: " + file.getFullPathName().toStdString());
 
-                auto& target = getAudioClipTrack (ac->track, *channel);
+                auto& target = getAudioClipTrack (ac->row, *channel);
 
                 // The layer's part of the file, reversed, fitted to the song's tempo (if it plays at
                 // another: stretched, or resampled) and transposed, as a prepared copy.
@@ -458,7 +458,7 @@ namespace
 
                 waveClip->setFadeIn (te::TimeDuration::fromSeconds (ac->fadeIn));
                 waveClip->setFadeOut (te::TimeDuration::fromSeconds (ac->fadeOut));
-                waveClip->setMuted (ac->mute || isTrackMuted (ac->track));
+                waveClip->setMuted (ac->mute || isRowMuted (ac->row));
                 result.clips[ac->id].push_back (waveClip.get());
                 target.clips.push_back ({ position.getStart().inSeconds(), position.getEnd().inSeconds() });
             }
@@ -697,7 +697,7 @@ namespace
             {
                 auto ac = std::get_if<AutomationClip> (&clip);
 
-                if (ac == nullptr || ac->mute || isTrackMuted (ac->track))
+                if (ac == nullptr || ac->mute || isRowMuted (ac->row))
                     continue;
 
                 const auto key = toJson (ac->target).dump();
@@ -880,8 +880,8 @@ bool isClipAudible (const Project& project, const Clip& clip)
     if (std::visit ([] (auto& c) { return c.mute; }, clip))
         return false;
 
-    const bool anySolo = std::any_of (project.playlist.tracks.begin(), project.playlist.tracks.end(), [] (auto& t) { return t.solo; });
-    auto track = findTrack (project, getClipTrack (clip));
+    const bool anySolo = std::any_of (project.playlist.rows.begin(), project.playlist.rows.end(), [] (auto& t) { return t.solo; });
+    auto track = findRow (project, getClipRow (clip));
     return track == nullptr || (! track->mute && (! anySolo || track->solo));
 }
 

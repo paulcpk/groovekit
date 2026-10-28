@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Groove",
   "tempo": 124,
   "channels": [
@@ -96,14 +96,14 @@
     }
   ],
   "playlist": {
-    "tracks": [{ "name": "Drums" }, { "name": "Bass" }, { "name": "Filter sweep" }],
+    "rows": [{ "name": "Drums" }, { "name": "Bass" }, { "name": "Filter sweep" }],
     "clips": [
-      { "type": "pattern", "id": "drums", "track": 0, "start": 0, "length": 30720, "pattern": "beat" },
-      { "type": "pattern", "id": "bass", "track": 1, "start": 7680, "length": 23040, "pattern": "bassline" },
+      { "type": "pattern", "id": "drums", "row": 0, "start": 0, "length": 30720, "pattern": "beat" },
+      { "type": "pattern", "id": "bass", "row": 1, "start": 7680, "length": 23040, "pattern": "bassline" },
       {
         "type": "automation",
         "id": "sweep",
-        "track": 2,
+        "row": 2,
         "start": 7680,
         "length": 15360,
         "target": { "scope": "effect", "insert": "bass", "effect": "filter", "param": "frequency" },

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "name": "Tempo resample",
   "tempo": 60,
   "channels": [
@@ -15,8 +15,8 @@
   ],
   "patterns": [],
   "playlist": {
-    "tracks": [],
-    "clips": [{ "type": "audio", "id": "loop", "track": 0, "start": 0, "length": 1920, "channel": "clicks_120bpm" }]
+    "rows": [],
+    "clips": [{ "type": "audio", "id": "loop", "row": 0, "start": 0, "length": 1920, "channel": "clicks_120bpm" }]
   },
   "mixer": { "inserts": [{ "id": "master" }] }
 }
