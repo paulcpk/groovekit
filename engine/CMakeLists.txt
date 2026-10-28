@@ -114,6 +114,15 @@ target_link_libraries(gk_engine
         nlohmann_json::nlohmann_json
         ixwebsocket::ixwebsocket)
 
+if(GK_SANITIZERS)
+    # libFLAC, compiled inside JUCE's audio formats, offsets null pointers when it encodes (harmless,
+    # and not ours to change): the rest of the checks stay on.
+    set_source_files_properties(
+        "${TRACKTION_DIR}/modules/juce/modules/juce_audio_formats/juce_audio_formats.mm"
+        "${TRACKTION_DIR}/modules/juce/modules/juce_audio_formats/juce_audio_formats.cpp"
+        PROPERTIES COMPILE_OPTIONS "-fno-sanitize=pointer-overflow")
+endif()
+
 # Expose the module include paths and definitions without compiling the modules again in dependents.
 target_include_directories(gk_engine INTERFACE $<TARGET_PROPERTY:gk_engine,INCLUDE_DIRECTORIES>)
 target_compile_definitions(gk_engine INTERFACE $<TARGET_PROPERTY:gk_engine,COMPILE_DEFINITIONS>)
