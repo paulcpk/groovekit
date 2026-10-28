@@ -199,6 +199,7 @@ Add --verbose to see engine log messages.
         // their own library index (tests), the sound index, styles, maps and verdicts go beside it.
         gk::listening::Listening::Files listeningFiles;
         listeningFiles.maps = gk::listening::MapStore::getDefaultFolder();
+        listeningFiles.kicks = gk::listening::KickIndex::getDefaultFile();
 
         if (auto index = args.get ("--library"))
         {
@@ -207,6 +208,7 @@ Add --verbose to see engine log messages.
             listeningFiles.styles = std::filesystem::path (base).replace_extension (".styles");
             listeningFiles.taste = std::filesystem::path (base).replace_extension (".taste.json");
             listeningFiles.maps = std::filesystem::path (base).replace_extension (".maps");
+            listeningFiles.kicks = std::filesystem::path (base).replace_extension (".kicks.json");
         }
 
         gk::listening::Listening listening (library, listeningFiles);

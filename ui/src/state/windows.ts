@@ -9,7 +9,9 @@ export type WindowSpec =
   /** A style guide by id; "" for a new one. */
   | { kind: "guide"; guide: string }
   /** A reference song's map, by its id (style/title). */
-  | { kind: "map"; id: string };
+  | { kind: "map"; id: string }
+  /** A choice the agent put to the user, by its offer id. */
+  | { kind: "pick"; id: number };
 
 export interface OpenWindow {
   key: string;
@@ -36,6 +38,7 @@ export const useWindows = create<{ windows: OpenWindow[]; top: number }>(() => (
 export function windowKey(spec: WindowSpec) {
   if (spec.kind === "guide") return `guide:${spec.guide}`;
   if (spec.kind === "map") return `map:${spec.id}`;
+  if (spec.kind === "pick") return `pick:${spec.id}`;
   return spec.kind === "channel" ? `channel:${spec.channel}` : `effect:${spec.insert}/${spec.effect}`;
 }
 

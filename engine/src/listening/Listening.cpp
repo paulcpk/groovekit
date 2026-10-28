@@ -106,7 +106,8 @@ Listening::Listening (library::SampleLibrary& l, Files files)
       clap (models),
       index (l, clap, files.soundIndex),
       styles (models, clap, files.maps.empty() ? files.styles.parent_path() / "maps" : files.maps, files.styles),
-      taste (files.taste)
+      taste (files.taste),
+      kicks (l, files.kicks.empty() ? files.styles.parent_path() / "kick-sounds.json" : files.kicks)
 {
     styles.setObserver ([this] { notify(); });
 
@@ -123,6 +124,7 @@ Listening::~Listening()
         indexStarter.join();
 
     index.stop();
+    kicks.stop();
     styles.stop();
     models.stop();
 }
@@ -174,7 +176,10 @@ Json Listening::getStatus() const
     if (! s.error.empty())
         stylesJson["error"] = s.error;
 
+    const auto k = kicks.getProgress();
+
     return { { "models", modelsJson },
+             { "kicks", { { "running", k.running }, { "total", k.total }, { "measured", k.measured }, { "samples", kicks.size() } } },
              { "index", { { "running", i.running }, { "total", i.total }, { "embedded", i.embedded }, { "failed", i.failed },
                           { "samples", index.size() }, { "librarySize", library.size() } } },
              { "styles", stylesJson } };
@@ -198,6 +203,9 @@ void Listening::download()
 
 void Listening::startIndexing()
 {
+    // The kicks need no models.
+    kicks.start ([this] (const KickIndex::Progress&) { notify(); });
+
     if (! models.getStatus().ready)
         return;
 

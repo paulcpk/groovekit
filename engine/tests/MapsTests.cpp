@@ -5,6 +5,7 @@
 #include "api/ApiHandler.h"
 #include "library/SampleLibrary.h"
 #include "listening/Listening.h"
+#include "listening/KickSound.h"
 #include "listening/Maps.h"
 #include "session/Session.h"
 
@@ -395,4 +396,197 @@ TEST_CASE ("A track's arrangement is heard bar by bar: the grid, the parts, the 
     CHECK (copy.sections.size() == 4);
     CHECK (copy.parts.at ("hats").on == a.parts.at ("hats").on);
     CHECK_THAT (copy.describe(), Catch::Matchers::ContainsSubstring ("33-40    break"));
+}
+
+namespace
+{
+    /** Kicks at 128 BPM on every beat: a sine body at hz that falls to it, decaying over decay
+        seconds, and optionally a rumble between them. */
+    juce::AudioBuffer<float> kicks (double rate, double hz, double decay, float rumble, int beats, double click = 0)
+    {
+        const double beat = 60 / 128.0, pi = juce::MathConstants<double>::pi;
+        juce::AudioBuffer<float> b (2, static_cast<int> (beats * beat * rate));
+        b.clear();
+        juce::Random random (3);
+
+        for (int k = 0; k < beats; ++k)
+        {
+            const auto start = static_cast<int> (k * beat * rate);
+            double phase = 0;
+
+            for (int i = 0; i < static_cast<int> (beat * rate) && start + i < b.getNumSamples(); ++i)
+            {
+                const double t = i / rate;
+                phase += 2 * pi * (hz + 80 * std::exp (-t / 0.01)) / rate;
+                float v = static_cast<float> (0.8 * std::sin (phase) * std::exp (-t / decay));
+
+                if (t < 0.004)
+                    v += static_cast<float> (click * (random.nextFloat() * 2 - 1));
+
+                if (rumble > 0 && t > 0.3 * beat)
+                    v += static_cast<float> (rumble * std::sin (2 * pi * 45 * t) * std::sin (pi * (t - 0.3 * beat) / (0.7 * beat)));
+
+                b.setSample (0, start + i, v);
+                b.setSample (1, start + i, v);
+            }
+        }
+
+        return b;
+    }
+}
+
+TEST_CASE ("Kicks are measured the same way everywhere, and compared in words")
+{
+    constexpr double rate = 44100;
+    const double beat = 60 / 128.0;
+
+    // A one-shot: one hit, no beat.
+    auto one = measureKick (kicks (rate, 50, 0.08, 0, 1), rate);
+    REQUIRE (one.has_value());
+    INFO (one->describe());
+    CHECK (std::abs (one->bodyHz - 50) < 4);
+    CHECK (one->decayMs > 60);
+    CHECK (one->decayMs < 250);
+    CHECK_FALSE (one->rumbleDb.has_value());
+    CHECK (one->width < 0.05f);
+
+    // In a groove on a grid: the rumble between kicks and where they play.
+    KickTiming timing;
+    timing.beat = beat;
+    timing.downbeat = 0.0;
+    auto groove = measureKick (kicks (rate, 50, 0.08, 0.3f, 16), rate, timing);
+    REQUIRE (groove.has_value());
+    INFO (groove->describe());
+    CHECK (groove->hits >= 14);
+    CHECK (groove->pattern == "x...x...x...x...");
+    REQUIRE (groove->rumbleDb.has_value());
+    CHECK (*groove->rumbleDb > -20);
+
+    // Without one, nothing between the kicks is no rumble.
+    auto dry = measureKick (kicks (rate, 50, 0.08, 0, 16), rate, timing);
+    CHECK_FALSE (dry->rumbleDb.has_value());
+
+    // Higher, shorter and clickier: said so, and further from it than itself.
+    auto other = measureKick (kicks (rate, 60, 0.03, 0.3f, 16, 0.6), rate, timing);
+    const auto same = compareKicks (*groove, *groove);
+    const auto apart = compareKicks (*other, *groove);
+    INFO (apart.toJson().dump());
+    CHECK (same.score > 99);
+    CHECK (apart.score < 80);
+    CHECK (apart.differences["semitones"].get<double>() > 2);
+    CHECK (apart.differences["decayMs"].get<double>() < 0);
+    CHECK (apart.differences["clickDb"].get<double>() > 3);
+
+    // A one-shot against a groove with rumble: the missing rumble is a note, not a cost.
+    const auto shot = compareKicks (*one, *groove);
+    CHECK_THAT (shot.notes.back(), Catch::Matchers::ContainsSubstring ("no rumble"));
+
+    CHECK (KickSound::fromJson (Json::parse (groove->toJson().dump())).pattern == groove->pattern);
+    CHECK (noteName (55) == "A1");
+}
+
+TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and measured in the song")
+{
+    const auto dir = freshDir ("maps-match");
+    constexpr double rate = 44100;
+
+    auto writeKick = [&] (const fs::path& file, const juce::AudioBuffer<float>& audio)
+    {
+        fs::create_directories (file.parent_path());
+        juce::File out (file.string());
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (out.createOutputStream().release(), rate, 2, 24, {}, 0));
+        REQUIRE (writer != nullptr);
+        writer->writeFromAudioSampleBuffer (audio, 0, audio.getNumSamples());
+    };
+
+    // The library: a kick like the reference's, and one higher and shorter.
+    writeKick (dir / "samples" / "Deep Kick 50.wav", kicks (rate, 50, 0.08, 0, 1));
+    writeKick (dir / "samples" / "Short Kick 62.wav", kicks (rate, 62, 0.025, 0, 1));
+    library::SampleLibrary library (dir / "library.json");
+    library.addFolder (dir / "samples");
+    library.startScan();
+    library.waitForScan();
+
+    listening::Listening::Files files { dir / "no-models", dir / "sounds.bin", dir / "styles", dir / "taste.json", dir / "Maps", dir / "kicks.json" };
+    listening::Listening listening (library, files);
+    listening.startIndexing();
+    listening.getKicks().wait();
+    REQUIRE (listening.getKicks().size() == 2);
+
+    // A reference whose kick is the deep one's, with a rumble.
+    KickTiming timing;
+    timing.beat = 60 / 128.0;
+    timing.downbeat = 0.0;
+    SongMap reference = someMap ("Hard Techno", "Reference");
+    reference.track.tempo = 128;
+    reference.track.kick = StyleProfile::Track::Kick { *measureKick (kicks (rate, 50, 0.08, 0.3f, 16), rate, timing), 0, 8, true };
+    listening.getStyles().getMaps().put (reference);
+
+    Session session (Session::createEmptyProject());
+    ApiHandler handler (session, test::getEngineContext(), &library, nullptr, nullptr, &listening);
+    std::vector<Json> notifications;
+    handler.setBroadcast ([&] (const std::string& m) { notifications.push_back (Json::parse (m)); });
+
+    Json response;
+    ApiHandler::Client client;
+    client.send = [&] (const std::string& m) { response = Json::parse (m); };
+
+    auto call = [&] (const std::string& method, Json params)
+    {
+        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        INFO (response.dump());
+        CHECK_FALSE (response.contains ("error"));
+        return response["result"];
+    };
+
+    auto found = call ("match.kicks", { { "id", reference.id() } });
+    INFO (found.dump());
+    REQUIRE (found["results"].size() == 2);
+    CHECK (found["results"][0]["name"] == "Deep Kick 50.wav");
+    CHECK (found["results"][0]["score"].get<double>() > found["results"][1]["score"].get<double>());
+    CHECK (found["reference"]["clean"] == true);
+
+    // Heard in a groove: written to a file to listen to, and measured like the reference.
+    const auto deep = found["results"][0]["path"].get<std::string>();
+    const auto shortKick = found["results"][1]["path"].get<std::string>();
+    auto auditioned = call ("match.audition", { { "id", reference.id() }, { "paths", { deep, shortKick } } });
+    REQUIRE (auditioned["results"].size() == 2);
+    CHECK (fs::exists (auditioned["results"][0]["audition"].get<std::string>()));
+    CHECK (auditioned["results"][0]["score"].get<double>() > auditioned["results"][1]["score"].get<double>());
+    CHECK (auditioned["results"][1]["changes"].dump().find ("transpose") != std::string::npos);
+
+    // Put to the user: they pick the first, which then fits the style.
+    const auto offered = call ("picks.offer", { { "title", "Which kick?" }, { "style", "Hard Techno" },
+                                                { "candidates", { { { "path", deep } }, { { "path", shortKick } } } } });
+    REQUIRE_FALSE (notifications.empty());
+    CHECK (notifications.back()["method"] == "picks");
+    CHECK (call ("picks.get", { { "id", offered["id"] } })["status"] == "waiting");
+    call ("picks.choose", { { "id", offered["id"] }, { "choice", 0 } });
+    CHECK (call ("picks.get", { { "id", offered["id"] } })["choice"] == 0);
+    const auto ratings = listening.getTaste().forStyle ("Hard Techno");
+    REQUIRE (ratings.size() == 1);
+    CHECK (ratings[0].fits);
+
+    // The song's own kick, the deep one on every beat, measured against the reference.
+    model::Reader r;
+    std::vector<model::Command> commands;
+
+    for (auto json : {
+             Json::parse (R"({ "type": "addChannel", "channel": { "id": "kick", "instrument": { "type": "sampler", "layers": [
+                               { "id": "l", "pitchTracking": false, "sample": ")" + deep + R"(" } ] } } })"),
+             Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [
+                               { "channel": "kick", "start": 0, "length": 240, "velocity": 127 }, { "channel": "kick", "start": 960, "length": 240, "velocity": 127 },
+                               { "channel": "kick", "start": 1920, "length": 240, "velocity": 127 }, { "channel": "kick", "start": 2880, "length": 240, "velocity": 127 } ] } })"),
+             Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 30720, "pattern": "p" } })"),
+             Json::parse (R"({ "type": "setTempo", "tempo": 128 })") })
+    {
+        readValue (r, json, commands.emplace_back());
+    }
+
+    session.execute (commands);
+    auto measured = call ("match.channel", { { "id", reference.id() }, { "channel", "kick" } });
+    INFO (measured.dump());
+    CHECK (measured["score"].get<double>() > 60);
+    CHECK (measured["changes"].dump().find ("rumble") != std::string::npos);
 }

@@ -2,6 +2,7 @@ import { RotateCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { IconButton, ToggleChip } from "@/components/controls";
 import { ArrangementView } from "./ArrangementView";
+import { KickMatches } from "./KickMatches";
 import { FloatingWindow } from "@/components/window";
 import { closeWindow, type OpenWindow } from "@/state/windows";
 import { forget, getMap, hear, setInUse, useMaps, type SongMap } from "./maps";
@@ -87,6 +88,13 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
                 ))}
               </div>
             </Section>
+
+            {t.kick && (
+              <Section title="Kick and rumble">
+                <KickMatches id={id} kick={t.kick} file={song?.file}
+                  from={t.arrangement ? t.arrangement.downbeat + t.kick.bars[0] * ((4 * 60) / t.arrangement.tempo) : undefined} />
+              </Section>
+            )}
 
             <Section title="Arrangement">
               {t.arrangement && t.arrangement.bars > 0 ? (

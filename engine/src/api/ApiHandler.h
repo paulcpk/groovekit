@@ -84,6 +84,17 @@ private:
 
     std::map<std::string, std::pair<std::filesystem::file_time_type, model::Json>> peaksCache;
 
+    /** Choices put to the user (A/B/C), by id: what was offered and what they picked (-1 none of
+        them; unset while waiting). */
+    struct Offer
+    {
+        model::Json offer;
+        std::optional<int> choice;
+    };
+
+    std::map<int, Offer> offers;
+    int offerCount = 0;
+
     /** The last few voice messages' audio (16 kHz mono), by job id, newest last: a melody hummed
         in one can be placed later. */
     std::vector<std::pair<std::string, std::vector<float>>> voiceRecordings;
@@ -99,6 +110,7 @@ private:
     model::Json callMelody (const std::string& method, const model::Json& params);
     model::Json callListening (const std::string& method, const model::Json& params);
     model::Json callMaps (const std::string& method, const model::Json& params);
+    model::Json callMatch (const std::string& method, const model::Json& params);
     model::Json callChats (const std::string& method, const model::Json& params);
     model::Json callNotes (const std::string& method, const model::Json& params);
     model::Json callGuides (const std::string& method, const model::Json& params);

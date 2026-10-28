@@ -3,6 +3,7 @@
 #include "Arrangement.h"
 #include "Clap.h"
 #include "Groove.h"
+#include "KickSound.h"
 #include "Separator.h"
 
 #include "model/JsonIO.h"
@@ -51,6 +52,17 @@ struct StyleProfile
         std::map<Role, float> levels;               // each stem's level against the mix, dB
         std::map<Role, std::vector<Embedding>> sounds;
         std::optional<Arrangement> arrangement;     // heard from the whole track (analysis 6 on)
+
+        /** The kick and rumble, measured where the kick plays with least around it (bars from 0,
+            to excluded; clean when nothing but the low end plays there). */
+        struct Kick
+        {
+            KickSound sound;
+            int from = 0, to = 0;
+            bool clean = false;
+        };
+
+        std::optional<Kick> kick;
 
         model::Json toJson() const;
         static Track fromJson (const model::Json&);

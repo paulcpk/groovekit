@@ -46,10 +46,27 @@ export interface SongMap {
     path: string; analysis: number; tempo: number; swing?: number; density: number; lufs: number;
     balance: number[]; levels: Record<string, number>; sounds: Record<string, number>;
     arrangement?: Arrangement;
+    /** The kick and rumble, measured where the kick plays with least around it. */
+    kick?: { sound: KickSound; bars: [number, number]; clean: boolean };
   };
   /** The arrangement as the agent reads it. */
   score?: string;
 }
+
+export interface KickSound {
+  bodyHz: number; attackMs: number; decayMs: number; clickDb: number; gritDb: number; width: number;
+  rumbleDb?: number; rumbleGritDb?: number; spectrum: number[]; pattern?: string; hits: number;
+}
+
+/** A library sample that sounds like a reference's kick: score 0-100 (measured 75%, fingerprint
+    25%), and what differs most. */
+export interface KickMatch {
+  path: string; name: string; category: string; loop: boolean; tempo?: number;
+  score: number; measured: number; fingerprint?: number; differences: string[]; kick: string;
+}
+
+export const matchKicks = (id: string, loops?: boolean) =>
+  call<{ results: KickMatch[]; searched: number; measuring: boolean }>("match.kicks", { id, limit: 12, ...(loops !== undefined ? { loops } : {}) });
 
 /** How a whole track unfolds, bar by bar (bars count from 0; a section's end is excluded). */
 export interface Arrangement {

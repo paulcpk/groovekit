@@ -18,7 +18,7 @@ Sounds: search_samples finds samples in the user's library by words, category, l
 
 Plugins: the user's VST3/AU plugins are listed by plugins (scan first if the list is empty). GrooveKit ships its own synth, Triad (manufacturer GrooveKit, always listed): three oscillators (sine, triangle, square, saw, soft saw, pulse, noise) each with coarse and fine tuning, level, pan, phase and stereo detune, the second and third able to mix in, FM or ring-modulate the one before; unison; a filter (low-pass 24 or 12, high-pass, band-pass) with its own envelope; an amp envelope; an LFO; poly, mono or legato with glide. Set its parameters by name like any plugin's ("Osc 1 shape", "Cutoff"); a good starting point for basses, stabs, leads and pads before reaching for samples. describe_plugin gives a pluginRef and parameter names; use it in a channel instrument {"type":"plugin","plugin":pluginRef} or an insert effect {"type":"plugin","id":...,"plugin":pluginRef}, set "params" by name (normalized 0-1), and automate them with automation clips (an instrument's: scope channel with param its parameter id or name; an effect's: scope effect). A sampler channel's filterCutoff, filterResonance and filterEnvelopeAmount are automatable too, like any channel's volume and pan. Every insert effect, built-in or plugin, has a mix from 0 (the dry signal) to 1 (only the effect): mix reverbs and delays in rather than adding sends for everything; it is automatable as the effect parameter "mix".
 
-Listening: GrooveKit can hear its sample library and the user's reference tracks (once its listening models are downloaded, a 400 MB download the user starts in the Browser). Choose sounds by how they sound, never by their names: two files called "stab" can have nothing in common. A style is a folder of reference tracks the user loves (styles); styles describe gives its tempo range, swing, loudness, the levels of drums, bass and music against the mix, and words for what each part sounds like. search_samples with style ranks the library by fit to that style for each sample's part (category), 0 being an average sample of the user's library and 100 as close as the references are to each other: build from the top (fit 50 and above), use sound (words like "dusty warm chord stab") to steer within the style, and like (a path) to find sounds that belong with one you chose, so the kit hangs together. Results say in words what each sample sounds like. Before arranging in a style, read two or three of its references' maps (song_maps list, then read): their scores show how the user's favourite tracks are built (how long the intro runs, when the rumble and the hats come in, where the breaks fall and what's left in them, how many parts play at once, what changes every 8 or 16 bars); build the song's form from them rather than from habit, and when the user names tracks to sound like, use theirs. After arranging, compare_to_style renders the song and reports how far each part is from the references and what differs most (tempo, swing, busy or sparse drums, balance, levels); fix the biggest differences and compare again. When the user says a sound fits or doesn't, record it with rate_sample: their verdicts steer later searches, and from two samples that fit GrooveKit learns what they have in common (results then give taste, 0-100: how likely the user is to say a sample fits, trusted more the more they've rated), so ask for verdicts on the sounds you pick.
+Listening: GrooveKit can hear its sample library and the user's reference tracks (once its listening models are downloaded, a 400 MB download the user starts in the Browser). Choose sounds by how they sound, never by their names: two files called "stab" can have nothing in common. A style is a folder of reference tracks the user loves (styles); styles describe gives its tempo range, swing, loudness, the levels of drums, bass and music against the mix, and words for what each part sounds like. search_samples with style ranks the library by fit to that style for each sample's part (category), 0 being an average sample of the user's library and 100 as close as the references are to each other: build from the top (fit 50 and above), use sound (words like "dusty warm chord stab") to steer within the style, and like (a path) to find sounds that belong with one you chose, so the kit hangs together. Results say in words what each sample sounds like. Sounds like the references': the kick and rumble carry techno, so choose them by matching, not by name or a fingerprint alone. Take a reference (a song map the user names, or a ticked one of the song's style), match_sound find for the closest kicks (one-shots and loops), audition the best five or so in a groove, offer_choice the best three to the user with their audition files and the reference (its file and from), then build the kick with the pick and match_sound channel it against the reference: apply the changes it gives (tune, shorten, punch, EQ, grit) one at a time and measure again until it's close. A one-shot has no rumble: make it from the kick (a send to an insert with reverb fully wet, distortion, a lowpass around 100-150 Hz and duck keyed by the kick), then measure again. Before arranging in a style, read two or three of its references' maps (song_maps list, then read): their scores show how the user's favourite tracks are built (how long the intro runs, when the rumble and the hats come in, where the breaks fall and what's left in them, how many parts play at once, what changes every 8 or 16 bars); build the song's form from them rather than from habit, and when the user names tracks to sound like, use theirs. After arranging, compare_to_style renders the song and reports how far each part is from the references and what differs most (tempo, swing, busy or sparse drums, balance, levels); fix the biggest differences and compare again. When the user says a sound fits or doesn't, record it with rate_sample: their verdicts steer later searches, and from two samples that fit GrooveKit learns what they have in common (results then give taste, 0-100: how likely the user is to say a sample fits, trusted more the more they've rated), so ask for verdicts on the sounds you pick.
 
 
 Keys and melodies: give the song a key with the setKey command ("A minor"); get_summary shows it. Samples have keys too: search_samples results give key (from the file name, else heard; keySource says which, heardKey when the sound disagrees with the name) and rootKey (a one-shot's pitch, drums included: a kick's is its tail's). fitsKey ("song" or a key) keeps samples that go with that key (the same notes, a fifth away, or a root in its scale) and gives each keyFit.transpose: the semitones (layer transpose) that put it exactly in key, tonic for one-shots, so loops and kicks can be tuned to the song. The melody tool turns melodies into notes on the song's grid, in its key and a register: from the user's voice (they hum or sing on "da" in a voice message, often after saying which channel it's for: the message then mentions the hummed melody) or from a reference track (a part of a style's tracks: its lead line, chords or bassline). Place the result with edit_project (addPattern if needed, then addNotes with the notes, channel set).
@@ -469,6 +469,66 @@ Opening, creating or saving as switches the user's window too, so only do it whe
         }
         if (action === "hear") return engine.call("maps.hear", { ids });
         return engine.call("maps.setInUse", { ids, inUse });
+      })
+  );
+
+  server.registerTool(
+    "match_sound",
+    {
+      description: "Finds and checks a kick and rumble like a reference's, measured in numbers (the note of the body, how long it rings, attack and click, grit, the rumble between kicks and its grit, width, spectrum, pattern), not just by its fingerprint. The reference is a song map (id, from song_maps list: its kick measured where it plays with least around it) or a library sample (path). find: the library's kicks and drum loops ranked by how close they are (score 0-100: measured 75%, fingerprint 25%), each with what differs most; loops true or false narrows to loops or one-shots. audition: renders samples (paths, up to 8) in a groove at the tempo (default the reference's), one-shots on the reference's pattern and loops stretched, measures each like the reference and says what differs and what to change; each has an audition file for offer_choice. channel: renders one channel of the song alone (start and end in bars, default the first 8) and measures it against the reference: score, differences and changes to make (tune, shorten, punch, EQ, grit, the rumble). A sample doesn't need to be perfect: pick the closest and close the gap with the changes, measuring again after each.",
+      inputSchema: {
+        action: z.enum(["find", "audition", "channel"]),
+        id: z.string().optional().describe("A song map as the reference (style/title)"),
+        path: z.string().optional().describe("Or a library sample as the reference"),
+        loops: z.boolean().optional().describe("find: true only loops, false only one-shots"),
+        limit: z.number().int().min(1).max(100).optional().describe("find: how many (default 20)"),
+        paths: z.array(z.string()).optional().describe("audition: the samples"),
+        tempo: z.number().optional().describe("audition: BPM (default the reference's)"),
+        channel: z.string().optional().describe("channel: the song's channel"),
+        startBar: z.number().min(1).optional(),
+        endBar: z.number().min(1).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ action, id, path, loops, limit, paths, tempo, channel, startBar, endBar }) =>
+      attempt(async () => {
+        await engine.connect();
+        const reference = id ? { id } : { path };
+        if (action === "find") return engine.call("match.kicks", { ...reference, ...(loops !== undefined ? { loops } : {}), ...(limit ? { limit } : {}) });
+        if (action === "audition") return engine.call("match.audition", { ...reference, paths, ...(tempo ? { tempo } : {}) });
+        return engine.call("match.channel", {
+          ...reference, channel,
+          ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
+          ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
+        });
+      })
+  );
+
+  server.registerTool(
+    "offer_choice",
+    {
+      description: "Puts two to four sounds to the user to pick by ear (A, B, C): a window shows each with a play button, next to the reference when there is one, and this waits (up to ten minutes) for their pick. Their pick fits the style from then on; \"none of them\" counts against all. Give each candidate the path, the audition file from match_sound audition when there is one, and a short label. Returns the chosen index, -1 for none, or that they haven't chosen yet.",
+      inputSchema: {
+        title: z.string().describe("What's being chosen: \"Which kick for the groove?\""),
+        style: z.string().optional().describe("The style the pick is for (the song's)"),
+        reference: z.object({ file: z.string(), from: z.number().optional(), title: z.string().optional() }).optional()
+          .describe("The reference to compare with: its file and where to play from (seconds), as match_sound gives it"),
+        candidates: z.array(z.object({ path: z.string(), audition: z.string().optional(), label: z.string().optional() })).min(2).max(4),
+      },
+    },
+    ({ title, style, reference, candidates }) =>
+      attempt(async () => {
+        await engine.connect();
+        const { id } = (await engine.call("picks.offer", { title, candidates, ...(style ? { style } : {}), ...(reference ? { reference } : {}) })) as { id: number };
+        for (let waited = 0; waited < 600; waited++) {
+          const r = (await engine.call("picks.get", { id })) as { status: string; choice?: number };
+          if (r.status === "chosen") {
+            const chosen = r.choice !== undefined && r.choice >= 0 ? candidates[r.choice] : undefined;
+            return { choice: r.choice, ...(chosen ? { chosen } : { chosen: "none of them" }) };
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        return { choice: null, note: "The user hasn't chosen yet; the window stays open. Ask them, or check later with the same offer." };
       })
   );
 

@@ -155,6 +155,11 @@ in the same terms as the references' parts:
 It won't find the record's exact sound; it finds the same family and brings it closer, and the
 numbers say how close. The user's ear stays the judge.
 
+Built for the kick and rumble (hearing 6 measures each reference's on its clean stretch; the
+library's kicks and drum loops are measured in the background into `kick-sounds.json`): the agent's
+match_sound (find, audition, channel) and offer_choice tools, the A/B/C window, and "Find kicks
+like it" in a map's window. Hats, percussion and bass come next, the same way.
+
 ### 3. A review (the ears)
 
 A `review` tool (engine `song.review`) that checks the song against its guide and returns a ranked
@@ -214,8 +219,8 @@ In this order; each step is judged by the test round (6) before the next.
    is built). The references heard in full into maps the user curates and shares; flavours,
    templates and the rhythm vocabulary per style come from them. This takes in "Arrangement from
    the references" (the old step 5).
-3. **Sound matching** (right after map step 2, which finds the clean stretches it compares with;
-   see "Sound matching" above). This takes in "Sound choice from the references".
+3. **Sound matching** (built for the kick and rumble; see "Sound matching" above). This takes in
+   "Sound choice from the references".
 4. **The review** (one to two sessions). Measures the song against its guide and the user's
    reference folders and returns ranked, concrete problems ("the clap is 2 dB under the kick; your
    references put it 7 to 16 dB under", "bars 33 to 48 have 9 parts; the budget is 6", "the highs

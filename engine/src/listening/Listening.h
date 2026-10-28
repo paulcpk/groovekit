@@ -1,5 +1,6 @@
 #pragma once
 
+#include "KickIndex.h"
 #include "NoteTranscriber.h"
 #include "SoundIndex.h"
 #include "Styles.h"
@@ -25,6 +26,10 @@ public:
         /** The song maps; beside the styles folder unless given (the app's are in
             MapStore::getDefaultFolder()). */
         std::filesystem::path maps;
+
+        /** The library's kicks measured; beside the styles folder unless given (the app's is
+            KickIndex::getDefaultFile()). */
+        std::filesystem::path kicks;
     };
 
     Listening (library::SampleLibrary&, Files);
@@ -33,6 +38,7 @@ public:
     Models& getModels()         { return models; }
     SoundIndex& getIndex()      { return index; }
     Styles& getStyles()         { return styles; }
+    KickIndex& getKicks()       { return kicks; }
     Taste& getTaste()           { return taste; }
     Clap& getClap()             { return clap; }
 
@@ -107,6 +113,7 @@ private:
     SoundIndex index;
     Styles styles;
     Taste taste;
+    KickIndex kicks;
 
     mutable std::mutex observerMutex;
     std::function<void (const model::Json&)> observer;

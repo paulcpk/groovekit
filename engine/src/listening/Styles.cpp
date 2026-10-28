@@ -201,6 +201,9 @@ Json StyleProfile::Track::toJson() const
     if (arrangement)
         j["arrangement"] = arrangement->toJson();
 
+    if (kick)
+        j["kick"] = { { "sound", kick->sound.toJson() }, { "bars", { kick->from, kick->to } }, { "clean", kick->clean } };
+
     return j;
 }
 
@@ -221,6 +224,14 @@ StyleProfile::Track StyleProfile::Track::fromJson (const Json& tj)
 
     if (tj.contains ("arrangement"))
         t.arrangement = Arrangement::fromJson (tj["arrangement"]);
+
+    if (tj.contains ("kick"))
+    {
+        const auto& k = tj["kick"];
+        const auto bars = k.value ("bars", std::vector<int> { 0, 0 });
+        t.kick = Track::Kick { KickSound::fromJson (k.value ("sound", Json::object())), bars.size() > 0 ? bars[0] : 0, bars.size() > 1 ? bars[1] : 0,
+                               k.value ("clean", false) };
+    }
 
     // Held here: items() only refers to the object it's given.
     const auto levels = tj.value ("levels", Json::object());
@@ -1012,6 +1023,93 @@ void Styles::migrate (const std::filesystem::path& oldProfilesFolder)
     }
 }
 
+/** The kick and rumble of a track, measured on its drums and bass where the kick plays with the
+    least around it: the longest run of such bars, up to sixteen. */
+static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const Separator::Stems& stems)
+{
+    if (a.bars == 0 || ! a.parts.contains ("kick"))
+        return {};
+
+    const auto& kickOn = a.parts["kick"].on;
+    auto busy = [&] (int b)
+    {
+        int count = 0;
+
+        for (auto* part : { "hats", "percussion", "music", "vocal" })
+            if (auto it = a.parts.find (part); it != a.parts.end() && it->second.on[static_cast<size_t> (b)])
+                ++count;
+
+        return count;
+    };
+
+    int least = 99;
+
+    for (int b = 0; b < a.bars; ++b)
+        if (kickOn[static_cast<size_t> (b)])
+            least = std::min (least, busy (b));
+
+    if (least == 99)
+        return {};
+
+    int from = 0, to = 0;
+
+    for (int b = 0; b < a.bars;)
+    {
+        if (! kickOn[static_cast<size_t> (b)] || busy (b) != least)
+        {
+            ++b;
+            continue;
+        }
+
+        int e = b;
+
+        while (e < a.bars && kickOn[static_cast<size_t> (e)] && busy (e) == least)
+            ++e;
+
+        if (e - b > to - from)
+            from = b, to = e;
+
+        b = e;
+    }
+
+    to = std::min (to, from + 16);
+    const auto rate = Separator::sampleRate;
+    const auto start = static_cast<int> ((a.downbeat + from * a.barSeconds()) * rate);
+    const auto count = std::min (static_cast<int> ((to - from) * a.barSeconds() * rate), stems.drums.getNumSamples() - start);
+
+    if (start < 0 || count < static_cast<int> (rate))
+        return {};
+
+    // The low end is the drums' and the bass's (the rumble is often in the bass); the hits are the drums'.
+    juce::AudioBuffer<float> audio (2, count);
+    std::vector<float> drumsLow (static_cast<size_t> (count));
+
+    for (int c = 0; c < 2; ++c)
+    {
+        audio.copyFrom (c, 0, stems.drums, c, start, count);
+        audio.addFrom (c, 0, stems.bass, c, start, count);
+    }
+
+    for (int i = 0; i < count; ++i)
+        drumsLow[static_cast<size_t> (i)] = 0.5f * (stems.drums.getSample (0, start + i) + stems.drums.getSample (1, start + i));
+
+    drumsLow = filter (std::move (drumsLow), rate, 150, false);
+    juce::AudioBuffer<float> lowBuffer (1, count);
+    lowBuffer.copyFrom (0, 0, drumsLow.data(), count);
+
+    KickTiming timing;
+    timing.hits = library::detectTransients (toAudio (std::move (lowBuffer), rate));
+    timing.beat = 60 / a.tempo;
+    timing.downbeat = 0.0;
+
+    auto sound = measureKick (audio, rate, timing);
+
+    if (! sound)
+        return {};
+
+    return StyleProfile::Track::Kick { *sound, from, to, least == 0 };
+}
+
 StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::filesystem::path& path, std::optional<double> knownTempo,
                                const std::function<bool (double)>& progress, bool wholeTrack)
 {
@@ -1272,6 +1370,7 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
             full.other[i] -= full.vocals[i];
 
         track.arrangement = hearArrangement (full, track.tempo > 0 ? std::optional (track.tempo) : std::nullopt);
+        track.kick = hearKick (*track.arrangement, wholeStems);
 
         if (progress && ! progress (1.0))
             throw std::runtime_error ("Stopped");
