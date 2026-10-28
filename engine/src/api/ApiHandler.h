@@ -51,6 +51,9 @@ public:
     /** Where the agent's conversations are kept; empty for <app data>/chats. */
     std::filesystem::path chatsFolder;
 
+    /** Where the user keeps reference tracks; empty for ~/Music/GrooveKit/References. */
+    std::filesystem::path referencesFolder;
+
     /** Where the user's notes for the agent are kept; empty for <app data>/agent-notes.json. */
     std::filesystem::path notesFile;
 
@@ -98,6 +101,9 @@ private:
     model::Json callChats (const std::string& method, const model::Json& params);
     model::Json callNotes (const std::string& method, const model::Json& params);
     model::Json callGuides (const std::string& method, const model::Json& params);
+
+    /** The guide a style or a folder of references goes with, by name; null without one. */
+    static model::Json guideFor (const std::string& styleName);
     model::Json compareToStyle (const model::Json& params);
     model::Json importIntoProject (const std::string& method, const model::Json& params);
     void startLibraryScan();

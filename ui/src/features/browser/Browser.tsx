@@ -10,7 +10,7 @@ import { previewSample, stopPreview } from "@/features/shell/actions";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { call, engine, useEngine } from "@/state/engine";
-import { addStyle, canListen, downloadModels, rateSample, removeStyle, useListeningStatus, type ListeningStatus } from "./listening";
+import { addStyle, canListen, downloadModels, needsHearing, rateSample, refreshReferences, removeStyle, useListening, useListeningStatus, type ListeningStatus, type ReferenceFolder } from "./listening";
 
 interface Sample {
   path: string;
@@ -553,17 +553,22 @@ function LibraryFolders() {
   );
 }
 
-/** Ranks the browser by fit to one of the user's styles, or adds one. */
+/** Ranks the browser by fit to one of the user's styles, or adds one: the folders in the
+    references folder GrooveKit hasn't heard (or that changed) first, or any folder. */
 function StylePicker({ style, styles, onChange }: { style?: string; styles: string[]; onChange: (name?: string) => void }) {
+  const { references, status } = useListening();
+  const running = !!status?.styles.running;
+  const toHear = references?.folders.filter(needsHearing) ?? [];
+
   const add = () => {
     if (!inDesktopApp) return;
-    void pickFolder("Choose a folder of reference tracks").then((path) => {
+    void pickFolder("Choose a folder of reference tracks", references?.exists ? references.folder : undefined).then((path) => {
       if (path) void addStyle(path).then((r) => onChange(r.name));
     });
   };
 
   return (
-    <Dropdown>
+    <Dropdown onOpenChange={(open) => open && void refreshReferences().catch(() => {})}>
       <DropdownTrigger asChild>
         <button type="button" title="Rank samples by how well they fit a style: a folder of reference tracks GrooveKit has listened to"
           className={cn("flex h-5 shrink-0 items-center gap-1 rounded-[3px] px-1.5 text-2xs", style ? "bg-agent text-black" : "bg-control text-dim hover:text-fg")}>
@@ -577,6 +582,17 @@ function StylePicker({ style, styles, onChange }: { style?: string; styles: stri
         ))}
         {styles.length === 0 && <DropdownItem disabled>No styles yet</DropdownItem>}
         {style && <DropdownItem onSelect={() => onChange(undefined)}>No style</DropdownItem>}
+        {toHear.length > 0 && (
+          <>
+            <DropdownSeparator />
+            <DropdownLabel>In your references folder</DropdownLabel>
+            {toHear.map((f) => (
+              <DropdownItem key={f.path} disabled={running} onSelect={() => void addStyle(f.path)}>
+                {hearLabel(f)}
+              </DropdownItem>
+            ))}
+          </>
+        )}
         <DropdownSeparator />
         <DropdownItem disabled={!inDesktopApp} onSelect={add}>Add a style from a folder of tracks…</DropdownItem>
       </DropdownContent>
@@ -584,18 +600,26 @@ function StylePicker({ style, styles, onChange }: { style?: string; styles: stri
   );
 }
 
+/** What hearing a references folder would do. */
+function hearLabel(f: ReferenceFolder) {
+  if (!f.style) return `Hear ${f.name} (${f.files} track${f.files === 1 ? "" : "s"})`;
+  const changes = [f.unheard && `${f.unheard} new`, f.gone && `${f.gone} gone`].filter(Boolean).join(", ");
+  return `Update ${f.name} (${changes})`;
+}
+
 const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
 
 /** Letting GrooveKit hear the library and the user's reference tracks: the one-time download,
     then how much has been heard, and the styles with their analysis. */
 function Listening({ status }: { status?: ListeningStatus }) {
-  const styles = useListeningStatus().styles;
+  const { styles, references } = useListeningStatus();
   if (!status) return null;
   const { models, index, styles: analysis } = status;
+  const toHear = references?.folders.filter(needsHearing) ?? [];
 
   const addFolder = () => {
     if (inDesktopApp)
-      void pickFolder("Choose a folder of reference tracks").then((path) => path && void addStyle(path));
+      void pickFolder("Choose a folder of reference tracks", references?.exists ? references.folder : undefined).then((path) => path && void addStyle(path));
   };
 
   return (
@@ -638,6 +662,18 @@ function Listening({ status }: { status?: ListeningStatus }) {
           <span className="shrink-0 text-faint tabular">{s.tracks} tracks{s.tempo ? `, ${Math.round(s.tempo.min)}–${Math.round(s.tempo.max)} BPM` : ""}</span>
           <button type="button" className="text-faint opacity-0 group-hover:opacity-100 hover:text-rec" title="Remove style"
             onClick={() => void removeStyle(s.name)}><X size={10} /></button>
+        </div>
+      ))}
+
+      {models.ready && toHear.map((f) => (
+        <div key={f.path} className="flex items-center gap-1" title={f.path}>
+          <FolderPlus size={10} className="shrink-0 text-agent" />
+          <span className="min-w-0 flex-1 truncate text-fg">{f.name}</span>
+          <span className="shrink-0 text-faint tabular">
+            {f.style ? [f.unheard && `${f.unheard} new`, f.gone && `${f.gone} gone`].filter(Boolean).join(", ") : `${f.files} tracks, not heard yet`}
+          </span>
+          <button type="button" className="text-agent hover:text-fg disabled:opacity-40" disabled={analysis.running}
+            onClick={() => void addStyle(f.path)}>Hear</button>
         </div>
       ))}
 

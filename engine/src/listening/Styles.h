@@ -87,6 +87,25 @@ public:
 
     static std::filesystem::path getDefaultFolder();
 
+    /** Where the user keeps reference tracks, one folder per style: GROOVEKIT_REFERENCES, or
+        ~/Music/GrooveKit/References. */
+    static std::filesystem::path getReferencesFolder();
+
+    /** A folder of reference tracks in the references folder, and how it stands against the
+        style heard from it: tracks not heard yet (new or changed) and heard ones that are gone. */
+    struct ReferenceFolder
+    {
+        std::string name;
+        std::filesystem::path path;
+        int files = 0;
+        std::optional<std::string> style;
+        int unheard = 0, gone = 0;
+    };
+
+    /** The style folders in a references folder: every folder in it but Albums, Mixes and
+        Not used, which hold whole albums, full mixes and leftovers. */
+    std::vector<ReferenceFolder> referenceFolders (const std::filesystem::path& root) const;
+
     struct Progress
     {
         bool running = false;

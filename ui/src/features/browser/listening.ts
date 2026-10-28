@@ -1,5 +1,6 @@
-// GrooveKit's ears in the UI: the listening models, how much of the library has been heard, and
-// the user's styles (folders of reference tracks), kept up to date by "listening" notifications.
+// GrooveKit's ears in the UI: the listening models, how much of the library has been heard, the
+// user's styles (folders of reference tracks), kept up to date by "listening" notifications, and
+// the references folder that holds them.
 
 import { useEffect } from "react";
 import { create } from "zustand";
@@ -16,11 +17,32 @@ export interface Style {
   folder: string;
   tracks: number;
   tempo?: { median: number; min: number; max: number };
+  /** The style guide it goes with, by name. */
+  guide?: string | null;
+}
+
+/** A folder of reference tracks in the references folder, against the style heard from it. */
+export interface ReferenceFolder {
+  name: string;
+  path: string;
+  files: number;
+  style?: string | null;
+  /** Tracks not heard yet (new or changed), and heard ones no longer there. */
+  unheard: number;
+  gone: number;
+  guide?: string | null;
+}
+
+export interface References {
+  folder: string;
+  exists: boolean;
+  folders: ReferenceFolder[];
 }
 
 interface ListeningState {
   status?: ListeningStatus;
   styles: Style[];
+  references?: References;
 }
 
 export const useListening = create<ListeningState>(() => ({ styles: [] }));
@@ -28,7 +50,20 @@ export const useListening = create<ListeningState>(() => ({ styles: [] }));
 async function refreshStyles() {
   const r = await engine.call<{ styles: Style[] }>("styles.list");
   useListening.setState({ styles: r.styles });
+  await refreshReferences();
 }
+
+/** Reads the references folder again (its folders change on disk without the engine knowing). */
+export async function refreshReferences() {
+  const references = await engine.call<References>("styles.references");
+  useListening.setState({ references });
+  return references;
+}
+
+export const createReferences = () => call<References>("styles.createReferences").then((references) => useListening.setState({ references }));
+
+/** A folder in the references folder that has tracks GrooveKit hasn't heard, or has lost some. */
+export const needsHearing = (f: ReferenceFolder) => f.files > 0 && (!f.style || f.unheard > 0 || f.gone > 0);
 
 let lastStyleNames = "";
 

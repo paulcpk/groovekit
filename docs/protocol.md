@@ -106,7 +106,9 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `listening.status` | | `{ models: { ready, downloading, progress, totalBytes, error? }, index: { running, total, embedded, failed, samples, librarySize }, styles: { running, names, style?, tracks?, analysed?, failed?, error? } }` |
 | `listening.download` | | the status; downloads the listening models (ONNX Runtime, CLAP and htdemucs, about 400 MB) once into `<app data>/models/listening`, then hears the library. `listening` notifications follow |
 | `listening.index` | | the status; hears library samples that haven't been yet (the engine also does this when it starts and after scans) |
-| `styles.list` | | `{ styles: [{ name, folder, tracks, tempo? }], progress }` |
+| `styles.list` | | `{ styles: [{ name, folder, tracks, tempo?, guide }], progress }`; `guide`: the style guide with the same name, or null |
+| `styles.references` | | `{ folder, exists, folders: [{ name, path, files, style, unheard, gone, guide }] }`: the references folder (`~/Music/GrooveKit/References`, or `GROOVEKIT_REFERENCES`) and each style folder in it (not `Albums`, `Mixes` or `Not used`): its audio files, the style heard from it, tracks new or changed since (`unheard`) and gone, and the guide with its name. Tracks are recognised by name, size and date, so a moved folder isn't heard again |
+| `styles.createReferences` | | the same, after creating the folder |
 | `styles.add` | `path` (a folder of reference tracks), `name?` (default: the folder's) | `{ name, progress }`; analyses the tracks in the background (separated into drums, bass and the rest, about 15 s a track), saving the style after each. Adding a folder again only analyses new and changed tracks |
 | `styles.remove` | `name` | `{ removed }` |
 | `styles.describe` | `name` | `{ name, folder, tracks, trackNames, tempo: { median, min, max }, swing, onsetsPerBeat, lufs, balance (ten bands, dB of the mix), levels (each part against the mix, dB), sounds: { part: words } }` |

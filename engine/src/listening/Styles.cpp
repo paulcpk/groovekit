@@ -5,6 +5,7 @@
 #include "library/SampleFeatures.h"
 
 #include <fstream>
+#include <set>
 
 namespace gk::listening
 {
@@ -34,6 +35,33 @@ namespace
     int64_t modifiedTime (const std::filesystem::path& p)
     {
         return static_cast<int64_t> (std::filesystem::last_write_time (p).time_since_epoch().count());
+    }
+
+    /** Whether a track heard before is this file, unchanged: by its name, size and date rather
+        than its path, so a folder that moved isn't heard again. */
+    bool isSameFile (const StyleProfile::Track& t, const std::filesystem::path& file, int64_t size, int64_t modified, int version)
+    {
+        return std::filesystem::path (t.path).filename() == file.filename() && t.size == size && t.modified == modified && t.analysis == version;
+    }
+
+    /** The audio files in a folder and the folders inside it, sorted. */
+    std::vector<std::filesystem::path> audioFilesIn (const std::filesystem::path& folder)
+    {
+        std::vector<std::filesystem::path> files;
+        std::error_code ec;
+
+        for (auto it = std::filesystem::recursive_directory_iterator (folder, std::filesystem::directory_options::skip_permission_denied, ec);
+             it != std::filesystem::recursive_directory_iterator(); it.increment (ec))
+        {
+            if (ec)
+                break;
+
+            if (it->is_regular_file (ec) && isAudioFile (it->path()) && ! it->path().filename().string().starts_with ("._"))
+                files.push_back (it->path());
+        }
+
+        std::sort (files.begin(), files.end());
+        return files;
     }
 
     std::string encode (const Embedding& e)
@@ -341,6 +369,72 @@ std::filesystem::path Styles::getDefaultFolder()
     return EngineContext::getAppDataFolder() / "styles";
 }
 
+std::filesystem::path Styles::getReferencesFolder()
+{
+    if (auto env = std::getenv ("GROOVEKIT_REFERENCES"))
+        return env;
+
+    auto music = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    return std::filesystem::path (music.getFullPathName().toStdString()) / "GrooveKit" / "References";
+}
+
+std::vector<Styles::ReferenceFolder> Styles::referenceFolders (const std::filesystem::path& root) const
+{
+    static const std::set<std::string> notStyles { "albums", "mixes", "not used" };
+    std::vector<ReferenceFolder> folders;
+    std::error_code ec;
+
+    for (auto& entry : std::filesystem::directory_iterator (root, ec))
+    {
+        const auto name = entry.path().filename().string();
+
+        if (! entry.is_directory (ec) || name.starts_with (".") || notStyles.contains (juce::String (name).toLowerCase().toStdString()))
+            continue;
+
+        ReferenceFolder folder { name, entry.path() };
+        const auto files = audioFilesIn (entry.path());
+        folder.files = static_cast<int> (files.size());
+
+        // The style heard from this folder (wherever the folder was when it was added, by name).
+        std::shared_ptr<const StyleProfile> profile;
+        {
+            std::lock_guard lock (mutex);
+
+            for (auto& [styleName, p] : profiles)
+                if (std::filesystem::equivalent (p->folder, entry.path(), ec) || (! profile && styleName == name))
+                    profile = p;
+        }
+
+        if (profile != nullptr)
+        {
+            folder.style = profile->name;
+
+            for (auto& file : files)
+            {
+                const auto size = static_cast<int64_t> (std::filesystem::file_size (file, ec));
+                const auto modified = modifiedTime (file);
+                const bool heard = std::any_of (profile->tracks.begin(), profile->tracks.end(), [&] (auto& t)
+                {
+                    return isSameFile (t, file, size, modified, analysisVersion);
+                });
+                folder.unheard += heard ? 0 : 1;
+            }
+
+            for (auto& track : profile->tracks)
+                folder.gone += std::any_of (files.begin(), files.end(), [&] (auto& f) { return f.filename() == std::filesystem::path (track.path).filename(); }) ? 0 : 1;
+        }
+        else
+        {
+            folder.unheard = folder.files;
+        }
+
+        folders.push_back (std::move (folder));
+    }
+
+    std::sort (folders.begin(), folders.end(), [] (auto& a, auto& b) { return juce::String (a.name).compareNatural (juce::String (b.name)) < 0; });
+    return folders;
+}
+
 std::filesystem::path Styles::fileFor (const std::string& name) const
 {
     auto safe = juce::File::createLegalFileName (juce::String (name)).toStdString();
@@ -442,20 +536,8 @@ void Styles::analyse (StyleProfile profile, ProgressCallback callback)
             callback (now);
     };
 
-    std::vector<std::filesystem::path> files;
+    const auto files = audioFilesIn (profile.folder);
     std::error_code ec;
-
-    for (auto it = std::filesystem::recursive_directory_iterator (profile.folder, std::filesystem::directory_options::skip_permission_denied, ec);
-         it != std::filesystem::recursive_directory_iterator(); it.increment (ec))
-    {
-        if (ec)
-            break;
-
-        if (it->is_regular_file (ec) && isAudioFile (it->path()) && ! it->path().filename().string().starts_with ("._"))
-            files.push_back (it->path());
-    }
-
-    std::sort (files.begin(), files.end());
     report ([&] (Progress& p) { p.tracks = static_cast<int> (files.size()); });
 
     std::string error;
@@ -476,12 +558,13 @@ void Styles::analyse (StyleProfile profile, ProgressCallback callback)
             const auto modified = modifiedTime (file);
             auto cached = std::find_if (profile.tracks.begin(), profile.tracks.end(), [&] (auto& t)
             {
-                return t.path == file.string() && t.size == size && t.modified == modified && t.analysis == analysisVersion;
+                return isSameFile (t, file, size, modified, analysisVersion);
             });
 
             if (cached != profile.tracks.end())
             {
                 tracks.push_back (*cached);
+                tracks.back().path = file.string();
                 report ([] (Progress& p) { ++p.analysed; });
             }
             else

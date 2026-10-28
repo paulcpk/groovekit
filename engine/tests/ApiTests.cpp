@@ -219,6 +219,29 @@ TEST_CASE ("The API listens to samples and styles once the models are there")
     CHECK_THAT (call (handler, "styles.add", { { "path", root.string() } })["error"]["message"].get<std::string>(), ContainsSubstring ("downloaded"));
     CHECK (call (handler, "styles.list", Json::object())["result"]["styles"].empty());
 
+    // The references folder: offered until it exists, then one entry per style folder in it
+    // (not albums, mixes or leftovers), each with the guide it goes with.
+    handler.referencesFolder = root / "References";
+    std::filesystem::remove_all (handler.referencesFolder);
+    CHECK (call (handler, "styles.references", Json::object())["result"]["exists"] == false);
+    auto references = call (handler, "styles.createReferences", Json::object())["result"];
+    CHECK (references["exists"] == true);
+    CHECK (references["folders"].empty());
+
+    for (auto folder : { "Berlin Techno", "Albums", "Mixes", "Not used" })
+        std::filesystem::create_directories (handler.referencesFolder / folder / "From mixes");
+
+    std::filesystem::copy_file (test::repoRoot() / "tests" / "fixtures" / "samples" / "kick.wav", handler.referencesFolder / "Berlin Techno" / "kick.wav");
+    std::filesystem::copy_file (test::repoRoot() / "tests" / "fixtures" / "samples" / "hat.wav", handler.referencesFolder / "Berlin Techno" / "From mixes" / "hat.wav");
+    std::filesystem::copy_file (test::repoRoot() / "tests" / "fixtures" / "samples" / "hat.wav", handler.referencesFolder / "Albums" / "hat.wav");
+    references = call (handler, "styles.references", Json::object())["result"];
+    REQUIRE (references["folders"].size() == 1);
+    CHECK (references["folders"][0]["name"] == "Berlin Techno");
+    CHECK (references["folders"][0]["files"] == 2);
+    CHECK (references["folders"][0]["unheard"] == 2);
+    CHECK (references["folders"][0]["style"].is_null());
+    CHECK (references["folders"][0]["guide"] == "berlin-techno");
+
     // Verdicts are kept, under the library's name for the file.
     auto kick = (root / "samples" / "Deep Kick.wav").string();
     CHECK (call (handler, "library.rate", { { "path", kick }, { "style", "Techno" }, { "fits", false } })["result"]["fits"] == false);

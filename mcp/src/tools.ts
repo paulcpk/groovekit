@@ -424,9 +424,9 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "styles",
     {
-      description: "The user's styles: folders of reference tracks GrooveKit has listened to. list (with listening status: models, library indexing, a running analysis), describe (tempo range, swing, onsets per beat, loudness, spectral balance, each part's level against the mix, and words for what each part sounds like), add (analyses a folder of tracks in the background, about 15 s per track; adding it again picks up new tracks), remove. download fetches the listening models (about 400 MB): only when the user has agreed to it.",
+      description: "The user's styles: folders of reference tracks GrooveKit has listened to. list (with listening status: models, library indexing, a running analysis), describe (tempo range, swing, onsets per beat, loudness, spectral balance, each part's level against the mix, and words for what each part sounds like), add (analyses a folder of tracks in the background, about 15 s per track; adding it again picks up new tracks), remove. download fetches the listening models (about 400 MB): only when the user has agreed to it. references lists the folders in the user's references folder (~/Music/GrooveKit/References, one folder per style, named like its guide): each with its file count, the style heard from it, how many tracks are new or gone since, and its guide; add a folder that has new tracks to hear them.",
       inputSchema: {
-        action: z.enum(["list", "describe", "add", "remove", "download"]),
+        action: z.enum(["list", "references", "describe", "add", "remove", "download"]),
         name: z.string().optional().describe("The style, for describe and remove; for add, a name (default: the folder's)"),
         path: z.string().optional().describe("Folder of reference tracks, for add"),
       },
@@ -436,6 +436,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
         if (action === "download") return engine.call("listening.download", {});
         if (action === "add") return engine.call("styles.add", { path, ...(name ? { name } : {}) });
         if (action === "list") return { ...((await engine.call("styles.list", {})) as object), listening: await engine.call("listening.status", {}) };
+        if (action === "references") return engine.call("styles.references", {});
         return engine.call(`styles.${action}`, { name });
       })
   );

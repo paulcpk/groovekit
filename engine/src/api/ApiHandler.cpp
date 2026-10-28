@@ -1919,10 +1919,30 @@ Json ApiHandler::callListening (const std::string& method, const Json& params)
                 {
                     auto m = profile->measurements();
                     list.push_back ({ { "name", profile->name }, { "folder", profile->folder.string() }, { "tracks", profile->tracks.size() },
-                                      { "tempo", m.value ("tempo", Json()) } });
+                                      { "tempo", m.value ("tempo", Json()) }, { "guide", guideFor (profile->name) } });
                 }
 
             return { { "styles", list }, { "progress", listening->getStatus()["styles"] } };
+        }
+
+        // The references folder (one folder of tracks per style) and how each folder stands.
+        if (method == "styles.references" || method == "styles.createReferences")
+        {
+            const auto root = referencesFolder.empty() ? listening::Styles::getReferencesFolder() : referencesFolder;
+
+            if (method == "styles.createReferences")
+                std::filesystem::create_directories (root);
+
+            auto folders = Json::array();
+            std::error_code ec;
+
+            if (std::filesystem::is_directory (root, ec))
+                for (auto& f : listening->getStyles().referenceFolders (root))
+                    folders.push_back ({ { "name", f.name }, { "path", f.path.string() }, { "files", f.files },
+                                         { "style", f.style ? Json (*f.style) : Json() }, { "unheard", f.unheard }, { "gone", f.gone },
+                                         { "guide", guideFor (f.name) } });
+
+            return { { "folder", root.string() }, { "exists", std::filesystem::is_directory (root, ec) }, { "folders", folders } };
         }
 
         if (method == "styles.add")
@@ -2105,6 +2125,14 @@ Json ApiHandler::callNotes (const std::string& method, const Json& params)
     }
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+Json ApiHandler::guideFor (const std::string& styleName)
+{
+    if (auto guide = guides::GuideStore (guides::GuideStore::getDefaultFolder()).find (styleName))
+        return guide->id;
+
+    return {};
 }
 
 Json ApiHandler::callGuides (const std::string& method, const Json& params)

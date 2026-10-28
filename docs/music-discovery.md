@@ -19,7 +19,7 @@ agent can't do this, as it has no web access.
    - Singles go into `~/Music/GrooveKit/References/<Style>/` and albums stay whole in `Albums/`, with only their picks copied into the style folders.
    - The rest goes into `Not used/`.
 6. **Slice the mixes:** up to five 90-second slices per mix from its steadiest stretches go into `<Style>/From mixes/`; then the user deletes the full mixes.
-7. **Hand over:** add the style folder (not `References` itself) as a style in GrooveKit; its name matches the guide's.
+7. **Hand over:** the browser's Style menu offers to hear the new or changed style folders in `~/Music/GrooveKit/References`; a folder's name matches its guide's.
 
 ## Scripts
 

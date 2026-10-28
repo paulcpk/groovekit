@@ -88,8 +88,9 @@ to delete the full mixes (`References/Mixes`) themselves; you can't use the Tras
 
 ## 7. Hand it to GrooveKit
 
-The user adds the style folder in the browser's Style menu (or `styles.add` with its path), and
-GrooveKit hears it. Add each style folder on its own, never `References` itself, which would also
+GrooveKit finds the style folders in `~/Music/GrooveKit/References` (`styles.references`, or the
+`styles` tool's references action): the browser's Style menu offers "Hear <Style>" for new folders and
+"Update <Style>" for changed ones, and the user clicks it (or `styles.add` with its path). Add each style folder on its own, never `References` itself, which would also
 hear the albums, mixes and leftovers. GrooveKit remembers the folder's path, so a moved folder must
 be added again. Adding a folder again updates it, hearing only what changed. Report:
 - the counts per folder;
