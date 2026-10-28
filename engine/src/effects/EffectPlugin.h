@@ -21,6 +21,9 @@ public:
     bool takesAudioInput() override                     { return true; }
     bool takesMidiInput() override                      { return true; }
     int getNumOutputChannelsGivenInputs (int) override  { return 2; }
+
+    /** Keyed by another track (a sidechain), its sound comes in on inputs 3 and 4. */
+    void getChannelNames (juce::StringArray* ins, juce::StringArray* outs) override;
     void deinitialise() override {}
 
     /** What it measures for the UI (see `mixer.meter`): nothing unless the effect overrides it.

@@ -46,6 +46,7 @@ namespace
             createChannels();
             createPatternClips();
             createAudioClips();
+            connectSidechains();
             createAutomation();
             result.outputLatencySeconds = computeOutputLatency();
             return std::move (result);
@@ -163,6 +164,35 @@ namespace
             auto timeSig = edit->tempoSequence.getTimeSig (0);
             timeSig->numerator = project.timeSignature.numerator;
             timeSig->denominator = project.timeSignature.denominator;
+        }
+
+        /** Effects keyed by another channel or insert hear its track on two more inputs. */
+        void connectSidechains()
+        {
+            for (auto& insert : project.mixer.inserts)
+            {
+                for (auto& effect : insert.effects)
+                {
+                    auto builtin = std::get_if<BuiltinEffect> (&effect);
+
+                    if (builtin == nullptr || ! builtin->sidechain)
+                        continue;
+
+                    te::AudioTrack* source = nullptr;
+
+                    if (auto it = result.insertTracks.find (*builtin->sidechain); it != result.insertTracks.end())
+                        source = it->second;
+                    else if (auto ch = result.channelTracks.find (*builtin->sidechain); ch != result.channelTracks.end())
+                        source = ch->second;
+
+                    if (source == nullptr)
+                        continue;
+
+                    auto* plugin = effectPlugins.at (insert.id).at (builtin->id).plugin;
+                    plugin->setSidechainSourceID (source->itemID);
+                    plugin->guessSidechainRouting();
+                }
+            }
         }
 
         /** Insert tracks: [aux return] effects, pre-fader sends, fader, post-fader sends. */

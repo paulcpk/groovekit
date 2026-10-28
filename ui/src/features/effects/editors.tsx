@@ -4,7 +4,7 @@
 import type { BuiltinEffect, Insert } from "@groovekit/schema/project";
 import { useMemo } from "react";
 import { useCatalogue } from "@/lib/catalogue";
-import { useEngine } from "@/state/engine";
+import { execute, useEngine } from "@/state/engine";
 import { ParamKnob, paramValue } from "./params";
 import { useEffectWaveform } from "./useEffectOutput";
 
@@ -24,6 +24,39 @@ export function Screen({ children, label }: { children: React.ReactNode; label?:
       {label && <div className="pointer-events-none absolute top-1.5 right-2 text-2xs text-faint tabular">{label}</div>}
       <svg viewBox={`0 0 ${W} ${H}`} className="block w-full select-none">{children}</svg>
     </div>
+  );
+}
+
+/** Which channel or insert drives an effect (its sidechain), or its own input. Channels that play
+    audio clips key from their insert instead; the engine refuses inserts that hear the effect. */
+export function SidechainPicker({ insert, effect }: EditorProps) {
+  const doc = useEngine((s) => s.doc)!;
+  const playsAudio = new Set(doc.playlist.clips.flatMap((c) => (c.type === "audio" ? [c.channel] : [])));
+  const channels = doc.channels.filter((c) => !playsAudio.has(c.id));
+  const inserts = doc.mixer.inserts.filter((i) => i.id !== insert.id && i.id !== "master");
+  const current = effect.sidechain ?? "";
+
+  return (
+    <label className="flex items-center gap-2 text-2xs text-dim" title="What the effect listens to: its own input, or another channel or insert (a kick, to make the rest duck under it)">
+      Key
+      <select value={current}
+        onChange={(e) => void execute({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { sidechain: e.target.value || null } },
+          { label: e.target.value ? `Key from ${e.target.value}` : "Key from its own input" })}
+        className={`h-6 rounded-[3px] bg-control px-1 text-xs outline-none ${current ? "text-accent" : "text-fg"}`}>
+        <option value="">Its own input</option>
+        {channels.length > 0 && (
+          <optgroup label="Channels">
+            {channels.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
+          </optgroup>
+        )}
+        {inserts.length > 0 && (
+          <optgroup label="Inserts">
+            {inserts.map((i) => <option key={i.id} value={i.id}>{i.name || i.id}</option>)}
+          </optgroup>
+        )}
+      </select>
+      {current && <span className="text-faint">ducks when it plays</span>}
+    </label>
   );
 }
 

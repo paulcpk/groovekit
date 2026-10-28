@@ -16,7 +16,11 @@ struct Sample
 {
     juce::AudioBuffer<float> audio;
     double sampleRate = 0;
+    /** Seconds here per second of the file it came from (processing can stretch it). */
+    double timeScale = 1;
 };
+
+struct Processing;
 
 /** Decodes audio files once and shares them between every sampler that uses them.
     Entries are reloaded when the file's modification time changes.
@@ -29,9 +33,9 @@ public:
     /** Throws std::runtime_error if the file can't be read. */
     std::shared_ptr<const Sample> load (const std::filesystem::path&);
 
-    /** The sample with its transients shaped (see shapeTransients), made once and shared while
-        it's in use. */
-    std::shared_ptr<const Sample> shaped (const std::shared_ptr<const Sample>&, float punch, float tail);
+    /** The sample with processing worked in (see Processing), made once and shared while it's
+        in use. */
+    std::shared_ptr<const Sample> processed (const std::shared_ptr<const Sample>&, const Processing&);
 
     void clear();
 
@@ -44,8 +48,8 @@ private:
 
     std::mutex mutex;
     std::map<std::filesystem::path, Entry> entries;
-    struct Shaped { std::weak_ptr<const Sample> source, shaped; };
-    std::map<std::tuple<const Sample*, float, float>, Shaped> shapedEntries;
+    struct Processed { std::weak_ptr<const Sample> source, processed; };
+    std::map<std::pair<const Sample*, std::string>, Processed> processedEntries;
     juce::AudioFormatManager formats;
 
     SampleCache();

@@ -25,6 +25,8 @@ namespace
   ],
   "compressor": [
     { "name": "Gentle glue", "params": { "thresholdDb": -18, "ratio": 2, "attackMs": 30, "releaseMs": 150, "outputDb": 2, "kneeDb": 6 } },
+    { "name": "Sidechain pump (key it from the kick)", "params": { "thresholdDb": -30, "ratio": 10, "attackMs": 0.5, "releaseMs": 160, "outputDb": 0, "kneeDb": 6 } },
+    { "name": "Subtle sidechain duck (key it from the kick)", "params": { "thresholdDb": -24, "ratio": 4, "attackMs": 2, "releaseMs": 90, "outputDb": 0, "kneeDb": 8 } },
     { "name": "Mix bus glue", "params": { "thresholdDb": -14, "ratio": 2, "attackMs": 30, "releaseMs": 300, "outputDb": 2, "kneeDb": 10, "detectLowCut": 90 } },
     { "name": "Drum bus", "params": { "thresholdDb": -20, "ratio": 4, "attackMs": 10, "releaseMs": 100, "outputDb": 4, "kneeDb": 3 } },
     { "name": "Kick punch", "params": { "thresholdDb": -16, "ratio": 4, "attackMs": 30, "releaseMs": 80, "outputDb": 3, "kneeDb": 2 } },
@@ -38,6 +40,8 @@ namespace
     { "name": "Smash", "params": { "thresholdDb": -35, "ratio": 10, "attackMs": 0.3, "releaseMs": 50, "outputDb": 10 } }
   ],
   "multiband": [
+    { "name": "Master only: glue and ceiling", "params": { "bandsMode": 1, "masterThresholdDb": -14, "masterRatio": 2, "masterAttackMs": 20,
+      "masterReleaseMs": 200, "masterGainDb": 2, "ceilingDb": -0.3 } },
     { "name": "Gentle master", "params": { "bands": 0, "lowFreq": 120, "highFreq": 5000, "kneeDb": 12, "detect": 1,
       "band1ThresholdDb": -20, "band1Ratio": 1.8, "band1AttackMs": 30, "band1ReleaseMs": 250,
       "band2ThresholdDb": -18, "band2Ratio": 1.5, "band2AttackMs": 15, "band2ReleaseMs": 180,
@@ -164,6 +168,21 @@ namespace
     { "name": "Metallic", "params": { "bits": 10, "rateHz": 3000, "tone": 9000 } },
     { "name": "Noisy and broken", "params": { "driveDb": 8, "bits": 5, "rateHz": 6000, "jitter": 60, "tone": 7000, "outputDb": -6 } },
     { "name": "Destroyed", "params": { "driveDb": 12, "bits": 2, "rateHz": 1500, "jitter": 20, "tone": 5000, "outputDb": -10 } }
+  ],
+  "duck": [
+    { "name": "Quarter pump", "params": { "sync": 2, "depth": 85, "attackMs": 3, "holdMs": 15, "release": 55, "curve": 60 } },
+    { "name": "Gentle breathing", "params": { "sync": 2, "depth": 45, "attackMs": 10, "holdMs": 0, "release": 70, "curve": 30 } },
+    { "name": "Hard pump", "params": { "sync": 2, "depth": 100, "attackMs": 1, "holdMs": 40, "release": 45, "curve": 80 } },
+    { "name": "Eighth stutter", "params": { "sync": 1, "depth": 90, "attackMs": 1, "holdMs": 30, "release": 40, "curve": 50 } },
+    { "name": "Half-bar swell", "params": { "sync": 3, "depth": 80, "attackMs": 5, "holdMs": 50, "release": 90, "curve": 20 } },
+    { "name": "Offbeat lift", "params": { "sync": 2, "depth": 60, "attackMs": 5, "holdMs": 20, "release": 45, "curve": 40, "offset": 50 } }
+  ],
+  "clipper": [
+    { "name": "Transparent peaks", "params": { "driveDb": 2, "ceilingDb": -0.3, "softness": 60 } },
+    { "name": "Loud master (before the limiter)", "params": { "driveDb": 4, "ceilingDb": -1, "softness": 40 } },
+    { "name": "Drum bus punch", "params": { "driveDb": 6, "ceilingDb": -2, "softness": 20 } },
+    { "name": "Hard clip", "params": { "driveDb": 10, "ceilingDb": -3, "softness": 0, "outputDb": 2 } },
+    { "name": "Warm saturation", "params": { "driveDb": 8, "ceilingDb": -4, "softness": 100, "outputDb": 3 } }
   ],
   "stereo": [
     { "name": "Neutral", "params": {} },

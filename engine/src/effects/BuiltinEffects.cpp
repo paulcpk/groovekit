@@ -4,6 +4,7 @@
 #include "Effects.h"
 #include "EqPlugin.h"
 #include "Saturation.h"
+#include "Shapers.h"
 #include "StereoPlugin.h"
 #include "mixer/LimiterPlugin.h"
 
@@ -54,8 +55,8 @@ namespace
                           "lift quiet parts up, for dense, upfront sound), with its own gain and a mode (on, bypass, solo or mute). "
                           "With three bands, band1-3 are low, mid and high; with four, low, low mid, high mid and high. bandNWidth sets each band's stereo width "
                           "(0 mono, 100 as it is, 200 twice as wide; mono lows keep a club mix solid). Then the master: outputDb drives the sum into a master "
-                          "compressor (masterThresholdDb, masterRatio, masterAttackMs, masterReleaseMs, masterGainDb as make-up) and ceilingDb, a limit no "
-                          "peak passes. lowCutHz cuts the lows before it all (20 is off).",
+                          "compressor (masterThresholdDb, masterRatio, masterBelowDb and masterBelowRatio to lift quiet parts, masterAttackMs, masterReleaseMs, masterGainDb as make-up) and ceilingDb, a limit no "
+                          "peak passes. lowCutHz cuts the lows before it all (20 is off). bandsMode bypass leaves the bands alone, for the master section only.",
                           {
                               { "bands", "", 0, 1, 0, "How many bands (an index into the choices).", "bands", nullptr, nullptr, { "3", "4" } },
                               { "lowFreq", "Hz", 20, 2000, 150, "Crossover between the low band and the next.", "lowFreq" },
@@ -105,6 +106,11 @@ namespace
             const auto id = keep ("band" + std::to_string (b + 1) + "Width");
             info.params.push_back ({ id, "%", 0, 200, 100, "The band's stereo width: 0 mono, 100 as it is, 200 twice as wide.", id });
         }
+
+        info.params.push_back ({ "masterBelowDb", "dB", -80, 0, -40, "Level below which the master lifts quiet parts (with a below ratio over 1).", "masterBelowDb" });
+        info.params.push_back ({ "masterBelowRatio", ":1", 1, 10, 1, "The master's upward ratio below masterBelowDb, lifting at most 24 dB; 1 is off.", "masterBelowRatio" });
+        info.params.push_back ({ "bandsMode", "", 0, 1, 0, "on, or bypass (an index into the choices): bypassed, the bands pass as they came and only the master section works (master only).",
+                                 "bandsMode", nullptr, nullptr, { "on", "bypass" } });
 
         return info;
     }
@@ -226,6 +232,32 @@ namespace
                   { "delayMs", "ms", -20, 20, 0, "Delays one side: positive the right, negative the left. A few ms widens (Haas).", "delayMs" },
                   { "monoBelow", "Hz", 0, 500, 0, "Below this the sound is mono, keeping the bass centred; 0 is off.", "monoBelow" },
                   { "outputDb", "dB", -24, 12, 0, "Level after.", "outputDb" },
+              } },
+
+            { BuiltinEffectKind::duck, DuckPlugin::xmlTypeName,
+              "Duck: dips the volume on a tempo grid and swells back, the sidechain pump without a key (a bass or pad breathing with a "
+              "four-on-the-floor kick). Each period (sync) it falls by depth over attackMs, holds, then comes back over release (a share "
+              "of the period), bent by curve; offset moves the dip within the period. For pumping keyed by the kick itself, use a "
+              "compressor with a sidechain.",
+              {
+                  { "sync", "", 0, 4, 2, "How often it ducks (an index into the choices).", "sync", nullptr, nullptr, DuckPlugin::syncNames() },
+                  { "depth", "%", 0, 100, 80, "How far the volume dips.", "depth" },
+                  { "attackMs", "ms", 0, 50, 3, "How fast it dips.", "attackMs" },
+                  { "holdMs", "ms", 0, 200, 15, "How long it stays down.", "holdMs" },
+                  { "release", "%", 5, 100, 55, "How long it takes to come back, as a share of the period.", "release" },
+                  { "curve", "%", 0, 100, 50, "How it comes back: 0 straight, higher stays down longer and then swoops up.", "curve" },
+                  { "offset", "%", 0, 100, 0, "Where in the period the dip falls (0 on the beat).", "offset" },
+              } },
+
+            { BuiltinEffectKind::clipper, ClipperPlugin::xmlTypeName,
+              "Clipper: drives the sound into a ceiling no sample passes, from hard (softness 0) to a smooth knee, four times "
+              "oversampled. On drums or before the master limiter it takes the sharpest peaks off for loudness with less pumping; "
+              "a few dB of clipping is transparent, more is distortion.",
+              {
+                  { "driveDb", "dB", 0, 24, 0, "Gain into the clipper.", "driveDb" },
+                  { "ceilingDb", "dB", -12, 0, -0.3, "No sample passes this.", "ceilingDb" },
+                  { "softness", "%", 0, 100, 40, "0 clips hard, higher rounds the knee below the ceiling.", "softness" },
+                  { "outputDb", "dB", -12, 12, 0, "Level after.", "outputDb" },
               } },
 
             { BuiltinEffectKind::lowpass, tracktion::LowPassPlugin::xmlTypeName,

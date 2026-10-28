@@ -1,3 +1,4 @@
+#include "sampler/Processing.h"
 #include "sampler/SamplerEngine.h"
 
 #include <catch2/catch_approx.hpp>
@@ -651,5 +652,190 @@ TEST_CASE ("Grains move the pitch apart from the speed")
         h.run (static_cast<int> (3 * rate), { Harness::on (0, 60), Harness::off (static_cast<int> (2.5 * rate), 60) });
         CHECK (h.out.getRMSLevel (0, static_cast<int> (2.0 * rate), static_cast<int> (0.4 * rate)) > 0.1f);
         CHECK (h.out.getMagnitude (0, static_cast<int> (2.6 * rate), static_cast<int> (0.4 * rate)) == 0.0f);
+    }
+}
+
+TEST_CASE ("A shortened part ends in a natural decay")
+{
+    // 0.8 s at a steady level, shortened to a quarter: 0.2 s, full at first, fading to nothing.
+    auto l = layer (constantSample (static_cast<int> (0.8 * rate), 0.5f));
+    l.length = 0.25f;
+    Config config;
+    config.layers = { l };
+    Harness h (config);
+    h.run (static_cast<int> (0.4 * rate), { Harness::on (0, 60) });
+
+    const auto at = [&] (double seconds) { return h.out.getSample (0, static_cast<int> (seconds * rate)); };
+    CHECK (at (0.03) == Approx (0.5f));
+    CHECK (at (0.1) < 0.4f);
+    CHECK (at (0.1) > 0.1f);
+    CHECK (at (0.195) < 0.01f);
+    CHECK (h.out.getMagnitude (0, static_cast<int> (0.2 * rate) + 1, static_cast<int> (0.1 * rate)) == 0.0f);
+
+    // Every step down is small: no click.
+    float jump = 0;
+
+    for (int i = 1; i < static_cast<int> (0.21 * rate); ++i)
+        jump = std::max (jump, std::abs (h.out.getSample (0, i) - h.out.getSample (0, i - 1)));
+
+    CHECK (jump < 0.01f);
+}
+
+TEST_CASE ("A crossfaded loop comes round smoothly")
+{
+    // A ramp jumps from its top back to its bottom where it loops, unless crossfaded.
+    auto biggestJump = [] (int crossfade)
+    {
+        auto l = layer (rampSample (4800));
+        l.loop = Layer::Loop::forward;
+        l.oneShot = false;
+        l.crossfade = crossfade;
+        Config config;
+        config.layers = { l };
+        Harness h (config);
+        h.run (20000, { Harness::on (0, 60) });
+        float jump = 0;
+
+        for (int i = 6000; i < 20000; ++i)
+            jump = std::max (jump, std::abs (h.out.getSample (0, i) - h.out.getSample (0, i - 1)));
+
+        return jump;
+    };
+
+    CHECK (biggestJump (0) > 4.0f);
+    CHECK (biggestJump (1200) < 0.05f);
+}
+
+TEST_CASE ("Processing works effects into the sample")
+{
+    const auto tone = [] (double seconds, float hz, float level = 0.5f, int channels = 1)
+    {
+        Sample s;
+        s.sampleRate = rate;
+        s.audio.setSize (channels, static_cast<int> (seconds * rate));
+
+        for (int c = 0; c < channels; ++c)
+            for (int i = 0; i < s.audio.getNumSamples(); ++i)
+                s.audio.setSample (c, i, level * std::sin (juce::MathConstants<float>::twoPi * hz * static_cast<float> (i) / static_cast<float> (rate)));
+
+        return s;
+    };
+
+    // Frequency from zero crossings over a stretch of one channel.
+    const auto hz = [] (const juce::AudioBuffer<float>& b, int from, int to)
+    {
+        int crossings = 0;
+
+        for (int i = from + 1; i < to; ++i)
+            if ((b.getSample (0, i - 1) < 0) != (b.getSample (0, i) < 0))
+                ++crossings;
+
+        return crossings / 2.0 / ((to - from) / rate);
+    };
+
+    SECTION ("neutral settings change nothing")
+    {
+        CHECK (Processing {}.isNeutral());
+        Processing p;
+        p.boostDb = 1;
+        CHECK_FALSE (p.isNeutral());
+        CHECK (p.key() != Processing {}.key());
+    }
+
+    SECTION ("the silent end is trimmed, DC removed")
+    {
+        auto s = tone (0.5, 200);
+        s.audio.setSize (1, static_cast<int> (rate), true, true);
+        s.audio.applyGain (0, static_cast<int> (0.5 * rate), static_cast<int> (0.5 * rate), 0.0f);
+        Processing p;
+        p.trimDb = -60;
+        p.removeDc = true;
+
+        for (int i = 0; i < s.audio.getNumSamples(); ++i)
+            s.audio.setSample (0, i, s.audio.getSample (0, i) + 0.1f);
+
+        const auto out = process (s, p);
+        CHECK (out->audio.getNumSamples() == Approx (rate).margin (10)); // the offset kept it from being silent
+        double sum = 0;
+        for (int i = 0; i < out->audio.getNumSamples(); ++i) sum += out->audio.getSample (0, i);
+        CHECK (std::abs (sum / out->audio.getNumSamples()) < 1.0e-4);
+
+        auto quiet = tone (0.5, 200);
+        quiet.audio.setSize (1, static_cast<int> (rate), true, true);
+        Processing trim;
+        trim.trimDb = -60;
+        CHECK (process (quiet, trim)->audio.getNumSamples() == Approx (0.51 * rate).margin (50));
+    }
+
+    SECTION ("stretched: pitch and length apart")
+    {
+        Processing octave;
+        octave.stretchSemitones = 12;
+        const auto up = process (tone (1.0, 220), octave);
+        CHECK (up->audio.getNumSamples() == static_cast<int> (rate));
+        CHECK (hz (up->audio, 4800, 40000) == Approx (440).margin (6));
+
+        Processing longer;
+        longer.stretchLength = 2;
+        const auto twice = process (tone (1.0, 220), longer);
+        CHECK (twice->audio.getNumSamples() == static_cast<int> (2 * rate));
+        CHECK (twice->timeScale == Approx (2));
+        CHECK (hz (twice->audio, 4800, 80000) == Approx (220).margin (4));
+    }
+
+    SECTION ("bent: down towards the end, and longer for it")
+    {
+        Processing p;
+        p.pitchBend = 1;
+        const auto out = process (tone (1.0, 440), p);
+        CHECK (out->audio.getNumSamples() > static_cast<int> (1.3 * rate));
+        CHECK (hz (out->audio, 0, 4800) == Approx (440).margin (25));
+        const auto end = out->audio.getNumSamples();
+        CHECK (hz (out->audio, end - 4800, end) < 260);
+    }
+
+    SECTION ("boosted and clipped, darker, filtered, ring-modulated")
+    {
+        Processing loud;
+        loud.boostDb = 12;
+        loud.clip = true;
+        CHECK (process (tone (0.2, 100), loud)->audio.getMagnitude (0, 0, 9600) == Approx (1.0f));
+
+        auto highs = [&] (Processing p) { return process (tone (0.5, 8000, 0.5f), p)->audio.getRMSLevel (0, 4800, 9600); };
+        Processing dark, filtered;
+        dark.eq = -1;
+        filtered.cutoff = 1000;
+        CHECK (highs (dark) < 0.5f * highs ({ .boostDb = 0.0001f }));
+        CHECK (highs (filtered) < 0.05f);
+
+        Processing ring;
+        ring.ringMix = 1;
+        ring.ringHz = 50;
+        CHECK (process (tone (0.5, 1000), ring)->audio.getRMSLevel (0, 0, 24000) < 0.3f);
+    }
+
+    SECTION ("reverb adds a tail in stereo; delay and fade work the sides")
+    {
+        Processing wet;
+        wet.reverb = 1;
+        const auto out = process (tone (0.2, 300), wet);
+        CHECK (out->audio.getNumChannels() == 2);
+        CHECK (out->audio.getNumSamples() > static_cast<int> (0.5 * rate));
+        CHECK (out->timeScale == Approx (1));
+
+        Processing haas;
+        haas.stereoDelayMs = 10;
+        auto click = tone (0.1, 300);
+        click.audio.clear();
+        click.audio.setSample (0, 0, 1.0f);
+        const auto delayed = process (click, haas);
+        CHECK (delayed->audio.getSample (1, 0) == 1.0f);
+        CHECK (delayed->audio.getSample (0, 480) == 1.0f);
+
+        Processing across;
+        across.fadeStereo = true;
+        const auto faded = process (tone (1.0, 300), across);
+        CHECK (faded->audio.getRMSLevel (0, 0, 4800) > 10 * faded->audio.getRMSLevel (1, 0, 4800));
+        CHECK (faded->audio.getRMSLevel (1, 43200, 4800) > 10 * faded->audio.getRMSLevel (0, 43200, 4800));
     }
 }

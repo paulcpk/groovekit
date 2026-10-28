@@ -27,4 +27,18 @@ EffectPlugin::~EffectPlugin()
         p->detachFromCurrentValue();
 }
 
+void EffectPlugin::getChannelNames (juce::StringArray* ins, juce::StringArray* outs)
+{
+    if (outs != nullptr)
+        outs->addArray ({ "Left", "Right" });
+
+    if (ins != nullptr)
+    {
+        ins->addArray ({ "Left", "Right" });
+
+        if (getSidechainSourceID().isValid())
+            ins->addArray ({ "Sidechain left", "Sidechain right" });
+    }
+}
+
 } // namespace gk::effects

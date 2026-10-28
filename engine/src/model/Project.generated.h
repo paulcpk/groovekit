@@ -199,6 +199,36 @@ inline void readValue (Reader& r, const Json& j, SamplerLayerLoop& out)
     r.fail ("unknown value \"" + s + "\"");
 }
 
+enum class SampleProcessingReverbSize
+{
+    small,
+    large
+};
+
+inline const char* toString (SampleProcessingReverbSize v)
+{
+    switch (v)
+    {
+        case SampleProcessingReverbSize::small: return "small";
+        case SampleProcessingReverbSize::large: return "large";
+    }
+
+    return "";
+}
+
+inline Json toJson (SampleProcessingReverbSize v) { return toString (v); }
+
+inline void readValue (Reader& r, const Json& j, SampleProcessingReverbSize& out)
+{
+    std::string s;
+    readValue (r, j, s);
+
+    if (s == "small") { out = SampleProcessingReverbSize::small; return; }
+    if (s == "large") { out = SampleProcessingReverbSize::large; return; }
+
+    r.fail ("unknown value \"" + s + "\"");
+}
+
 enum class GrainsShape
 {
     smooth,
@@ -312,6 +342,8 @@ enum class BuiltinEffectKind
     exciter,
     bitcrusher,
     stereo,
+    duck,
+    clipper,
     lowpass,
     highpass
 };
@@ -332,6 +364,8 @@ inline const char* toString (BuiltinEffectKind v)
         case BuiltinEffectKind::exciter: return "exciter";
         case BuiltinEffectKind::bitcrusher: return "bitcrusher";
         case BuiltinEffectKind::stereo: return "stereo";
+        case BuiltinEffectKind::duck: return "duck";
+        case BuiltinEffectKind::clipper: return "clipper";
         case BuiltinEffectKind::lowpass: return "lowpass";
         case BuiltinEffectKind::highpass: return "highpass";
     }
@@ -358,6 +392,8 @@ inline void readValue (Reader& r, const Json& j, BuiltinEffectKind& out)
     if (s == "exciter") { out = BuiltinEffectKind::exciter; return; }
     if (s == "bitcrusher") { out = BuiltinEffectKind::bitcrusher; return; }
     if (s == "stereo") { out = BuiltinEffectKind::stereo; return; }
+    if (s == "duck") { out = BuiltinEffectKind::duck; return; }
+    if (s == "clipper") { out = BuiltinEffectKind::clipper; return; }
     if (s == "lowpass") { out = BuiltinEffectKind::lowpass; return; }
     if (s == "highpass") { out = BuiltinEffectKind::highpass; return; }
 
@@ -722,6 +758,92 @@ inline Json toJson (const Grains& v)
     return j;
 }
 
+/** Effects worked into the sample once, before it plays (notes only), in this order: the silent end trimmed, DC removed, stretched (pitch and length apart, at full quality), bent in pitch, ring-modulated, equalised, low-passed, boosted (clipped if asked), its transients shaped (the layer's punch and tail), reverb added (the sample gets its tail), then a stereo delay and a fade across the sides. Start and end stay where they were in the file, scaled with any change of length. */
+struct SampleProcessing
+{
+    /** Trims the end where the sample stays below this level for good (its quiet tail or noise); unset leaves it. */
+    std::optional<double> trimDb;
+    /** Takes out any DC offset, which can click and upset effects. */
+    bool removeDc = false;
+    /** Pitch shift with the length kept (Rubber Band, offline). */
+    double stretchSemitones = 0;
+    /** Length multiplied with the pitch kept: 2 is twice as long. */
+    double stretchLength = 1;
+    /** Bends the pitch down over the sample, up to an octave: positive falls towards the end (a tape stop), negative rises from below at the start. */
+    double pitchBend = 0;
+    /** How much ring modulation (the sound times a sine): metallic, bell-like. */
+    double ringMix = 0;
+    /** The ring modulator's frequency. */
+    double ringHz = 440;
+    /** Tilts the tone: negative darker (highs cut, up to 12 dB above 2.5 kHz), positive brighter. */
+    double eq = 0;
+    /** A low-pass worked into the sample, in Hz (20000 leaves it open). */
+    double cutoff = 20000;
+    /** The low-pass's peak at its cutoff, 0 to 1. */
+    double resonance = 0;
+    /** Gain worked into the sample, before the transients and reverb. */
+    double boostDb = 0;
+    /** Clips the boosted sample at 0 dB: hard, gritty distortion. */
+    bool clip = false;
+    /** How much reverb, worked into the sample with its tail. */
+    double reverb = 0;
+    /** small: close, in a tight room; large: far away, in a big space. */
+    SampleProcessingReverbSize reverbSize = SampleProcessingReverbSize::small;
+    /** Delays one side for width (Haas): positive the left side, negative the right. */
+    double stereoDelayMs = 0;
+    /** Fades from the left side to the right over the sample. */
+    bool fadeStereo = false;
+
+    bool operator== (const SampleProcessing&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, SampleProcessing& out)
+{
+    r.expectObject (j, { "trimDb", "removeDc", "stretchSemitones", "stretchLength", "pitchBend", "ringMix", "ringHz", "eq", "cutoff", "resonance", "boostDb", "clip", "reverb", "reverbSize", "stereoDelayMs", "fadeStereo" });
+
+    r.optional (j, "trimDb", [&] (const Json& v) { readValue (r, v, out.trimDb.emplace()); r.checkMin (*out.trimDb, -120); r.checkMax (*out.trimDb, -20); });
+    r.optional (j, "removeDc", [&] (const Json& v) { readValue (r, v, out.removeDc); });
+    r.optional (j, "stretchSemitones", [&] (const Json& v) { readValue (r, v, out.stretchSemitones); r.checkMin (out.stretchSemitones, -24); r.checkMax (out.stretchSemitones, 24); });
+    r.optional (j, "stretchLength", [&] (const Json& v) { readValue (r, v, out.stretchLength); r.checkMin (out.stretchLength, 0.25); r.checkMax (out.stretchLength, 4); });
+    r.optional (j, "pitchBend", [&] (const Json& v) { readValue (r, v, out.pitchBend); r.checkMin (out.pitchBend, -1); r.checkMax (out.pitchBend, 1); });
+    r.optional (j, "ringMix", [&] (const Json& v) { readValue (r, v, out.ringMix); r.checkMin (out.ringMix, 0); r.checkMax (out.ringMix, 1); });
+    r.optional (j, "ringHz", [&] (const Json& v) { readValue (r, v, out.ringHz); r.checkMin (out.ringHz, 20); r.checkMax (out.ringHz, 5000); });
+    r.optional (j, "eq", [&] (const Json& v) { readValue (r, v, out.eq); r.checkMin (out.eq, -1); r.checkMax (out.eq, 1); });
+    r.optional (j, "cutoff", [&] (const Json& v) { readValue (r, v, out.cutoff); r.checkMin (out.cutoff, 20); r.checkMax (out.cutoff, 20000); });
+    r.optional (j, "resonance", [&] (const Json& v) { readValue (r, v, out.resonance); r.checkMin (out.resonance, 0); r.checkMax (out.resonance, 1); });
+    r.optional (j, "boostDb", [&] (const Json& v) { readValue (r, v, out.boostDb); r.checkMin (out.boostDb, -24); r.checkMax (out.boostDb, 24); });
+    r.optional (j, "clip", [&] (const Json& v) { readValue (r, v, out.clip); });
+    r.optional (j, "reverb", [&] (const Json& v) { readValue (r, v, out.reverb); r.checkMin (out.reverb, 0); r.checkMax (out.reverb, 1); });
+    r.optional (j, "reverbSize", [&] (const Json& v) { readValue (r, v, out.reverbSize); });
+    r.optional (j, "stereoDelayMs", [&] (const Json& v) { readValue (r, v, out.stereoDelayMs); r.checkMin (out.stereoDelayMs, -30); r.checkMax (out.stereoDelayMs, 30); });
+    r.optional (j, "fadeStereo", [&] (const Json& v) { readValue (r, v, out.fadeStereo); });
+}
+
+inline Json toJson (const SampleProcessing& v)
+{
+    auto j = Json::object();
+
+    if (v.trimDb)
+        j["trimDb"] = toJson (*v.trimDb);
+
+    j["removeDc"] = toJson (v.removeDc);
+    j["stretchSemitones"] = toJson (v.stretchSemitones);
+    j["stretchLength"] = toJson (v.stretchLength);
+    j["pitchBend"] = toJson (v.pitchBend);
+    j["ringMix"] = toJson (v.ringMix);
+    j["ringHz"] = toJson (v.ringHz);
+    j["eq"] = toJson (v.eq);
+    j["cutoff"] = toJson (v.cutoff);
+    j["resonance"] = toJson (v.resonance);
+    j["boostDb"] = toJson (v.boostDb);
+    j["clip"] = toJson (v.clip);
+    j["reverb"] = toJson (v.reverb);
+    j["reverbSize"] = toJson (v.reverbSize);
+    j["stereoDelayMs"] = toJson (v.stereoDelayMs);
+    j["fadeStereo"] = toJson (v.fadeStereo);
+    return j;
+}
+
 struct SamplerLayer
 {
     Id id;
@@ -766,6 +888,11 @@ struct SamplerLayer
     /** Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it. */
     double tail = 0;
     Grains grains;
+    /** Shortens the part that plays to this share of it, its end bending into a natural decay so it doesn't sound cut off: a 0.8 s hit at 0.25 is a 0.2 s one (notes only; a looping part just loops the shorter part). */
+    double length = 1;
+    /** Seconds a forward loop crossfades over where it comes round, so the loop is smooth. */
+    double crossfade = 0;
+    std::optional<SampleProcessing> process;
     /** Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it. */
     std::optional<double> sourceTempo;
 
@@ -774,7 +901,7 @@ struct SamplerLayer
 
 inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
 {
-    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "loop", "fadeIn", "fadeOut", "normalize", "invert", "swapStereo", "punch", "tail", "grains", "sourceTempo" });
+    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "loop", "fadeIn", "fadeOut", "normalize", "invert", "swapStereo", "punch", "tail", "grains", "length", "crossfade", "process", "sourceTempo" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "sample", [&] (const Json& v) { readValue (r, v, out.sample); r.checkMinLength (out.sample, 1); });
@@ -800,6 +927,9 @@ inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
     r.optional (j, "punch", [&] (const Json& v) { readValue (r, v, out.punch); r.checkMin (out.punch, -1); r.checkMax (out.punch, 1); });
     r.optional (j, "tail", [&] (const Json& v) { readValue (r, v, out.tail); r.checkMin (out.tail, -1); r.checkMax (out.tail, 1); });
     r.optional (j, "grains", [&] (const Json& v) { readValue (r, v, out.grains); });
+    r.optional (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 0.01); r.checkMax (out.length, 1); });
+    r.optional (j, "crossfade", [&] (const Json& v) { readValue (r, v, out.crossfade); r.checkMin (out.crossfade, 0); r.checkMax (out.crossfade, 2); });
+    r.optional (j, "process", [&] (const Json& v) { readValue (r, v, out.process.emplace()); });
     r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
 }
 
@@ -833,6 +963,11 @@ inline Json toJson (const SamplerLayer& v)
     j["punch"] = toJson (v.punch);
     j["tail"] = toJson (v.tail);
     j["grains"] = toJson (v.grains);
+    j["length"] = toJson (v.length);
+    j["crossfade"] = toJson (v.crossfade);
+
+    if (v.process)
+        j["process"] = toJson (*v.process);
 
     if (v.sourceTempo)
         j["sourceTempo"] = toJson (*v.sourceTempo);
@@ -1395,6 +1530,8 @@ struct BuiltinEffect
     bool bypass = false;
     /** How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter "mix". */
     double mix = 1;
+    /** A channel or insert whose sound drives the effect instead of its own input (a compressor ducks when the kick hits). A channel that plays audio clips can't: key from its insert. An insert can't key from itself or from an insert it feeds. */
+    std::optional<Id> sidechain;
     /** Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults. */
     std::map<std::string, double> params;
 
@@ -1403,13 +1540,14 @@ struct BuiltinEffect
 
 inline void readValue (Reader& r, const Json& j, BuiltinEffect& out)
 {
-    r.expectObject (j, { "type", "id", "kind", "bypass", "mix", "params" });
+    r.expectObject (j, { "type", "id", "kind", "bypass", "mix", "sidechain", "params" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "builtin"); });
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "kind", [&] (const Json& v) { readValue (r, v, out.kind); });
     r.optional (j, "bypass", [&] (const Json& v) { readValue (r, v, out.bypass); });
     r.optional (j, "mix", [&] (const Json& v) { readValue (r, v, out.mix); r.checkMin (out.mix, 0); r.checkMax (out.mix, 1); });
+    r.optional (j, "sidechain", [&] (const Json& v) { readValue (r, v, out.sidechain.emplace()); r.checkPattern (*out.sidechain, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "params", [&] (const Json& v) { readValue (r, v, out.params); });
 }
 
@@ -1421,6 +1559,10 @@ inline Json toJson (const BuiltinEffect& v)
     j["kind"] = toJson (v.kind);
     j["bypass"] = toJson (v.bypass);
     j["mix"] = toJson (v.mix);
+
+    if (v.sidechain)
+        j["sidechain"] = toJson (*v.sidechain);
+
     j["params"] = toJson (v.params);
     return j;
 }

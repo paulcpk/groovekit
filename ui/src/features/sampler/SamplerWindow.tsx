@@ -15,9 +15,10 @@ import { ChannelBar } from "@/features/rack/ChannelBar";
 import { call, execute, useEngine } from "@/state/engine";
 import { setUi } from "@/state/ui";
 import type { OpenWindow } from "@/state/windows";
-import { DEFAULT_ENVELOPE, EnvelopeGraph, formatSeconds, positionToTime, timeToPosition } from "./EnvelopeGraph";
+import { DEFAULT_ENVELOPE, EnvelopeGraph } from "./EnvelopeGraph";
 import { FilterGraph } from "./FilterGraph";
 import { GrainsPanel } from "./GrainsPanel";
+import { ProcessPanel } from "./ProcessPanel";
 import { DEFAULT_LFO, LfoPanel, type LfoValues } from "./LfoPanel";
 import { Waveform } from "./Waveform";
 
@@ -190,12 +191,6 @@ function SampleTab({ channel, sampler, saved, color, first, clips, tempo }: {
     return <Knob size={30} color={color} {...rest}
       onChange={(v) => change({ [field]: snap(v) }, false)} onCommit={(v) => change({ [field]: snap(v) }, true)} />;
   };
-  const fadeKnob = (field: "fadeIn" | "fadeOut", label: string) => (
-    <Knob size={30} color={color} label={label} value={timeToPosition(layer[field] ?? 0)} min={0} max={1} defaultValue={0}
-      format={(p) => (positionToTime(p) ? formatSeconds(positionToTime(p)) : "Off")}
-      onChange={(p) => change({ [field]: positionToTime(p) }, false)} onCommit={(p) => change({ [field]: positionToTime(p) }, true)} />
-  );
-  const percent = (v: number) => (Math.abs(v) < 0.005 ? "Off" : `${v > 0 ? "+" : ""}${Math.round(v * 100)}%`);
 
   return (
     <div className="flex flex-col gap-3">
@@ -207,23 +202,19 @@ function SampleTab({ channel, sampler, saved, color, first, clips, tempo }: {
       </div>
       <Waveform
         path={layer.sample} start={layer.start ?? 0} end={layer.end ?? undefined} color={color}
-        shaping={{ reverse: !!layer.reverse, invert: layer.invert, normalize: layer.normalize, fadeIn: layer.fadeIn, fadeOut: layer.fadeOut, loop }}
+        processing={layer.process || layer.punch || layer.tail ? { process: layer.process, punch: layer.punch, tail: layer.tail } : undefined}
+        shaping={{ reverse: !!layer.reverse, invert: layer.invert, normalize: layer.normalize, fadeIn: layer.fadeIn, fadeOut: layer.fadeOut, loop, length: layer.length }}
         onRegion={(start, end, commit) => change({ start, end: end ?? (null as never) }, commit)}
         onPress={plays.press}
         onRelease={plays.release}
       />
       <div className="flex flex-wrap items-center gap-1.5">
-        <ToggleChip on={!!layer.reverse} label="Reverse" onClick={() => change({ reverse: !layer.reverse }, true, layer.reverse ? "Play forwards" : "Reverse")} />
         <div className="flex items-center gap-px" title="Loop the part that plays while the note is held">
           {(["off", "forward", "pingPong"] as const).map((l) => (
             <ToggleChip key={l} on={loop === l} tone={l === "off" ? "dim" : "accent"} label={{ off: "No loop", forward: "Loop", pingPong: "Ping-pong" }[l]}
               onClick={() => change({ loop: l }, true, l === "off" ? "No loop" : l === "forward" ? "Loop" : "Ping-pong loop")} />
           ))}
         </div>
-        <ToggleChip on={!!layer.normalize} label="Normalize" title="Bring the part that plays up to a peak of 0 dB"
-          onClick={() => change({ normalize: !layer.normalize }, true, "Normalize")} />
-        <ToggleChip on={!!layer.invert} label="Invert" title="Flip the polarity" onClick={() => change({ invert: !layer.invert }, true, "Invert polarity")} />
-        <ToggleChip on={!!layer.swapStereo} label="Swap L/R" title="Swap left and right" onClick={() => change({ swapStereo: !layer.swapStereo }, true, "Swap stereo")} />
         <div className="flex-1" />
         <ToggleChip on={layer.pitchTracking !== false} label="Follow keys" title="Pitch follows the key played; off, every key plays it at its own pitch"
           onClick={() => change({ pitchTracking: layer.pitchTracking === false }, true, "Pitch tracking")} />
@@ -256,15 +247,8 @@ function SampleTab({ channel, sampler, saved, color, first, clips, tempo }: {
           {knob("transpose", { label: "Pitch", value: layer.transpose ?? 0, min: -24, max: 24, defaultValue: 0, bipolar: true, format: (v) => `${Math.round(v)} st`, snap: Math.round })}
           {knob("fineTune", { label: "Fine", value: layer.fineTune ?? 0, min: -100, max: 100, defaultValue: 0, bipolar: true, format: (v) => `${Math.round(v)} ct`, snap: Math.round })}
         </Section>
-        <Section title="Fades">
-          {fadeKnob("fadeIn", "In")}
-          {fadeKnob("fadeOut", "Out")}
-        </Section>
-        <Section title="Transients">
-          {knob("punch", { label: "Punch", title: "Sharpens each hit's attack, or softens it", value: layer.punch ?? 0, min: -1, max: 1, defaultValue: 0, bipolar: true, format: percent })}
-          {knob("tail", { label: "Tail", title: "Brings up what rings on after each hit, or tightens it", value: layer.tail ?? 0, min: -1, max: 1, defaultValue: 0, bipolar: true, format: percent })}
-        </Section>
       </div>
+      <ProcessPanel layer={layer} color={color} change={change} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-2xs text-dim">
         <label className="flex items-center gap-1">Root
           <DragNumber value={key} min={0} max={127} pixelsPerStep={5} format={noteName} className="text-fg" onCommit={(v) => change({ rootKey: v }, true, "Root key")} />

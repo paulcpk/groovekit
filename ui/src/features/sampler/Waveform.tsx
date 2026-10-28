@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { startDrag } from "@/lib/drag";
-import { useWave, type Wave } from "@/lib/peaks";
+import { useWave, type Wave, type WaveProcessing } from "@/lib/peaks";
 import { formatSeconds } from "./EnvelopeGraph";
 
 /** How a layer changes the sound before it plays, drawn over its wave. */
@@ -11,6 +11,17 @@ export interface WaveShaping {
   fadeIn?: number;
   fadeOut?: number;
   loop?: "off" | "forward" | "pingPong";
+  /** The share of the part that plays, its end decaying naturally. */
+  length?: number;
+}
+
+/** How a shortened part ends (sampler::naturalDecay): full for the first third, then falling
+    naturally to silence. */
+export function naturalDecay(x: number) {
+  const from = 0.3, k = 4.5;
+  if (x <= from) return 1;
+  const u = Math.min(1, (x - from) / (1 - from));
+  return (Math.exp(-k * u) - Math.exp(-k)) / (1 - Math.exp(-k));
 }
 
 const H = 140;
@@ -19,20 +30,22 @@ const H = 140;
     plays: backwards when reversed, flipped, normalized and faded as the layer does. Pressing the
     wave plays the channel (with its envelopes and filter) for as long as it's held, with a
     playhead. */
-export function Waveform({ path, start, end, shaping, color, onRegion, onPress, onRelease }: {
-  path: string; start: number; end: number | undefined; shaping: WaveShaping; color: string;
+export function Waveform({ path, processing, start, end, shaping, color, onRegion, onPress, onRelease }: {
+  path: string; processing?: WaveProcessing; start: number; end: number | undefined; shaping: WaveShaping; color: string;
   /** Without it, the whole file plays and there are no handles. */
   onRegion?: (start: number, end: number | null, commit: boolean) => void;
   onPress: () => void; onRelease: () => void;
 }) {
-  const wave = useWave(path);
+  const wave = useWave(path, processing);
   const canvas = useRef<HTMLCanvasElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
   const [live, setLive] = useState<{ start: number; end: number } | null>(null);
   const [size, setSize] = useState({ width: 0, ratio: 1 });
   const duration = wave?.durationSeconds ?? 0;
-  const region = live ?? { start, end: end ?? duration };
+  // Start and end are times in the file; processing may have stretched it.
+  const scale = wave?.timeScale ?? 1;
+  const region = live ?? { start: Math.min(duration, start * scale), end: end != null ? Math.min(duration, end * scale) : duration };
   const { reverse } = shaping;
 
   // The canvas has as many pixels as the screen shows.
@@ -50,7 +63,7 @@ export function Waveform({ path, start, end, shaping, color, onRegion, onPress, 
     c.width = Math.round(size.width * size.ratio);
     c.height = Math.round(H * size.ratio);
     drawWave(c, wave, region, shaping, color);
-  }, [wave, size, color, region.start, region.end, shaping.reverse, shaping.invert, shaping.normalize, shaping.fadeIn, shaping.fadeOut, shaping.loop]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wave, size, color, region.start, region.end, shaping.reverse, shaping.invert, shaping.normalize, shaping.fadeIn, shaping.fadeOut, shaping.loop, shaping.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reversed, the file is drawn backwards: a time in the file sits this far across.
   const toX = (s: number) => (duration ? ((reverse ? duration - s : s) / duration) * 100 : 0);
@@ -69,10 +82,10 @@ export function Waveform({ path, start, end, shaping, color, onRegion, onPress, 
         ? { ...from, start: round(Math.min(Math.max(0, s), from.end - 0.005)) }
         : { ...from, end: round(Math.max(Math.min(duration, s), from.start + 0.005)) };
       setLive(next);
-      onRegion?.(next.start, next.end >= duration - 0.0005 ? null : next.end, false);
+      onRegion?.(round(next.start / scale), next.end >= duration - 0.0005 ? null : round(next.end / scale), false);
     }, (_dx, _dy, _ev, moved) => {
       setLive(null);
-      if (moved) onRegion?.(next.start, next.end >= duration - 0.0005 ? null : next.end, true);
+      if (moved) onRegion?.(round(next.start / scale), next.end >= duration - 0.0005 ? null : round(next.end / scale), true);
     }, "ew-resize");
   };
 
@@ -81,16 +94,17 @@ export function Waveform({ path, start, end, shaping, color, onRegion, onPress, 
     if (e.button !== 0 || !duration) return;
     onPress();
     const t0 = performance.now();
-    const length = region.end - region.start;
+    const looped = (shaping.loop ?? "off") !== "off";
+    const length = (region.end - region.start) * (shaping.length ?? 1);
     let frame = requestAnimationFrame(function tick() {
       const t = (performance.now() - t0) / 1000;
       const el = playhead.current;
       const loop = shaping.loop ?? "off";
-      const looping = loop !== "off";
+      const looping = looped;
       const along = loop !== "off" ? loopPosition(t, length, loop) : t;
       if (el) {
         el.style.display = looping || t < length ? "block" : "none";
-        el.style.left = `${left + (along / length) * (right - left)}%`;
+        el.style.left = `${toX(reverse ? region.end - along : region.start + along)}%`;
       }
       if (looping || t < length) frame = requestAnimationFrame(tick);
     });
@@ -162,13 +176,20 @@ function drawWave(canvas: HTMLCanvasElement, wave: Wave, region: { start: number
   // The fades follow the order the part plays in.
   const fade = (t: number) => {
     if (t < region.start || t > region.end) return 1;
-    const along = shaping.reverse ? region.end - t : t - region.start, left = region.end - region.start - along;
+    const played = (region.end - region.start) * (shaping.length ?? 1);
+    const along = shaping.reverse ? region.end - t : t - region.start, left = played - along;
+    if (left < 0) return 0;
     let f = 1;
     if (shaping.fadeIn) f *= Math.min(1, along / shaping.fadeIn);
-    if (shaping.fadeOut && (shaping.loop ?? "off") === "off") f *= Math.min(1, left / shaping.fadeOut);
+    if ((shaping.loop ?? "off") === "off") {
+      if (shaping.fadeOut) f *= Math.min(1, left / shaping.fadeOut);
+      if ((shaping.length ?? 1) < 1) f *= naturalDecay(along / played);
+    }
     return f;
   };
 
+  // The wave as the file has it, faint, under the one that plays (faded, shortened).
+  const ghostTops: number[] = [], ghostBottoms: number[] = [];
   const tops: number[] = [], bottoms: number[] = [];
   for (let x = 0; x < width; x++) {
     // Reversed, the file runs from right to left.
@@ -180,6 +201,9 @@ function drawWave(canvas: HTMLCanvasElement, wave: Wave, region: { start: number
       lo = Math.min(lo, min[i]);
       hi = Math.max(hi, max[i]);
     }
+    const [ghostLow, ghostHigh] = flip > 0 ? [lo * scale, hi * scale] : [-hi * scale, -lo * scale];
+    ghostTops.push(mid - Math.min(1, ghostHigh) * amp);
+    ghostBottoms.push(mid - Math.max(-1, ghostLow) * amp);
     const k = scale * fade((t0 + t1) / 2);
     const [low, high] = flip > 0 ? [lo * k, hi * k] : [-hi * k, -lo * k];
     tops.push(mid - Math.min(1, high) * amp);
@@ -187,6 +211,8 @@ function drawWave(canvas: HTMLCanvasElement, wave: Wave, region: { start: number
   }
 
   g.fillStyle = color;
+  g.globalAlpha = 0.14;
+  for (let x = 0; x < width; x++) g.fillRect(x, ghostTops[x], 1, Math.max(1, ghostBottoms[x] - ghostTops[x]));
   g.globalAlpha = 0.55;
   for (let x = 0; x < width; x++) g.fillRect(x, tops[x], 1, Math.max(1, bottoms[x] - tops[x]));
   g.globalAlpha = 1;
@@ -204,7 +230,7 @@ function drawWave(canvas: HTMLCanvasElement, wave: Wave, region: { start: number
   g.fillRect(0, Math.round(mid), width, 1);
 
   // The fade curves, as lines over the part.
-  if (shaping.fadeIn || shaping.fadeOut) {
+  if (shaping.fadeIn || shaping.fadeOut || (shaping.length ?? 1) < 1) {
     g.strokeStyle = "rgba(255,255,255,0.55)";
     g.setLineDash([4, 4]);
     g.beginPath();

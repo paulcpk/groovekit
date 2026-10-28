@@ -88,20 +88,26 @@ void CompressorPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
     auto* left = fc.destBuffer->getWritePointer (0, fc.bufferStartSample);
     auto* right = fc.destBuffer->getWritePointer (1, fc.bufferStartSample);
 
+    // Keyed by another track (a sidechain): it's what the detector hears.
+    const bool keyed = fc.destBuffer->getNumChannels() >= 4 && getSidechainSourceID().isValid();
+    const auto* keyLeft = keyed ? fc.destBuffer->getReadPointer (2, fc.bufferStartSample) : left;
+    const auto* keyRight = keyed ? fc.destBuffer->getReadPointer (3, fc.bufferStartSample) : right;
+
     for (int i = 0; i < fc.bufferNumSamples; ++i)
     {
         const auto in = std::max (std::abs (left[i]), std::abs (right[i]));
-        auto level = in;
+        auto level = std::max (std::abs (keyLeft[i]), std::abs (keyRight[i]));
 
         if (filtered)
-            level = std::max (std::abs (detectorFilter.process (left[i], 0)), std::abs (detectorFilter.process (right[i], 1)));
+            level = std::max (std::abs (detectorFilter.process (keyLeft[i], 0)), std::abs (detectorFilter.process (keyRight[i], 1)));
 
         const auto gainDb = smoother.process (curve.gainDb (toMeterDb (level)));
         const auto gain = dbToGain (gainDb + makeup);
         left[i] *= gain;
         right[i] *= gain;
 
-        hopIn = std::max (hopIn, in);
+        // Keyed, the input shown is what the detector hears: the key.
+        hopIn = std::max (hopIn, keyed ? std::max (std::abs (keyLeft[i]), std::abs (keyRight[i])) : in);
         hopOut = std::max (hopOut, in * gain);
         hopGain = std::min (hopGain, gainDb);
 
@@ -197,7 +203,10 @@ void MultibandPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
     // The master: a compressor on the sum, then the ceiling (caught at once, let go over the
     // master's release).
     const bool masterOn = choice (masterMode) == 0;
-    const GainComputer masterCurve { value (masterThreshold), value (masterRatio), knee, -100.0f, 1.0f };
+    const GainComputer masterCurve { value (masterThreshold), value (masterRatio), knee, value (masterBelowThreshold), value (masterBelowRatio) };
+
+    // Master only: the bands pass as they came (they sum back to the input).
+    const bool bandsOn = choice (bandsMode) == 0;
     masterSmoother.setTimes (value (masterAttack), value (masterRelease), sampleRate);
     const auto masterMakeup = dbToGain (value (masterGain));
     const auto ceilingLevel = dbToGain (value (ceiling));
@@ -217,7 +226,7 @@ void MultibandPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
     float widths[maxBands] {};
 
     for (int b = 0; b < maxBands; ++b)
-        widths[b] = value (widthParam (b)) / 100.0f;
+        widths[b] = bandsOn ? value (widthParam (b)) / 100.0f : 1.0f;
 
     GainComputer curves[maxBands];
     float makeups[maxBands] {};
@@ -229,8 +238,8 @@ void MultibandPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
         curves[b] = { value (bandParam (b, threshold)), value (bandParam (b, ratio)), knee,
                       value (bandParam (b, belowThreshold)), value (bandParam (b, belowRatio)) };
         smoothers[b].setTimes (value (bandParam (b, attack)), value (bandParam (b, release)), sampleRate);
-        makeups[b] = value (bandParam (b, gain));
-        modes[b] = choice (bandParam (b, mode));
+        makeups[b] = bandsOn ? value (bandParam (b, gain)) : 0.0f;
+        modes[b] = bandsOn ? choice (bandParam (b, mode)) : 1;
         anySolo = anySolo || modes[b] == 2;
     }
 

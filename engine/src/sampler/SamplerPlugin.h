@@ -1,11 +1,15 @@
 #pragma once
 
 #include "AudioChannelPlugin.h"
+#include "Processing.h"
 
 #include <tracktion_engine/tracktion_engine.h>
 
 namespace gk::sampler
 {
+
+/** What a layer works into its sample before it plays: its processing and transient shaping. */
+Processing toProcessing (const model::SamplerLayer&);
 
 /** Resolves a model sampler into a playable config, loading every sample. Throws on missing files. */
 std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument&, const std::filesystem::path& projectDir);

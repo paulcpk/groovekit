@@ -7,6 +7,7 @@ import { BitcrusherEditor } from "@/features/effects/BitcrusherEditor";
 import { CompressorEditor } from "@/features/effects/CompressorEditor";
 import { ChorusEditor, DelayEditor, DistortionEditor, ReverbEditor } from "@/features/effects/editors";
 import { ExciterEditor } from "@/features/effects/ExciterEditor";
+import { ClipperEditor, DuckEditor } from "@/features/effects/ShaperEditors";
 import { MultibandEditor } from "@/features/effects/MultibandEditor";
 import { StereoEditor } from "@/features/effects/StereoEditor";
 import { ParamKnob } from "@/features/effects/params";
@@ -30,6 +31,8 @@ const EDITORS: Partial<Record<string, (props: { insert: Insert; effect: BuiltinE
   multiband: (props) => <MultibandEditor {...props} />,
   exciter: (props) => <ExciterEditor {...props} />,
   bitcrusher: (props) => <BitcrusherEditor {...props} />,
+  duck: (props) => <DuckEditor {...props} />,
+  clipper: (props) => <ClipperEditor {...props} />,
   stereo: (props) => <StereoEditor {...props} />,
 };
 

@@ -3,6 +3,7 @@
 #include "effects/BuiltinEffects.h"
 #include "effects/EffectPlugin.h"
 #include "effects/Saturation.h"
+#include "effects/Shapers.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -218,6 +219,27 @@ TEST_CASE ("The multiband's master compresses the sum, and no peak passes its ce
 
     // The low cut takes out 30 Hz.
     CHECK (rmsDb (run ({ { "lowCutHz", 200 } }, 30), 24000) < -25);
+
+    // The master lifts a quiet tone with an upward ratio.
+    CHECK (peakDb (run ({ { "masterBelowDb", -20 }, { "masterBelowRatio", 2 } }, 1000, 0.01f), 24000) > -35.0f);
+}
+
+TEST_CASE ("The multiband can leave its bands alone and work as a master only")
+{
+    // Bands that would crush the tone, bypassed: only the master's 4:1 over -20 dB acts.
+    std::map<std::string, double> params { { "masterThresholdDb", -20 }, { "masterRatio", 4 }, { "bandsMode", 1 } };
+
+    for (auto band : { "band1", "band2", "band3" })
+    {
+        params[std::string (band) + "ThresholdDb"] = -60;
+        params[std::string (band) + "Ratio"] = 20;
+        params[std::string (band) + "GainDb"] = -12;
+    }
+
+    Harness h (BuiltinEffectKind::multiband, params);
+    auto b = sine (1000, 0.9f, 48000);
+    h.process (b);
+    CHECK (peakDb (b, 24000) == Approx (-15.0f).margin (1.5f));
 }
 
 TEST_CASE ("The multiband narrows or widens each band")
@@ -341,4 +363,40 @@ TEST_CASE ("The exciter's harmonics brighten")
     };
 
     CHECK (highs (100) > highs (0) + 6);
+}
+
+TEST_CASE ("The duck dips on the beat and swells back")
+{
+    // 120 BPM, a dip every quarter (500 ms) by 80%.
+    Harness h (BuiltinEffectKind::duck, { { "depth", 80 }, { "attackMs", 2 }, { "holdMs", 20 }, { "release", 50 }, { "curve", 0 } });
+    auto b = sine (200, 0.5f, 48000);
+    h.process (b);
+
+    for (double beat : { 0.0, 0.5 })
+    {
+        const auto at = [&] (double s) { return b.getMagnitude (0, static_cast<int> ((beat + s) * rate), 480); };
+        CHECK (at (0.005) == Approx (0.1f).margin (0.02f));     // down by 80%
+        CHECK (at (0.15) == Approx (0.5f * (1 - 0.8f * (1 - 0.48f))).margin (0.05f)); // a third of the way back
+        CHECK (at (0.3) == Approx (0.5f).margin (0.01f));       // back by half a period plus the hold
+    }
+
+    CHECK (effects::DuckPlugin::shape (0.0f, 500, 1, 0, 0, 0.5f, 0) == Approx (0.0f));
+    CHECK (effects::DuckPlugin::shape (0.9f, 500, 1, 0, 0, 0.5f, 0) == Approx (1.0f));
+    CHECK (effects::DuckPlugin::shape (0.25f, 500, 1, 0, 0, 0.5f, 1) < effects::DuckPlugin::shape (0.25f, 500, 1, 0, 0, 0.5f, 0));
+}
+
+TEST_CASE ("The clipper keeps every sample under its ceiling")
+{
+    CHECK (effects::ClipperPlugin::clip (0.5f, 1, 0.4f) == 0.5f);
+    CHECK (effects::ClipperPlugin::clip (2.0f, 1, 0) == 1.0f);
+    CHECK (effects::ClipperPlugin::clip (-2.0f, 1, 0.5f) < -0.99f);
+    CHECK (effects::ClipperPlugin::clip (0.9f, 1, 1) < 0.9f);  // the soft knee starts below the ceiling
+
+    Harness h (BuiltinEffectKind::clipper, { { "driveDb", 12 }, { "ceilingDb", -1 }, { "softness", 0 } });
+    CHECK (h.plugin->getLatencySeconds() > 0);
+    auto b = sine (100, 0.9f, 48000);
+    h.process (b);
+    CHECK (peakDb (b, 4800) < -0.8f);
+    CHECK (peakDb (b, 4800) > -1.6f);
+    CHECK (h.meter()["frames"].back()[2].get<double>() < -10);
 }

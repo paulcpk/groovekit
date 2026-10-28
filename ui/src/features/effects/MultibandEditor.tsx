@@ -430,7 +430,7 @@ export function MultibandEditor(props: EditorProps) {
                 <ToggleChip label="B" title="Bypass the master compressor and the ceiling" tone="dim" on={!masterOn} onClick={() => set({ masterMode: masterOn ? 1 : 0 }, true)} />
               </span>
             </div>
-            <div className="text-2xs text-faint tabular">ceiling {v("ceilingDb").toFixed(1)} dB</div>
+            <div className="text-2xs text-faint tabular">ceiling {v("ceilingDb").toFixed(1)} dB{Math.round(v("bandsMode")) === 1 ? " · bands off" : ""}</div>
           </div>
         </div>
         <canvas ref={lanes} className="block min-w-0 flex-1 cursor-ns-resize select-none transition-[height] duration-300"
@@ -442,11 +442,15 @@ export function MultibandEditor(props: EditorProps) {
           <div className="flex flex-1 flex-col gap-2 rounded-md bg-raised px-3 py-2.5" style={{ boxShadow: `inset 3px 0 0 ${MASTER}` }}>
             <div className="flex items-center gap-2 text-xs">
               <span className="font-medium" style={{ color: MASTER }}>Master</span>
-              <span className="text-2xs text-faint">the summed bands: compressed above the threshold, and never past the ceiling</span>
+              <span className="text-2xs text-faint">the summed bands: pulled down above the threshold, lifted below “Below”, never past the ceiling</span>
+              <span className="ml-auto">
+                <ToggleChip label="Master only" title="Leave the bands alone: only the master compressor and the ceiling work" tone="accent"
+                  on={Math.round(v("bandsMode")) === 1} onClick={() => set({ bandsMode: Math.round(v("bandsMode")) === 1 ? 0 : 1 }, true)} />
+              </span>
             </div>
             <div className="flex flex-wrap items-start justify-between gap-y-2">
-              {([["inputDb", "Pre"], ["lowCutHz", "Low cut"], ["masterThresholdDb", "Threshold"], ["masterRatio", "Ratio"], ["masterAttackMs", "Attack"],
-                ["masterReleaseMs", "Release"], ["masterGainDb", "Gain"], ["outputDb", "Post"]] as const).map(([id, name]) => (
+              {([["inputDb", "Pre"], ["lowCutHz", "Low cut"], ["masterThresholdDb", "Threshold"], ["masterRatio", "Ratio"], ["masterBelowDb", "Below"],
+                ["masterBelowRatio", "Below ratio"], ["masterAttackMs", "Attack"], ["masterReleaseMs", "Release"], ["masterGainDb", "Gain"], ["outputDb", "Post"]] as const).map(([id, name]) => (
                 <ParamKnob key={id} insert={props.insert} effect={props.effect} id={id} name={name} color={MASTER} />
               ))}
               <ParamKnob insert={props.insert} effect={props.effect} id="ceilingDb" name="Ceiling" color={CEILING} />

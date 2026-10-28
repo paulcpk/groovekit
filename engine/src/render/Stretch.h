@@ -1,5 +1,7 @@
 #pragma once
 
+#include <juce_audio_basics/juce_audio_basics.h>
+
 #include <cmath>
 #include <filesystem>
 #include <optional>
@@ -28,6 +30,10 @@ struct ClipSource
     Throws std::runtime_error if the source can't be read.
 */
 std::filesystem::path getClipFile (const std::filesystem::path& source, const ClipSource&, const std::filesystem::path& cacheDir);
+
+/** Audio time-stretched (speed > 1 is shorter) and pitch-shifted with Rubber Band (R3,
+    offline): exactly length / speed long, aligned with the input. */
+juce::AudioBuffer<float> stretchAudio (const juce::AudioBuffer<float>&, double sampleRate, double speed, double semitones);
 
 /** Where prepared files are cached unless the caller chooses otherwise:
     GROOVEKIT_CACHE_DIR, or ~/Library/Caches/GrooveKit. */

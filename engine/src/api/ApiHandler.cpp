@@ -15,6 +15,7 @@
 #include "plugins/PluginWindows.h"
 #include "render/Render.h"
 #include "session/Mastering.h"
+#include "sampler/SamplerPlugin.h"
 #include "session/AgentNotes.h"
 #include "session/Chats.h"
 #include "session/Presets.h"
@@ -493,7 +494,34 @@ Json ApiHandler::peaks (const Json& params)
     // Sampler windows ask for the wave itself: its lowest and highest value per slice, finer.
     const bool withSigns = params.value ("signed", false);
     const auto resolution = std::clamp (optionalNumber (params, "resolution").value_or (100.0), 1.0, withSigns ? 48000.0 : 1000.0);
-    const auto key = path.string() + "@" + std::to_string (resolution) + (withSigns ? "+" : "");
+
+    // A sampler layer's processing (process, punch, tail): the wave as it plays.
+    model::SamplerLayer layer;
+    bool processed = false;
+
+    if (params.contains ("process") || params.contains ("punch") || params.contains ("tail"))
+    {
+        if (params.contains ("process"))
+        {
+            try
+            {
+                model::Reader reader;
+                readValue (reader, params["process"], layer.process.emplace());
+            }
+            catch (const model::ReadError& e)
+            {
+                throw RpcError (invalidParams, std::string ("params.process") + e.what());
+            }
+        }
+
+        layer.punch = optionalNumber (params, "punch").value_or (0.0);
+        layer.tail = optionalNumber (params, "tail").value_or (0.0);
+
+        processed = ! sampler::toProcessing (layer).isNeutral();
+    }
+
+    const auto key = path.string() + "@" + std::to_string (resolution) + (withSigns ? "+" : "")
+                   + (processed ? sampler::toProcessing (layer).key() : "");
     std::error_code ec;
     const auto modified = std::filesystem::last_write_time (path, ec);
 
@@ -503,7 +531,29 @@ Json ApiHandler::peaks (const Json& params)
     if (auto it = peaksCache.find (key); it != peaksCache.end() && it->second.first == modified)
         return it->second.second;
 
-    const auto audio = analysis::loadAudio (path);
+    analysis::Audio audio;
+    double timeScale = 1;
+
+    if (processed)
+    {
+        try
+        {
+            auto& cache = sampler::SampleCache::getInstance();
+            const auto sample = cache.processed (cache.load (path), sampler::toProcessing (layer));
+            audio.buffer = sample->audio;
+            audio.sampleRate = sample->sampleRate;
+            timeScale = sample->timeScale;
+        }
+        catch (const std::runtime_error& e)
+        {
+            throw RpcError (operationFailed, e.what());
+        }
+    }
+    else
+    {
+        audio = analysis::loadAudio (path);
+    }
+
     const auto& buffer = audio.buffer;
     const auto perPeak = std::max (1, static_cast<int> (std::round (audio.sampleRate / resolution)));
     auto values = Json::array(), lows = Json::array(), highs = Json::array();
@@ -535,6 +585,7 @@ Json ApiHandler::peaks (const Json& params)
                   { "sampleRate", audio.sampleRate },
                   { "channels", buffer.getNumChannels() },
                   { "resolution", audio.sampleRate / perPeak },
+                  { "timeScale", timeScale },
                   { "peaks", std::move (values) } };
 
     if (withSigns)

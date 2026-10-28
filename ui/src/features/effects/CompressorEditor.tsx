@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { startDrag } from "@/lib/drag";
 import { useLiveControl } from "@/lib/liveControl";
-import { ACCENT, Knobs, useParams, WET, type EditorProps } from "./editors";
+import { ACCENT, Knobs, SidechainPicker, useParams, WET, type EditorProps } from "./editors";
 import { font, gainChangeDb, useCanvas, useGlide, useMeterStream } from "./live";
 
 const H = 200, GAP = 18, METER_W = 26, FLOOR = -60, GR_RANGE = 30;
@@ -218,6 +218,7 @@ export function CompressorEditor(props: EditorProps) {
       </div>
       <Knobs props={props} ids={["thresholdDb", "ratio", "kneeDb", "attackMs", "releaseMs", "detectLowCut", "outputDb"]}
         names={{ thresholdDb: "Threshold", kneeDb: "Knee", detectLowCut: "Detector cut", outputDb: "Make-up" }} />
+      <SidechainPicker {...props} />
     </div>
   );
 }

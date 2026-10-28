@@ -184,6 +184,9 @@
         "punch": { "description": "Transient shaping (notes only): positive sharpens each hit's attack, negative softens it.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
         "tail": { "description": "Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
         "grains": { "$ref": "#/$defs/Grains" },
+        "length": { "description": "Shortens the part that plays to this share of it, its end bending into a natural decay so it doesn't sound cut off: a 0.8 s hit at 0.25 is a 0.2 s one (notes only; a looping part just loops the shorter part).", "type": "number", "minimum": 0.01, "maximum": 1, "default": 1 },
+        "crossfade": { "description": "Seconds a forward loop crossfades over where it comes round, so the loop is smooth.", "type": "number", "minimum": 0, "maximum": 2, "default": 0 },
+        "process": { "$ref": "#/$defs/SampleProcessing" },
         "sourceTempo": {
           "description": "Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it.",
           "type": "number", "minimum": 20, "maximum": 999
@@ -191,6 +194,29 @@
       }
     },
 
+    "SampleProcessing": {
+      "description": "Effects worked into the sample once, before it plays (notes only), in this order: the silent end trimmed, DC removed, stretched (pitch and length apart, at full quality), bent in pitch, ring-modulated, equalised, low-passed, boosted (clipped if asked), its transients shaped (the layer's punch and tail), reverb added (the sample gets its tail), then a stereo delay and a fade across the sides. Start and end stay where they were in the file, scaled with any change of length.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trimDb": { "description": "Trims the end where the sample stays below this level for good (its quiet tail or noise); unset leaves it.", "type": "number", "minimum": -120, "maximum": -20 },
+        "removeDc": { "description": "Takes out any DC offset, which can click and upset effects.", "type": "boolean", "default": false },
+        "stretchSemitones": { "description": "Pitch shift with the length kept (Rubber Band, offline).", "type": "number", "minimum": -24, "maximum": 24, "default": 0 },
+        "stretchLength": { "description": "Length multiplied with the pitch kept: 2 is twice as long.", "type": "number", "minimum": 0.25, "maximum": 4, "default": 1 },
+        "pitchBend": { "description": "Bends the pitch down over the sample, up to an octave: positive falls towards the end (a tape stop), negative rises from below at the start.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "ringMix": { "description": "How much ring modulation (the sound times a sine): metallic, bell-like.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "ringHz": { "description": "The ring modulator's frequency.", "type": "number", "minimum": 20, "maximum": 5000, "default": 440 },
+        "eq": { "description": "Tilts the tone: negative darker (highs cut, up to 12 dB above 2.5 kHz), positive brighter.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "cutoff": { "description": "A low-pass worked into the sample, in Hz (20000 leaves it open).", "type": "number", "minimum": 20, "maximum": 20000, "default": 20000 },
+        "resonance": { "description": "The low-pass's peak at its cutoff, 0 to 1.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "boostDb": { "description": "Gain worked into the sample, before the transients and reverb.", "type": "number", "minimum": -24, "maximum": 24, "default": 0 },
+        "clip": { "description": "Clips the boosted sample at 0 dB: hard, gritty distortion.", "type": "boolean", "default": false },
+        "reverb": { "description": "How much reverb, worked into the sample with its tail.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "reverbSize": { "description": "small: close, in a tight room; large: far away, in a big space.", "type": "string", "enum": ["small", "large"], "default": "small" },
+        "stereoDelayMs": { "description": "Delays one side for width (Haas): positive the left side, negative the right.", "type": "number", "minimum": -30, "maximum": 30, "default": 0 },
+        "fadeStereo": { "description": "Fades from the left side to the right over the sample.", "type": "boolean", "default": false }
+      }
+    },
     "Grains": {
       "description": "Granular playback (notes only): the part plays as short overlapping grains read at the note's pitch, while a playhead moves through it at its own speed, so pitch and timing are apart: a higher key sounds higher but no faster, and a slower speed stretches the sound without lowering it. Few, short grains leave space between them (stutter, texture); many long ones are smooth.",
       "type": "object",
@@ -455,9 +481,10 @@
       "properties": {
         "type": { "const": "builtin" },
         "id": { "$ref": "#/$defs/Id" },
-        "kind": { "type": "string", "enum": ["eq", "compressor", "multiband", "limiter", "reverb", "delay", "phaser", "chorus", "distortion", "exciter", "bitcrusher", "stereo", "lowpass", "highpass"] },
+        "kind": { "type": "string", "enum": ["eq", "compressor", "multiband", "limiter", "reverb", "delay", "phaser", "chorus", "distortion", "exciter", "bitcrusher", "stereo", "duck", "clipper", "lowpass", "highpass"] },
         "bypass": { "type": "boolean", "default": false },
         "mix": { "description": "How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter \"mix\".", "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+        "sidechain": { "description": "A channel or insert whose sound drives the effect instead of its own input (a compressor ducks when the kick hits). A channel that plays audio clips can't: key from its insert. An insert can't key from itself or from an insert it feeds.", "$ref": "#/$defs/Id" },
         "params": {
           "description": "Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults.",
           "type": "object",

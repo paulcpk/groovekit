@@ -1,3 +1,4 @@
+import type { SampleProcessing } from "@groovekit/schema/project";
 import { useEffect, useState } from "react";
 import { engine } from "@/state/engine";
 
@@ -59,36 +60,54 @@ export function drawPeaks(canvas: HTMLCanvasElement, peaks: Peaks, fileStart: nu
 export interface Wave {
   durationSeconds: number;
   resolution: number;
+  /** Seconds of this wave per second of the file (processing can stretch it). */
+  timeScale: number;
   min: number[];
   max: number[];
+}
+
+/** What a sampler layer works into its sample before it plays; the wave is drawn with it. */
+export interface WaveProcessing {
+  process?: SampleProcessing;
+  punch?: number;
+  tail?: number;
 }
 
 const waves = new Map<string, Promise<Wave>>();
 
 /** A file's wave in detail (the lowest and highest value of about 6000 slices, however long
-    it is), fetched once. */
-export function getWave(path: string): Promise<Wave> {
-  let p = waves.get(path);
+    it is), fetched once; with processing, as a sampler layer plays it. */
+export function getWave(path: string, processing?: WaveProcessing): Promise<Wave> {
+  const key = processing ? `${path}\n${JSON.stringify(processing)}` : path;
+  let p = waves.get(key);
   if (!p) {
     p = getPeaks(path).then((overview) =>
-      engine.call<Wave>("audio.peaks", { path, signed: true, resolution: Math.min(48000, Math.max(100, 6000 / Math.max(0.001, overview.durationSeconds))) }));
-    p.catch(() => waves.delete(path));
-    waves.set(path, p);
+      engine.call<Wave>("audio.peaks", {
+        path, signed: true, ...processing,
+        resolution: Math.min(48000, Math.max(100, 6000 / Math.max(0.001, overview.durationSeconds))),
+      })).then((w) => ({ ...w, timeScale: w.timeScale ?? 1 }));
+    p.catch(() => waves.delete(key));
+    if (waves.size > 48) waves.clear();
+    waves.set(key, p);
   }
   return p;
 }
 
-export function useWave(path: string | undefined): Wave | undefined {
+/** The wave; while a new one loads (processing changed), the one before stays. */
+export function useWave(path: string | undefined, processing?: WaveProcessing): Wave | undefined {
   const [wave, setWave] = useState<Wave>();
+  const key = processing ? JSON.stringify(processing) : "";
 
   useEffect(() => {
     if (!path) return;
     let live = true;
-    getWave(path).then((w) => live && setWave(w), () => {});
+    // Settings that move fast (a knob turning) ask once they've settled for a moment.
+    const timer = setTimeout(() => getWave(path, processing).then((w) => live && setWave(w), () => {}), processing ? 120 : 0);
     return () => {
       live = false;
+      clearTimeout(timer);
     };
-  }, [path]);
+  }, [path, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return wave;
 }

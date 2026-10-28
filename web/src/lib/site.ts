@@ -129,7 +129,7 @@ export const TOOL_GROUPS: ToolGroup[
         name: "describe_plugin",
         does: "Loads a plugin and lists its parameters with their values, so the agent can set them by name and automate them with automation clips.",
       },
-      { name: "list_effects", does: "The built-in seven-band EQ, compressor, multiband compressor, limiter, reverb, tempo-synced delay, chorus, phaser, distortion, exciter, bitcrusher, stereo field and filters, with every parameter’s unit and range." },
+      { name: "list_effects", does: "The built-in seven-band EQ, compressor, multiband compressor, limiter, reverb, tempo-synced delay, chorus, phaser, distortion, exciter, bitcrusher, stereo field, duck, clipper and filters, with every parameter’s unit and range." },
     ],
   },
   {

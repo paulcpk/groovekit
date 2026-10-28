@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 4,
+  "name": "Sidechain",
+  "tempo": 120,
+  "channels": [
+    {
+      "id": "kick",
+      "insert": "kicks",
+      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/kick.wav" }] }
+    },
+    {
+      "id": "pad",
+      "insert": "pads",
+      "instrument": { "type": "sampler", "layers": [{ "id": "l", "sample": "../../fixtures/samples/bass_a2.wav", "mode": "gate", "loop": "forward" }] }
+    }
+  ],
+  "patterns": [
+    {
+      "id": "p",
+      "notes": [
+        { "channel": "kick", "start": 0, "length": 240, "velocity": 127 },
+        { "channel": "kick", "start": 1920, "length": 240, "velocity": 127 },
+        { "channel": "pad", "start": 0, "length": 3840, "velocity": 127, "key": 60 }
+      ]
+    }
+  ],
+  "playlist": { "tracks": [], "clips": [{ "type": "pattern", "id": "c", "track": 0, "start": 0, "length": 3840, "pattern": "p" }] },
+  "mixer": {
+    "inserts": [
+      { "id": "master" },
+      { "id": "kicks", "volumeDb": -100 },
+      {
+        "id": "pads",
+        "effects": [
+          { "type": "builtin", "id": "duck", "kind": "compressor", "sidechain": "kick",
+            "params": { "thresholdDb": -40, "ratio": 20, "attackMs": 0.1, "releaseMs": 20 } }
+        ]
+      }
+    ]
+  }
+}

@@ -49,65 +49,65 @@ namespace
         reader->read (&buffer, 0, buffer.getNumSamples(), 0, true, true);
         return buffer;
     }
+}
 
-    juce::AudioBuffer<float> stretch (const juce::AudioBuffer<float>& input, double sampleRate, double speed, double semitones)
+juce::AudioBuffer<float> stretchAudio (const juce::AudioBuffer<float>& input, double sampleRate, double speed, double semitones)
+{
+    using RubberBand::RubberBandStretcher;
+
+    const auto channels = input.getNumChannels();
+    const auto inputLength = static_cast<size_t> (input.getNumSamples());
+    const auto outputLength = static_cast<int> (std::llround (static_cast<double> (inputLength) / speed));
+
+    // Offline mode studies the whole file first and keeps the output aligned with the input.
+    RubberBandStretcher stretcher (static_cast<size_t> (sampleRate), static_cast<size_t> (channels),
+                                   RubberBandStretcher::OptionProcessOffline | RubberBandStretcher::OptionEngineFiner | RubberBandStretcher::OptionWindowShort,
+                                   1.0 / speed, std::pow (2.0, semitones / 12.0));
+    stretcher.setExpectedInputDuration (inputLength);
+
+    const auto block = std::min<size_t> (stretcher.getProcessSizeLimit(), 8192);
+    std::vector<const float*> in (static_cast<size_t> (channels));
+
+    auto pointersAt = [&] (size_t start)
     {
-        using RubberBand::RubberBandStretcher;
+        for (int ch = 0; ch < channels; ++ch)
+            in[static_cast<size_t> (ch)] = input.getReadPointer (ch, static_cast<int> (start));
 
-        const auto channels = input.getNumChannels();
-        const auto inputLength = static_cast<size_t> (input.getNumSamples());
-        const auto outputLength = static_cast<int> (std::llround (static_cast<double> (inputLength) / speed));
+        return in.data();
+    };
 
-        // Offline mode studies the whole file first and keeps the output aligned with the input.
-        RubberBandStretcher stretcher (static_cast<size_t> (sampleRate), static_cast<size_t> (channels),
-                                       RubberBandStretcher::OptionProcessOffline | RubberBandStretcher::OptionEngineFiner | RubberBandStretcher::OptionWindowShort,
-                                       1.0 / speed, std::pow (2.0, semitones / 12.0));
-        stretcher.setExpectedInputDuration (inputLength);
+    for (size_t start = 0; start < inputLength; start += block)
+        stretcher.study (pointersAt (start), std::min (block, inputLength - start), start + block >= inputLength);
 
-        const auto block = std::min<size_t> (stretcher.getProcessSizeLimit(), 8192);
-        std::vector<const float*> in (static_cast<size_t> (channels));
+    juce::AudioBuffer<float> result (channels, outputLength);
+    result.clear();
+    int written = 0;
 
-        auto pointersAt = [&] (size_t start)
+    auto collect = [&]
+    {
+        while (stretcher.available() > 0)
         {
-            for (int ch = 0; ch < channels; ++ch)
-                in[static_cast<size_t> (ch)] = input.getReadPointer (ch, static_cast<int> (start));
+            const auto count = static_cast<size_t> (stretcher.available());
+            juce::AudioBuffer<float> chunk (channels, static_cast<int> (count));
+            stretcher.retrieve (chunk.getArrayOfWritePointers(), count);
 
-            return in.data();
-        };
+            const auto usable = std::min (static_cast<int> (count), outputLength - written);
 
-        for (size_t start = 0; start < inputLength; start += block)
-            stretcher.study (pointersAt (start), std::min (block, inputLength - start), start + block >= inputLength);
+            for (int ch = 0; ch < channels && usable > 0; ++ch)
+                result.copyFrom (ch, written, chunk, ch, 0, usable);
 
-        juce::AudioBuffer<float> result (channels, outputLength);
-        result.clear();
-        int written = 0;
-
-        auto collect = [&]
-        {
-            while (stretcher.available() > 0)
-            {
-                const auto count = static_cast<size_t> (stretcher.available());
-                juce::AudioBuffer<float> chunk (channels, static_cast<int> (count));
-                stretcher.retrieve (chunk.getArrayOfWritePointers(), count);
-
-                const auto usable = std::min (static_cast<int> (count), outputLength - written);
-
-                for (int ch = 0; ch < channels && usable > 0; ++ch)
-                    result.copyFrom (ch, written, chunk, ch, 0, usable);
-
-                written += std::max (0, usable);
-            }
-        };
-
-        for (size_t start = 0; start < inputLength; start += block)
-        {
-            stretcher.process (pointersAt (start), std::min (block, inputLength - start), start + block >= inputLength);
-            collect();
+            written += std::max (0, usable);
         }
+    };
 
+    for (size_t start = 0; start < inputLength; start += block)
+    {
+        stretcher.process (pointersAt (start), std::min (block, inputLength - start), start + block >= inputLength);
         collect();
-        return result;
     }
+
+    collect();
+    return result;
 }
 
 fs::path getDefaultCacheDir()
@@ -169,7 +169,7 @@ fs::path getClipFile (const fs::path& source, const ClipSource& how, const fs::p
         part.reverse (0, part.getNumSamples());
 
     if (std::abs (how.speed - 1) > 1.0e-6 || std::abs (how.semitones) > 1.0e-6)
-        part = stretch (part, sampleRate, how.speed, how.semitones);
+        part = stretchAudio (part, sampleRate, how.speed, how.semitones);
 
     writeWav (part, sampleRate, target);
     return target;

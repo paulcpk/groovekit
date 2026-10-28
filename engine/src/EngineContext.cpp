@@ -6,6 +6,7 @@
 #include "effects/Effects.h"
 #include "effects/EqPlugin.h"
 #include "effects/Saturation.h"
+#include "effects/Shapers.h"
 #include "effects/StereoPlugin.h"
 #include "mixer/EffectMix.h"
 #include "mixer/FaderPlugin.h"
@@ -97,6 +98,8 @@ EngineContext::EngineContext (Options options) : impl (std::make_unique<Impl> (o
     plugins.createBuiltInType<effects::MultibandPlugin>();
     plugins.createBuiltInType<effects::ExciterPlugin>();
     plugins.createBuiltInType<effects::BitcrusherPlugin>();
+    plugins.createBuiltInType<effects::DuckPlugin>();
+    plugins.createBuiltInType<effects::ClipperPlugin>();
     plugins.createBuiltInType<effects::StereoPlugin>();
     plugins.createBuiltInType<mixer::EffectMixTap>();
     plugins.createBuiltInType<mixer::EffectMixBlend>();

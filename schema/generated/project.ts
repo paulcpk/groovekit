@@ -5,10 +5,11 @@ export type SamplerFilterType = "off" | "lowpass" | "lowpass24" | "highpass" | "
 export type LfoShape = "sine" | "triangle" | "square" | "saw" | "random";
 export type SamplerLayerMode = "oneShot" | "gate";
 export type SamplerLayerLoop = "off" | "forward" | "pingPong";
+export type SampleProcessingReverbSize = "small" | "large";
 export type GrainsShape = "smooth" | "flat" | "pluck";
 export type PluginRefFormat = "VST3" | "AU";
 export type AutomationTargetScope = "channel" | "insert" | "effect" | "send";
-export type BuiltinEffectKind = "eq" | "compressor" | "multiband" | "limiter" | "reverb" | "delay" | "phaser" | "chorus" | "distortion" | "exciter" | "bitcrusher" | "stereo" | "lowpass" | "highpass";
+export type BuiltinEffectKind = "eq" | "compressor" | "multiband" | "limiter" | "reverb" | "delay" | "phaser" | "chorus" | "distortion" | "exciter" | "bitcrusher" | "stereo" | "duck" | "clipper" | "lowpass" | "highpass";
 
 /** Stable identifier, unique within its collection. */
 export type Id = string;
@@ -131,6 +132,42 @@ export interface Grains {
   shape?: GrainsShape;
 }
 
+/** Effects worked into the sample once, before it plays (notes only), in this order: the silent end trimmed, DC removed, stretched (pitch and length apart, at full quality), bent in pitch, ring-modulated, equalised, low-passed, boosted (clipped if asked), its transients shaped (the layer's punch and tail), reverb added (the sample gets its tail), then a stereo delay and a fade across the sides. Start and end stay where they were in the file, scaled with any change of length. */
+export interface SampleProcessing {
+  /** Trims the end where the sample stays below this level for good (its quiet tail or noise); unset leaves it. */
+  trimDb?: number;
+  /** Takes out any DC offset, which can click and upset effects. */
+  removeDc?: boolean;
+  /** Pitch shift with the length kept (Rubber Band, offline). */
+  stretchSemitones?: number;
+  /** Length multiplied with the pitch kept: 2 is twice as long. */
+  stretchLength?: number;
+  /** Bends the pitch down over the sample, up to an octave: positive falls towards the end (a tape stop), negative rises from below at the start. */
+  pitchBend?: number;
+  /** How much ring modulation (the sound times a sine): metallic, bell-like. */
+  ringMix?: number;
+  /** The ring modulator's frequency. */
+  ringHz?: number;
+  /** Tilts the tone: negative darker (highs cut, up to 12 dB above 2.5 kHz), positive brighter. */
+  eq?: number;
+  /** A low-pass worked into the sample, in Hz (20000 leaves it open). */
+  cutoff?: number;
+  /** The low-pass's peak at its cutoff, 0 to 1. */
+  resonance?: number;
+  /** Gain worked into the sample, before the transients and reverb. */
+  boostDb?: number;
+  /** Clips the boosted sample at 0 dB: hard, gritty distortion. */
+  clip?: boolean;
+  /** How much reverb, worked into the sample with its tail. */
+  reverb?: number;
+  /** small: close, in a tight room; large: far away, in a big space. */
+  reverbSize?: SampleProcessingReverbSize;
+  /** Delays one side for width (Haas): positive the left side, negative the right. */
+  stereoDelayMs?: number;
+  /** Fades from the left side to the right over the sample. */
+  fadeStereo?: boolean;
+}
+
 export interface SamplerLayer {
   id: Id;
   /** Audio file path, absolute or relative to the project folder. */
@@ -174,6 +211,11 @@ export interface SamplerLayer {
   /** Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it. */
   tail?: number;
   grains?: Grains;
+  /** Shortens the part that plays to this share of it, its end bending into a natural decay so it doesn't sound cut off: a 0.8 s hit at 0.25 is a 0.2 s one (notes only; a looping part just loops the shorter part). */
+  length?: number;
+  /** Seconds a forward loop crossfades over where it comes round, so the loop is smooth. */
+  crossfade?: number;
+  process?: SampleProcessing;
   /** Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it. */
   sourceTempo?: number;
 }
@@ -329,6 +371,8 @@ export interface BuiltinEffect {
   bypass?: boolean;
   /** How much of the effect is heard: 0 is the signal as it comes in, 1 only the effect's output (delay-compensated, so it works for any effect). Automatable as the effect parameter "mix". */
   mix?: number;
+  /** A channel or insert whose sound drives the effect instead of its own input (a compressor ducks when the kick hits). A channel that plays audio clips can't: key from its insert. An insert can't key from itself or from an insert it feeds. */
+  sidechain?: Id;
   /** Parameter id to value, in the units of the effect catalogue (groovekit-engine effects). Unlisted parameters keep their defaults. */
   params?: Record<string, number>;
 }

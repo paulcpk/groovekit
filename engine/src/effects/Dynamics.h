@@ -98,7 +98,8 @@ public:
     void initialise (const tracktion::PluginInitialisationInfo&) override;
     void applyToBuffer (const tracktion::PluginRenderContext&) override;
 
-    /** { position, frames: [[inputDb, outputDb, gainDb], ...] }, a frame per 5 ms. */
+    /** { position, frames: [[inputDb (the key's, when keyed by a sidechain), outputDb, gainDb], ...] },
+        a frame per 5 ms. */
     model::Json readMeter (const model::Json& params) const override;
 
 private:
@@ -135,6 +136,9 @@ public:
     enum MasterParam { masterMode = globalParams + maxBands * paramsPerBand, masterThreshold, masterRatio, masterAttack, masterRelease,
                        masterGain, ceiling, lowCut, firstWidth };
     static size_t widthParam (int band)             { return static_cast<size_t> (firstWidth + band); }
+
+    /** Then the master's upward compression, and whether the bands work at all ("master only"). */
+    enum LaterParam { masterBelowThreshold = firstWidth + maxBands, masterBelowRatio, bandsMode };
 
     juce::String getPluginType() override               { return xmlTypeName; }
     juce::String getShortName (int) override            { return "Multiband"; }

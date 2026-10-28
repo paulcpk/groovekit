@@ -1,5 +1,5 @@
 #include "SampleCache.h"
-#include "Modulation.h"
+#include "Processing.h"
 
 namespace gk::sampler
 {
@@ -45,28 +45,26 @@ std::shared_ptr<const Sample> SampleCache::load (const std::filesystem::path& pa
     return sample;
 }
 
-std::shared_ptr<const Sample> SampleCache::shaped (const std::shared_ptr<const Sample>& sample, float punch, float tail)
+std::shared_ptr<const Sample> SampleCache::processed (const std::shared_ptr<const Sample>& sample, const Processing& processing)
 {
-    if (punch == 0.0f && tail == 0.0f)
+    if (processing.isNeutral())
         return sample;
 
-    const auto key = std::make_tuple (sample.get(), punch, tail);
+    const auto key = std::make_pair (sample.get(), processing.key());
 
     {
         std::lock_guard lock (mutex);
 
-        if (auto it = shapedEntries.find (key); it != shapedEntries.end() && it->second.source.lock() == sample)
-            if (auto found = it->second.shaped.lock())
+        if (auto it = processedEntries.find (key); it != processedEntries.end() && it->second.source.lock() == sample)
+            if (auto found = it->second.processed.lock())
                 return found;
     }
 
-    auto made = std::make_shared<Sample>();
-    made->sampleRate = sample->sampleRate;
-    made->audio = shapeTransients (sample->audio, sample->sampleRate, punch, tail);
+    std::shared_ptr<const Sample> made = process (*sample, processing);
 
     std::lock_guard lock (mutex);
-    std::erase_if (shapedEntries, [] (const auto& entry) { return entry.second.shaped.expired(); });
-    shapedEntries[key] = { sample, made };
+    std::erase_if (processedEntries, [] (const auto& entry) { return entry.second.processed.expired(); });
+    processedEntries[key] = { sample, made };
     return made;
 }
 
@@ -74,7 +72,7 @@ void SampleCache::clear()
 {
     std::lock_guard lock (mutex);
     entries.clear();
-    shapedEntries.clear();
+    processedEntries.clear();
 }
 
 } // namespace gk::sampler

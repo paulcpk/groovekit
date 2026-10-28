@@ -21,6 +21,19 @@ namespace
     }
 }
 
+float naturalDecay (float x)
+{
+    // Untouched for the first third (the attack and body), then an exponential fall that reaches
+    // silence right at the end.
+    constexpr float from = 0.3f, k = 4.5f;
+
+    if (x <= from)
+        return 1;
+
+    const auto u = std::min (1.0f, (x - from) / (1 - from));
+    return (std::exp (-k * u) - std::exp (-k)) / (1 - std::exp (-k));
+}
+
 float Grains::window (Shape shape, float x)
 {
     x = juce::jlimit (0.0f, 1.0f, x);
@@ -392,13 +405,14 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
     auto& audio = layer.sample->audio;
     const auto fileLength = audio.getNumSamples();
     const auto end = layer.endFrame();
-    const auto length = static_cast<double> (end - layer.start);
+    const auto length = layer.playedFrames();
     const auto* srcL = audio.getReadPointer (layer.swapStereo && audio.getNumChannels() > 1 ? 1 : 0);
     const auto* srcR = audio.getReadPointer (audio.getNumChannels() > 1 && ! layer.swapStereo ? 1 : 0);
     const auto filterType = config->filter.type;
     const bool looping = layer.loop != Layer::Loop::off;
     const auto secondsPerSample = 1.0 / sampleRate;
     const auto& grains = layer.grains;
+    const auto crossfade = std::min (static_cast<double> (layer.crossfade), length / 2);
 
     // Granular: the playhead moves at the grains' speed, and the grains read at the note's pitch.
     const auto playIncrement = grains.on ? grains.speed * layer.sample->sampleRate / sampleRate : 0.0;
@@ -467,6 +481,9 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
 
             if (layer.fadeOut > 0 && remaining < layer.fadeOut)
                 gain *= static_cast<float> (remaining / layer.fadeOut);
+
+            if (layer.length < 1)
+                gain *= naturalDecay (static_cast<float> (position / length));
         }
 
         float l = 0, r = 0;
@@ -516,8 +533,22 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
         else
         {
             const auto at = layer.reverse ? end - 1 - position : layer.start + position;
-            l = interpolate (srcL, fileLength, at) * v.gainL * gain;
-            r = interpolate (srcR, fileLength, at) * v.gainR * gain;
+            l = interpolate (srcL, fileLength, at);
+            r = interpolate (srcR, fileLength, at);
+
+            // Coming round a crossfaded loop: into the start of the loop, which then goes on from
+            // where the crossfade ended.
+            if (layer.loop == Layer::Loop::forward && crossfade > 0 && position >= length - crossfade)
+            {
+                const auto into = position - (length - crossfade);
+                const auto w = static_cast<float> (into / crossfade) * juce::MathConstants<float>::halfPi;
+                const auto from = layer.reverse ? end - 1 - into : layer.start + into;
+                l = l * std::cos (w) + interpolate (srcL, fileLength, from) * std::sin (w);
+                r = r * std::cos (w) + interpolate (srcR, fileLength, from) * std::sin (w);
+            }
+
+            l *= v.gainL * gain;
+            r *= v.gainR * gain;
         }
 
         v.gainL += v.gainStepL;
@@ -538,7 +569,8 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
 
         if (layer.loop == Layer::Loop::forward && v.position >= length)
         {
-            v.position = std::fmod (v.position, length);
+            // After a crossfade, the loop goes on from where it faded in.
+            v.position = crossfade + std::fmod (v.position - length, std::max (1.0, length - crossfade));
         }
         else if (layer.loop == Layer::Loop::pingPong && (v.position >= length - 1 || v.position < 0))
         {

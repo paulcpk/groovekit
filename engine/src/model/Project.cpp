@@ -857,6 +857,75 @@ namespace
             }
 
             checkRoutingCycles();
+            checkSidechains();
+        }
+
+        /** A sidechain is a channel that plays notes, or an insert that doesn't hear the effect. */
+        void checkSidechains()
+        {
+            // The inserts an insert's sound reaches: where it goes and everything after.
+            auto downstream = [&] (const Id& from)
+            {
+                std::set<Id> reached;
+                std::vector<Id> todo { from };
+
+                while (! todo.empty())
+                {
+                    auto id = todo.back();
+                    todo.pop_back();
+
+                    if (! reached.insert (id).second)
+                        continue;
+
+                    if (auto insert = findInsert (project, id))
+                    {
+                        if (insert->id != masterInsertId)
+                            todo.push_back (insert->output);
+
+                        for (auto& send : insert->sends)
+                            todo.push_back (send.target);
+                    }
+                }
+
+                return reached;
+            };
+
+            std::set<Id> playsAudio;
+
+            for (auto& clip : project.playlist.clips)
+                if (auto audio = std::get_if<AudioClip> (&clip))
+                    playsAudio.insert (audio->channel);
+
+            for (size_t i = 0; i < project.mixer.inserts.size(); ++i)
+            {
+                auto& insert = project.mixer.inserts[i];
+
+                for (size_t e = 0; e < insert.effects.size(); ++e)
+                {
+                    auto builtin = std::get_if<BuiltinEffect> (&insert.effects[e]);
+
+                    if (builtin == nullptr || ! builtin->sidechain)
+                        continue;
+
+                    const auto& source = *builtin->sidechain;
+                    const auto path = at (at ("/mixer/inserts", i) + "/effects", e) + "/sidechain";
+
+                    if (findInsert (project, source) != nullptr)
+                    {
+                        if (downstream (insert.id).contains (source))
+                            issue (path, "insert \"" + insert.id + "\" can't key from \"" + source + "\": that hears it (itself, or an insert it feeds)");
+                    }
+                    else if (findChannel (project, source) != nullptr)
+                    {
+                        if (playsAudio.contains (source))
+                            issue (path, "channel \"" + source + "\" plays audio clips, which can't key an effect: key from its insert");
+                    }
+                    else
+                    {
+                        issue (path, "no channel or insert \"" + source + "\"");
+                    }
+                }
+            }
         }
 
         /** Every insert's output and send targets form a graph that must be acyclic. */

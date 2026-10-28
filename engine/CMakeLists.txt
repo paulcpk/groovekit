@@ -15,6 +15,7 @@ target_sources(gk_engine PRIVATE
     src/effects/Effects.cpp
     src/effects/EqPlugin.cpp
     src/effects/Saturation.cpp
+    src/effects/Shapers.cpp
     src/effects/StereoPlugin.cpp
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp
@@ -45,6 +46,7 @@ target_sources(gk_engine PRIVATE
     src/render/Render.cpp
     src/render/Stretch.cpp
     src/sampler/AudioChannelPlugin.cpp
+    src/sampler/Processing.cpp
     src/sampler/SampleCache.cpp
     src/music/Keys.cpp
     src/music/Notes.cpp

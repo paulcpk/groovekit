@@ -9,6 +9,34 @@ namespace
     const juce::Identifier projectDirProperty ("gkProjectDir");
 }
 
+Processing toProcessing (const model::SamplerLayer& l)
+{
+    const auto p = l.process.value_or (model::SampleProcessing {});
+    Processing r;
+
+    if (p.trimDb)
+        r.trimDb = static_cast<float> (*p.trimDb);
+
+    r.removeDc = p.removeDc;
+    r.stretchSemitones = static_cast<float> (p.stretchSemitones);
+    r.stretchLength = static_cast<float> (p.stretchLength);
+    r.pitchBend = static_cast<float> (p.pitchBend);
+    r.ringMix = static_cast<float> (p.ringMix);
+    r.ringHz = static_cast<float> (p.ringHz);
+    r.eq = static_cast<float> (p.eq);
+    r.cutoff = static_cast<float> (p.cutoff);
+    r.resonance = static_cast<float> (p.resonance);
+    r.boostDb = static_cast<float> (p.boostDb);
+    r.clip = p.clip;
+    r.punch = static_cast<float> (l.punch);
+    r.tail = static_cast<float> (l.tail);
+    r.reverb = static_cast<float> (p.reverb);
+    r.largeReverb = p.reverbSize == model::SampleProcessingReverbSize::large;
+    r.stereoDelayMs = static_cast<float> (p.stereoDelayMs);
+    r.fadeStereo = p.fadeStereo;
+    return r;
+}
+
 std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instrument, const std::filesystem::path& projectDir)
 {
     auto config = std::make_shared<Config>();
@@ -26,7 +54,7 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
 
         Layer layer;
         auto& cache = SampleCache::getInstance();
-        layer.sample = cache.shaped (cache.load (path), static_cast<float> (l.punch), static_cast<float> (l.tail));
+        layer.sample = cache.processed (cache.load (path), toProcessing (l));
         layer.rootKey = l.rootKey;
         layer.keyLow = l.keyRange.low;
         layer.keyHigh = l.keyRange.high;
@@ -40,7 +68,8 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
         layer.envelope = toEnvelope (l.envelope);
 
         const auto frames = layer.sample->audio.getNumSamples();
-        const auto toFrame = [&] (double seconds) { return std::clamp (static_cast<int> (std::llround (seconds * layer.sample->sampleRate)), 0, frames); };
+        // Start and end are where they were in the file, wherever processing moved that to.
+        const auto toFrame = [&] (double seconds) { return std::clamp (static_cast<int> (std::llround (seconds * layer.sample->timeScale * layer.sample->sampleRate)), 0, frames); };
         layer.start = toFrame (l.start);
         layer.end = l.end ? toFrame (*l.end) : frames;
         layer.reverse = l.reverse;
@@ -50,6 +79,8 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
         layer.fadeIn = toFrame (l.fadeIn);
         layer.fadeOut = toFrame (l.fadeOut);
         layer.swapStereo = l.swapStereo;
+        layer.length = static_cast<float> (l.length);
+        layer.crossfade = toFrame (l.crossfade);
 
         const auto& g = l.grains;
         layer.grains = { .on = g.on, .size = static_cast<float> (g.size), .density = static_cast<float> (g.density), .speed = static_cast<float> (g.speed),
