@@ -1,6 +1,6 @@
 ---
 name: music-discovery
-description: Researches a music style (e.g. "Juke/Footwork", "Berlin techno") and builds the user's reference folder for it in GrooveKit, then writes or sharpens its style guide. Use when the user asks for "music discovery" on a style, or wants reference tracks, mixes or a guide for a style. It finds how the style is described and who defines it, downloads free official podcasts and mixes, finds the best tracks with verified Bandcamp links, measures everything, sorts it into ~/Music/ExampleTracks/<Style>, and cuts reference slices from the mixes.
+description: Researches a music style (e.g. "Juke/Footwork", "Berlin techno") and builds the user's reference folder for it in GrooveKit, then writes or sharpens its style guide. Use when the user asks for "music discovery" on a style, or wants reference tracks, mixes or a guide for a style. It finds how the style is described and who defines it, downloads free official podcasts and mixes, finds the best tracks with verified Bandcamp links, measures everything, sorts it into ~/Music/GrooveKit/References/<Style>, and cuts reference slices from the mixes.
 ---
 
 # Music discovery
@@ -42,9 +42,9 @@ Never rip streams or get around blocks.
 - **Mixcloud:** stream only; use it for tracklists, not downloads.
 
 List the episodes with size and length, sort them by style, and download into
-`~/Music/ExampleTracks/Reference podcasts/<Style>/` (check free disk space first). Writing under
+`~/Music/GrooveKit/References/Mixes/<Style>/` (check free disk space first). Writing under
 `~/Downloads` or `~/Music` needs the sandbox off, which asks the user. Leave out episodes that turn out
-to be another style, or put them in `Reference podcasts/Other styles`.
+to be another style, or put them in `Mixes/Other styles`.
 
 ## 4. Tier two: the best tracks, to buy
 
@@ -61,7 +61,7 @@ Only when the user asks, add them to their Bandcamp cart in Chrome (the claude-i
 - Finish with the cart's contents and totals per currency.
 
 The user buys and downloads, and tells you where the files are. `~/Music/Music` (the Apple Music
-library) is protected by macOS: ask them to move the folder into `~/Music/ExampleTracks/`.
+library) is protected by macOS: ask them to move the folder into `~/Music/GrooveKit/References/`.
 
 ## 5. Measure and sort
 
@@ -71,25 +71,27 @@ library) is protected by macOS: ask them to move the folder into `~/Music/Exampl
    - Badly mastered or off-sound tracks.
    - Old, quiet masters (about 4 dB or more under the rest). Keep classics, but say they pull the loudness targets down; use only a few from quiet albums.
 3. Sort:
-   - Singles move to `~/Music/ExampleTracks/<Style>/`.
-   - Albums stay whole in `~/Music/ExampleTracks/Albums/`; only their reference tracks are copied into the style folders.
-   - Duplicates (`cmp` to confirm) and non-references go to `~/Music/ExampleTracks/Not used as references/`. The editor can't use the Trash, and nothing is deleted for good.
+   - Singles move to `~/Music/GrooveKit/References/<Style>/`.
+   - Albums stay whole in `~/Music/GrooveKit/References/Albums/`; only their reference tracks are copied into the style folders.
+   - Duplicates (`cmp` to confirm) and non-references go to `~/Music/GrooveKit/References/Not used/`. The editor can't use the Trash, and nothing is deleted for good.
 4. The folder name is the style's name, matching the guide ("Berlin Techno" finds "Berlin techno (Berghain)").
 
 ## 6. Slice the mixes
 
-`python3 -I scripts/slice_mix.py <mix> "~/Music/ExampleTracks/<Style>/From mixes"`:
+`python3 -I scripts/slice_mix.py <mix> "~/Music/GrooveKit/References/<Style>/From mixes"`:
 - It cuts up to five 90-second slices per mix, about one per 10 minutes, from the steadiest stretches (one track on its own, not a transition).
 - It skips quiet breakdowns and the first and last three minutes.
 - About 18 s per hour-long mix.
 
 Mention that slices near a mix's end can be off-style if the DJ changes direction. Then ask the user
-to delete the full mixes (`Reference podcasts`) themselves; you can't use the Trash.
+to delete the full mixes (`References/Mixes`) themselves; you can't use the Trash.
 
 ## 7. Hand it to GrooveKit
 
 The user adds the style folder in the browser's Style menu (or `styles.add` with its path), and
-GrooveKit hears it. Adding a folder again updates it, hearing only what changed. Report:
+GrooveKit hears it. Add each style folder on its own, never `References` itself, which would also
+hear the albums, mixes and leftovers. GrooveKit remembers the folder's path, so a moved folder must
+be added again. Adding a folder again updates it, hearing only what changed. Report:
 - the counts per folder;
 - what was left out and why;
 - the next step: references whose measurements should replace the guide's estimated targets.
