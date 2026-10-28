@@ -948,7 +948,7 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
 
         try
         {
-            live->getPreview().play (path, static_cast<float> (optionalNumber (params, "gainDb").value_or (-6.0)));
+            live->getPreview().play (path, static_cast<float> (optionalNumber (params, "gainDb").value_or (-6.0)), optionalNumber (params, "from").value_or (0.0));
         }
         catch (const std::exception& e)
         {
@@ -2312,6 +2312,10 @@ Json ApiHandler::callMaps (const std::string& method, const Json& params)
 
             j["id"] = id;
             j["inUse"] = maps.isInUse (id);
+
+            if (map->track.arrangement)
+                j["score"] = map->track.arrangement->describe();
+
             j["current"] = map->track.analysis >= listening::currentAnalysisVersion();
             return j;
         }

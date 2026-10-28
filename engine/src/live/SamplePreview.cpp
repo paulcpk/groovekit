@@ -29,7 +29,7 @@ SamplePreview::SamplePreview()
 
 SamplePreview::~SamplePreview() = default;
 
-void SamplePreview::play (const std::filesystem::path& file, float gainDb)
+void SamplePreview::play (const std::filesystem::path& file, float gainDb, double fromSeconds)
 {
     auto reader = std::unique_ptr<juce::AudioFormatReader> (formats.createReaderFor (juce::File (file.string())));
 
@@ -38,8 +38,10 @@ void SamplePreview::play (const std::filesystem::path& file, float gainDb)
 
     const auto ratio = reader->sampleRate / deviceRate;
     const auto channels = static_cast<int> (reader->numChannels);
-    auto next = std::make_unique<Voice> (std::make_unique<juce::AudioFormatReaderSource> (reader.release(), true),
-                                         ratio, juce::Decibels::decibelsToGain (gainDb), channels);
+    const auto from = static_cast<juce::int64> (std::max (0.0, fromSeconds) * reader->sampleRate);
+    auto source = std::make_unique<juce::AudioFormatReaderSource> (reader.release(), true);
+    source->setNextReadPosition (from);
+    auto next = std::make_unique<Voice> (std::move (source), ratio, juce::Decibels::decibelsToGain (gainDb), channels);
     next->resampler.prepareToPlay (blockSize, deviceRate);
 
     const juce::ScopedLock sl (lock);

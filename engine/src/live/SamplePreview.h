@@ -16,8 +16,9 @@ public:
     SamplePreview();
     ~SamplePreview() override;
 
-    /** Starts playing a file from the top, replacing whatever was playing. Throws if it can't be read. */
-    void play (const std::filesystem::path&, float gainDb = -6.0f);
+    /** Starts playing a file from the top (or from a time in it, seconds), replacing whatever was
+        playing. Throws if it can't be read. */
+    void play (const std::filesystem::path&, float gainDb = -6.0f, double fromSeconds = 0);
     void stop();
     bool isPlaying() const;
 

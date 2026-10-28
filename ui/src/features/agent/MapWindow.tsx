@@ -1,6 +1,7 @@
 import { RotateCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { IconButton, ToggleChip } from "@/components/controls";
+import { ArrangementView } from "./ArrangementView";
 import { FloatingWindow } from "@/components/window";
 import { closeWindow, type OpenWindow } from "@/state/windows";
 import { forget, getMap, hear, setInUse, useMaps, type SongMap } from "./maps";
@@ -29,7 +30,7 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
   const t = map?.track;
 
   return (
-    <FloatingWindow window={w} width={420} accent="var(--color-agent)"
+    <FloatingWindow window={w} width={540} accent="var(--color-agent)"
       title={<><span className="truncate">{title}</span><span className="shrink-0 text-2xs font-normal text-faint">Song map</span></>}
       extra={map && (
         <div className="flex items-center gap-1">
@@ -88,10 +89,29 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
             </Section>
 
             <Section title="Arrangement">
-              <p className="text-2xs leading-relaxed text-faint">
-                The form, the parts in each bar and their patterns come with the next version of the hearing. Songs heard by this one
-                show as "older" then, to be heard again.
-              </p>
+              {t.arrangement && t.arrangement.bars > 0 ? (
+                <>
+                  <ArrangementView arrangement={t.arrangement} file={song?.file} />
+                  {t.arrangement.changes.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-0.5 text-2xs text-dim">
+                      {t.arrangement.changes.slice(0, 12).map((c, i) => (
+                        <span key={i}><span className="tabular text-faint">Bar {c.bar + 1}</span> · {c.part} {c.what}</span>
+                      ))}
+                      {t.arrangement.changes.length > 12 && <span className="text-faint">and {t.arrangement.changes.length - 12} more</span>}
+                    </div>
+                  )}
+                  {map.score && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-2xs text-faint hover:text-dim">As the agent reads it</summary>
+                      <pre className="mt-1 overflow-x-auto rounded-[6px] bg-bg p-2 font-mono text-[10px] leading-relaxed text-dim ring-1 ring-line">{map.score}</pre>
+                    </details>
+                  )}
+                </>
+              ) : (
+                <p className="text-2xs leading-relaxed text-faint">
+                  {t.arrangement ? "No beat could be heard in this track." : "Heard by an older hearing, without the arrangement: hear it again for its sections, parts per bar and energy."}
+                </p>
+              )}
             </Section>
 
             <div className="mt-3 truncate text-2xs text-faint" title={song?.file ?? t.path}>{song?.file ?? t.path}</div>

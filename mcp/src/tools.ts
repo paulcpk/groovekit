@@ -18,7 +18,7 @@ Sounds: search_samples finds samples in the user's library by words, category, l
 
 Plugins: the user's VST3/AU plugins are listed by plugins (scan first if the list is empty). GrooveKit ships its own synth, Triad (manufacturer GrooveKit, always listed): three oscillators (sine, triangle, square, saw, soft saw, pulse, noise) each with coarse and fine tuning, level, pan, phase and stereo detune, the second and third able to mix in, FM or ring-modulate the one before; unison; a filter (low-pass 24 or 12, high-pass, band-pass) with its own envelope; an amp envelope; an LFO; poly, mono or legato with glide. Set its parameters by name like any plugin's ("Osc 1 shape", "Cutoff"); a good starting point for basses, stabs, leads and pads before reaching for samples. describe_plugin gives a pluginRef and parameter names; use it in a channel instrument {"type":"plugin","plugin":pluginRef} or an insert effect {"type":"plugin","id":...,"plugin":pluginRef}, set "params" by name (normalized 0-1), and automate them with automation clips (an instrument's: scope channel with param its parameter id or name; an effect's: scope effect). A sampler channel's filterCutoff, filterResonance and filterEnvelopeAmount are automatable too, like any channel's volume and pan. Every insert effect, built-in or plugin, has a mix from 0 (the dry signal) to 1 (only the effect): mix reverbs and delays in rather than adding sends for everything; it is automatable as the effect parameter "mix".
 
-Listening: GrooveKit can hear its sample library and the user's reference tracks (once its listening models are downloaded, a 400 MB download the user starts in the Browser). Choose sounds by how they sound, never by their names: two files called "stab" can have nothing in common. A style is a folder of reference tracks the user loves (styles); styles describe gives its tempo range, swing, loudness, the levels of drums, bass and music against the mix, and words for what each part sounds like. search_samples with style ranks the library by fit to that style for each sample's part (category), 0 being an average sample of the user's library and 100 as close as the references are to each other: build from the top (fit 50 and above), use sound (words like "dusty warm chord stab") to steer within the style, and like (a path) to find sounds that belong with one you chose, so the kit hangs together. Results say in words what each sample sounds like. After arranging, compare_to_style renders the song and reports how far each part is from the references and what differs most (tempo, swing, busy or sparse drums, balance, levels); fix the biggest differences and compare again. When the user says a sound fits or doesn't, record it with rate_sample: their verdicts steer later searches, and from two samples that fit GrooveKit learns what they have in common (results then give taste, 0-100: how likely the user is to say a sample fits, trusted more the more they've rated), so ask for verdicts on the sounds you pick.
+Listening: GrooveKit can hear its sample library and the user's reference tracks (once its listening models are downloaded, a 400 MB download the user starts in the Browser). Choose sounds by how they sound, never by their names: two files called "stab" can have nothing in common. A style is a folder of reference tracks the user loves (styles); styles describe gives its tempo range, swing, loudness, the levels of drums, bass and music against the mix, and words for what each part sounds like. search_samples with style ranks the library by fit to that style for each sample's part (category), 0 being an average sample of the user's library and 100 as close as the references are to each other: build from the top (fit 50 and above), use sound (words like "dusty warm chord stab") to steer within the style, and like (a path) to find sounds that belong with one you chose, so the kit hangs together. Results say in words what each sample sounds like. Before arranging in a style, read two or three of its references' maps (song_maps list, then read): their scores show how the user's favourite tracks are built (how long the intro runs, when the rumble and the hats come in, where the breaks fall and what's left in them, how many parts play at once, what changes every 8 or 16 bars); build the song's form from them rather than from habit, and when the user names tracks to sound like, use theirs. After arranging, compare_to_style renders the song and reports how far each part is from the references and what differs most (tempo, swing, busy or sparse drums, balance, levels); fix the biggest differences and compare again. When the user says a sound fits or doesn't, record it with rate_sample: their verdicts steer later searches, and from two samples that fit GrooveKit learns what they have in common (results then give taste, 0-100: how likely the user is to say a sample fits, trusted more the more they've rated), so ask for verdicts on the sounds you pick.
 
 
 Keys and melodies: give the song a key with the setKey command ("A minor"); get_summary shows it. Samples have keys too: search_samples results give key (from the file name, else heard; keySource says which, heardKey when the sound disagrees with the name) and rootKey (a one-shot's pitch, drums included: a kick's is its tail's). fitsKey ("song" or a key) keeps samples that go with that key (the same notes, a fifth away, or a root in its scale) and gives each keyFit.transpose: the semitones (layer transpose) that put it exactly in key, tonic for one-shots, so loops and kicks can be tuned to the song. The melody tool turns melodies into notes on the song's grid, in its key and a register: from the user's voice (they hum or sing on "da" in a voice message, often after saying which channel it's for: the message then mentions the hummed melody) or from a reference track (a part of a style's tracks: its lead line, chords or bassline). Place the result with edit_project (addPattern if needed, then addNotes with the notes, channel set).
@@ -426,10 +426,10 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "styles",
     {
-      description: "The user's styles: folders of reference tracks GrooveKit has listened to. list (with listening status: models, library indexing, a running analysis), describe (tempo range, swing, onsets per beat, loudness, spectral balance, each part's level against the mix, and words for what each part sounds like), add (analyses a folder of tracks in the background, about 15 s per track; adding it again picks up new tracks), remove. download fetches the listening models (about 400 MB): only when the user has agreed to it. references lists the folders in the user's references folder (~/Music/GrooveKit/References, one folder per style, named like its guide): each with its file count, the style heard from it, how many tracks are new or gone since, and its guide; add a folder that has new tracks to hear them.",
+      description: "The user's styles: folders of reference tracks GrooveKit has heard, each track once into a song map (song_maps); a style is learnt from its maps in use. list (with listening status: models, library indexing, the hearing queue), describe (tempo range, swing, onsets per beat, loudness, spectral balance, each part's level against the mix, and words for what each part sounds like), add (queues a folder's new and changed tracks to be heard in the background, a few minutes per track). download fetches the listening models (about 400 MB): only when the user has agreed to it. references lists the folders in the user's references folder (~/Music/GrooveKit/References, one folder per style, named like its guide): each with its file count, the style heard from it, how many tracks are new or gone since, and its guide; add a folder that has new tracks to hear them.",
       inputSchema: {
-        action: z.enum(["list", "references", "describe", "add", "remove", "download"]),
-        name: z.string().optional().describe("The style, for describe and remove; for add, a name (default: the folder's)"),
+        action: z.enum(["list", "references", "describe", "add", "download"]),
+        name: z.string().optional().describe("The style, for describe; for add, a name (default: the folder's)"),
         path: z.string().optional().describe("Folder of reference tracks, for add"),
       },
     },
@@ -440,6 +440,35 @@ Opening, creating or saving as switches the user's window too, so only do it whe
         if (action === "list") return { ...((await engine.call("styles.list", {})) as object), listening: await engine.call("listening.status", {}) };
         if (action === "references") return engine.call("styles.references", {});
         return engine.call(`styles.${action}`, { name });
+      })
+  );
+
+  server.registerTool(
+    "song_maps",
+    {
+      description: "The user's reference tracks, each heard once into a song map: its arrangement bar by bar (the beat grid, sections with their role and bars, which parts play in each: kick, rumble, bass, hats, percussion, music, vocal; energy; changes like a part out for a bar or a filter opening) and what it sounds like. list: the songs by style, with status (heard, older: heard before arrangements were heard, new, queued...), inUse (the user's tick: the style learns from ticked songs) and tempo; style narrows it. read: one song's map as a score (id from list), to learn how the style's tracks are built before arranging: intro length, when the low end and the hats come in, where breaks fall, how many parts play at once. hear: queues songs (ids) to be heard (again), a few minutes each in the background. setInUse: ticks or unticks songs (ids, inUse), only when the user asks.",
+      inputSchema: {
+        action: z.enum(["list", "read", "hear", "setInUse"]),
+        style: z.string().optional().describe("list: only this style"),
+        id: z.string().optional().describe("read: the song, as list gives it (style/title)"),
+        ids: z.array(z.string()).optional().describe("hear, setInUse: the songs"),
+        inUse: z.boolean().optional().describe("setInUse"),
+      },
+    },
+    ({ action, style, id, ids, inUse }) =>
+      attempt(async () => {
+        if (action === "list") {
+          const r = (await engine.call("maps.list", {})) as { songs: { id: string; style: string; title: string; status: string; inUse: boolean; map?: { tempo: number } }[] };
+          const songs = r.songs.filter((s) => !style || s.style.toLowerCase() === style.toLowerCase());
+          return songs.map((s) => ({ id: s.id, status: s.status, inUse: s.inUse, ...(s.map ? { tempo: s.map.tempo } : {}) }));
+        }
+        if (action === "read") {
+          const map = (await engine.call("maps.get", { id })) as { style: string; title: string; inUse: boolean; score?: string; track: Record<string, unknown> };
+          const { sounds: _, arrangement: __, balance: ___, path: ____, ...measured } = map.track;
+          return { id, style: map.style, title: map.title, inUse: map.inUse, measured, score: map.score ?? "Heard before arrangements were heard: hear it again for its score." };
+        }
+        if (action === "hear") return engine.call("maps.hear", { ids });
+        return engine.call("maps.setInUse", { ids, inUse });
       })
   );
 

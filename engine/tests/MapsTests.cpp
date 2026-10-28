@@ -9,6 +9,7 @@
 #include "session/Session.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <fstream>
 
@@ -307,4 +308,91 @@ TEST_CASE ("The References tab's methods tick, queue, forget, move out and share
     CHECK_FALSE (fs::exists (folder / "drop.wav"));
     CHECK (fs::exists (refs / "Not used" / "Hard Techno" / "drop.wav"));
     CHECK (call ("maps.list")["songs"].size() == 1);
+}
+
+TEST_CASE ("A track's arrangement is heard bar by bar: the grid, the parts, the sections")
+{
+    // 64 bars at 128 BPM: kick and rumble; hats from bar 17; a break with music only at 33-40;
+    // everything from 41.
+    constexpr double rate = 22050, tempo = 128;
+    const double beat = 60 / tempo;
+    const int bars = 64;
+    const auto total = static_cast<size_t> (bars * 4 * beat * rate);
+    TrackStems stems;
+    stems.sampleRate = rate;
+    stems.drums.assign (total, 0.0f);
+    stems.bass.assign (total, 0.0f);
+    stems.other.assign (total, 0.0f);
+    stems.vocals.assign (total, 0.0f);
+    juce::Random random (7);
+    const double pi = juce::MathConstants<double>::pi;
+
+    for (int b = 0; b < bars; ++b)
+    {
+        const bool kick = b < 32 || b >= 40, hats = (b >= 16 && b < 32) || b >= 40, music = b >= 32;
+
+        for (int k = 0; k < 4; ++k)
+        {
+            const auto start = static_cast<size_t> ((b * 4 + k) * beat * rate);
+
+            for (size_t i = 0; i < static_cast<size_t> (beat * rate) && start + i < total; ++i)
+            {
+                const double t = static_cast<double> (i) / rate;
+                float v = 0;
+
+                if (kick)
+                {
+                    v += static_cast<float> (0.8 * std::sin (2 * pi * 50 * t) * std::exp (-t / 0.06));
+
+                    // The rumble: a low tail that swells between the kicks.
+                    if (t > 0.3 * beat)
+                        v += static_cast<float> (0.25 * std::sin (2 * pi * 45 * t) * std::sin (pi * (t - 0.3 * beat) / (0.7 * beat)));
+                }
+
+                if (hats && t >= 0.5 * beat && t < 0.5 * beat + 0.02)
+                    v += 0.3f * (random.nextFloat() * 2 - 1);
+
+                stems.drums[start + i] += v;
+
+                if (music)
+                    stems.other[start + i] += static_cast<float> (0.12 * (std::sin (2 * pi * 220 * t) + std::sin (2 * pi * 330 * t)));
+            }
+        }
+    }
+
+    stems.mix.resize (total);
+
+    for (size_t i = 0; i < total; ++i)
+        stems.mix[i] = stems.drums[i] + stems.other[i];
+
+    const auto a = hearArrangement (stems);
+    INFO (a.describe());
+    CHECK (std::abs (a.tempo - tempo) < 1.0);
+    CHECK ((a.downbeat < 0.03 || a.downbeat > a.barSeconds() - 0.03));
+    CHECK (a.bars == bars);
+
+    auto on = [&] (const std::string& part, int bar) { return a.parts.at (part).on[static_cast<size_t> (bar - 1)]; };
+    CHECK (on ("kick", 1));
+    CHECK (on ("rumble", 8));
+    CHECK_FALSE (on ("hats", 8));
+    CHECK (on ("hats", 20));
+    CHECK_FALSE (on ("kick", 36));
+    CHECK (on ("music", 36));
+    CHECK_FALSE (on ("music", 20));
+    CHECK (on ("kick", 50));
+
+    REQUIRE (a.sections.size() == 4);
+    CHECK (a.sections[0].role == "intro");
+    CHECK (a.sections[0].end == 16);
+    CHECK (a.sections[1].role == "groove");
+    CHECK (a.sections[2].role == "break");
+    CHECK (a.sections[2].start == 32);
+    CHECK (a.sections[2].end == 40);
+    CHECK (a.sections[3].role == "drop");
+
+    // Kept in a map and read back.
+    const auto copy = Arrangement::fromJson (Json::parse (a.toJson().dump()));
+    CHECK (copy.sections.size() == 4);
+    CHECK (copy.parts.at ("hats").on == a.parts.at ("hats").on);
+    CHECK_THAT (copy.describe(), Catch::Matchers::ContainsSubstring ("33-40    break"));
 }

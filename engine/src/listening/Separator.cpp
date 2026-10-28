@@ -15,7 +15,7 @@ namespace
 Separator::Separator (const Models& m) : models (m) {}
 Separator::~Separator() = default;
 
-Separator::Stems Separator::separate (const juce::AudioBuffer<float>& input)
+Separator::Stems Separator::separate (const juce::AudioBuffer<float>& input, const std::function<bool (double)>& progress)
 {
     if (session == nullptr)
     {
@@ -65,6 +65,9 @@ Separator::Stems Separator::separate (const juce::AudioBuffer<float>& input)
 
         if (start + length >= total)
             break;
+
+        if (progress && ! progress (static_cast<double> (start + length) / total))
+            throw std::runtime_error ("Stopped");
     }
 
     for (auto& b : out)
@@ -72,10 +75,10 @@ Separator::Stems Separator::separate (const juce::AudioBuffer<float>& input)
             for (int i = 0; i < total; ++i)
                 b.getWritePointer (c)[i] /= std::max (weight[static_cast<size_t> (i)], 1e-8f);
 
-    Stems stems { std::move (out[0]), std::move (out[1]), std::move (out[2]) };
+    Stems stems { std::move (out[0]), std::move (out[1]), std::move (out[2]), std::move (out[3]) };
 
     for (int c = 0; c < 2; ++c)
-        stems.other.addFrom (c, 0, out[3], c, 0, total);
+        stems.other.addFrom (c, 0, stems.vocals, c, 0, total);
 
     return stems;
 }

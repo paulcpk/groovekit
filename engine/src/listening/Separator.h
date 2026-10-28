@@ -4,6 +4,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include <functional>
 #include <memory>
 
 namespace Ort { struct Session; }
@@ -24,10 +25,12 @@ public:
     struct Stems
     {
         juce::AudioBuffer<float> drums, bass, other;    // other includes any vocals
+        juce::AudioBuffer<float> vocals;                // also on their own
     };
 
-    /** Stereo (or mono) audio at 44.1 kHz. Blocks for about a fifth of the audio's length. */
-    Stems separate (const juce::AudioBuffer<float>&);
+    /** Stereo (or mono) audio at 44.1 kHz. Blocks for about a fifth of the audio's length.
+        progress hears how far it is (0 to 1); returning false stops it with an error. */
+    Stems separate (const juce::AudioBuffer<float>&, const std::function<bool (double)>& progress = {});
 
 private:
     const Models& models;

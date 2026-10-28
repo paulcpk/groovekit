@@ -21,6 +21,7 @@ target_sources(gk_engine PRIVATE
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp
     src/library/SampleLibrary.cpp
+    src/listening/Arrangement.cpp
     src/listening/Clap.cpp
     src/listening/Download.cpp
     src/listening/Groove.cpp

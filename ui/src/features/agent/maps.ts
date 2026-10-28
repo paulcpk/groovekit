@@ -45,7 +45,25 @@ export interface SongMap {
   track: {
     path: string; analysis: number; tempo: number; swing?: number; density: number; lufs: number;
     balance: number[]; levels: Record<string, number>; sounds: Record<string, number>;
+    arrangement?: Arrangement;
   };
+  /** The arrangement as the agent reads it. */
+  score?: string;
+}
+
+/** How a whole track unfolds, bar by bar (bars count from 0; a section's end is excluded). */
+export interface Arrangement {
+  tempo: number;
+  downbeat: number;
+  seconds: number;
+  bars: number;
+  parts: Record<string, { level: number[]; on: string }>;
+  loudness: number[];
+  low: number[];
+  brightness: number[];
+  density: number[];
+  sections: { start: number; end: number; role: string }[];
+  changes: { bar: number; part: string; what: string }[];
 }
 
 interface MapsState {

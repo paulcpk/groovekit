@@ -17,7 +17,7 @@ using model::Json;
 namespace
 {
     constexpr int fileVersion = 1;
-    constexpr int analysisVersion = 5;      // tracks heard by an older analysis are heard again
+    constexpr int analysisVersion = 6;      // 6: the whole track, with its arrangement
     constexpr int windowsPerTrack = 6;
     constexpr int windowSamples = 343980;  // one separator chunk, 7.8 s at 44.1 kHz
     constexpr float silentDb = -50.0f;
@@ -198,6 +198,9 @@ Json StyleProfile::Track::toJson() const
     if (swing)
         j["swing"] = round (*swing, 0.01);
 
+    if (arrangement)
+        j["arrangement"] = arrangement->toJson();
+
     return j;
 }
 
@@ -215,6 +218,9 @@ StyleProfile::Track StyleProfile::Track::fromJson (const Json& tj)
 
     if (tj.contains ("swing"))
         t.swing = tj["swing"].get<double>();
+
+    if (tj.contains ("arrangement"))
+        t.arrangement = Arrangement::fromJson (tj["arrangement"]);
 
     // Held here: items() only refers to the object it's given.
     const auto levels = tj.value ("levels", Json::object());
@@ -832,7 +838,7 @@ void Styles::run()
 
                 notify();
                 return true;
-            });
+            }, true);
 
             std::error_code ec;
             track.size = static_cast<int64_t> (std::filesystem::file_size (item.file, ec));
@@ -1007,7 +1013,7 @@ void Styles::migrate (const std::filesystem::path& oldProfilesFolder)
 }
 
 StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::filesystem::path& path, std::optional<double> knownTempo,
-                               const std::function<bool (double)>& progress)
+                               const std::function<bool (double)>& progress, bool wholeTrack)
 {
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
@@ -1026,6 +1032,36 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
     StyleProfile::Track track;
     track.path = path.string();
 
+    // Audio from the file as the separator wants it: 44.1 kHz stereo.
+    auto read = [&] (juce::int64 start, int count)
+    {
+        juce::AudioBuffer<float> raw (2, count);
+        reader->read (&raw, 0, count, start, true, true);
+        const auto out = static_cast<int> (std::ceil (count / rate * Separator::sampleRate));
+        juce::AudioBuffer<float> audio (2, out);
+        audio.clear();
+
+        for (int c = 0; c < 2; ++c)
+        {
+            juce::AudioBuffer<float> channel (1, count);
+            channel.copyFrom (0, 0, raw, std::min (c, static_cast<int> (reader->numChannels) - 1), 0, count);
+            auto resampled = resampleMono (channel, rate, Separator::sampleRate);
+            audio.copyFrom (c, 0, resampled.data(), std::min (out, static_cast<int> (resampled.size())));
+        }
+
+        return audio;
+    };
+
+    // The whole track split at once (most of the time), for the arrangement and the stretches.
+    juce::AudioBuffer<float> whole;
+    Separator::Stems wholeStems;
+
+    if (wholeTrack)
+    {
+        whole = read (0, static_cast<int> (length));
+        wholeStems = separator.separate (whole, [&] (double f) { return ! progress || progress (0.8 * f); });
+    }
+
     std::vector<double> swings, densities;
     std::vector<std::vector<double>> kickOnsetsPerStretch, hatOnsetsPerStretch;
     std::vector<float> lufs;
@@ -1036,24 +1072,38 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
     {
         // Spread over the middle of the track, past the intro and before the outro.
         const auto position = 0.2 + 0.6 * w / (windowsPerTrack - 1);
-        const auto start = static_cast<juce::int64> (position * static_cast<double> (length - windowLength));
-
-        juce::AudioBuffer<float> raw (2, windowLength);
-        reader->read (&raw, 0, windowLength, start, true, true);
-
-        // The separator wants 44.1 kHz stereo.
         juce::AudioBuffer<float> chunk (2, windowSamples);
+        Separator::Stems stems;
 
-        for (int c = 0; c < 2; ++c)
+        if (wholeTrack)
         {
-            juce::AudioBuffer<float> channel (1, windowLength);
-            channel.copyFrom (0, 0, raw, std::min (c, static_cast<int> (reader->numChannels) - 1), 0, windowLength);
-            auto resampled = resampleMono (channel, rate, Separator::sampleRate);
-            chunk.clear (c, 0, windowSamples);
-            chunk.copyFrom (c, 0, resampled.data(), std::min (windowSamples, static_cast<int> (resampled.size())));
-        }
+            const auto start = std::clamp (static_cast<int> (position * (whole.getNumSamples() - windowSamples)), 0, std::max (0, whole.getNumSamples() - windowSamples));
+            const auto count = std::min (windowSamples, whole.getNumSamples() - start);
+            auto slice = [&] (const juce::AudioBuffer<float>& from)
+            {
+                juce::AudioBuffer<float> b (2, windowSamples);
+                b.clear();
 
-        auto stems = separator.separate (chunk);
+                for (int c = 0; c < 2; ++c)
+                    b.copyFrom (c, 0, from, c, start, count);
+
+                return b;
+            };
+
+            chunk = slice (whole);
+            stems = { slice (wholeStems.drums), slice (wholeStems.bass), slice (wholeStems.other), slice (wholeStems.vocals) };
+        }
+        else
+        {
+            const auto start = static_cast<juce::int64> (position * static_cast<double> (length - windowLength));
+            auto audio = read (start, windowLength);
+            chunk.clear();
+
+            for (int c = 0; c < 2; ++c)
+                chunk.copyFrom (c, 0, audio, c, 0, std::min (windowSamples, audio.getNumSamples()));
+
+            stems = separator.separate (chunk);
+        }
 
         auto toClap = [] (const juce::AudioBuffer<float>& b) { return resampleMono (b, Separator::sampleRate, Clap::sampleRate); };
         auto drums = toClap (stems.drums);
@@ -1139,7 +1189,7 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
             if (rmsDb (hit.audio) > silentDb)
                 track.sounds[role].push_back (clap.embedAudio (hit.audio.data(), hit.audio.size()));
 
-        if (progress && ! progress ((w + 1.0) / windowsPerTrack))
+        if (progress && ! progress ((wholeTrack ? 0.8 + 0.15 * (w + 1) / windowsPerTrack : (w + 1.0) / windowsPerTrack)))
             throw std::runtime_error ("Stopped");
     }
 
@@ -1198,6 +1248,33 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
         for (auto& b : balances)
             for (size_t i = 0; i < std::min (b.size(), track.balance.size()); ++i)
                 track.balance[i] += b[i] / static_cast<float> (balances.size());
+    }
+
+    // How the whole track unfolds, on the tempo heard above.
+    if (wholeTrack)
+    {
+        auto mono = [] (const juce::AudioBuffer<float>& b)
+        {
+            std::vector<float> m (static_cast<size_t> (b.getNumSamples()));
+
+            for (int i = 0; i < b.getNumSamples(); ++i)
+                m[static_cast<size_t> (i)] = 0.5f * (b.getSample (0, i) + b.getSample (b.getNumChannels() > 1 ? 1 : 0, i));
+
+            return m;
+        };
+
+        TrackStems full { Separator::sampleRate, mono (whole), mono (wholeStems.drums), mono (wholeStems.bass), {}, mono (wholeStems.vocals) };
+
+        // The music without the vocals, as the arrangement hears them apart.
+        full.other = mono (wholeStems.other);
+
+        for (size_t i = 0; i < full.other.size() && i < full.vocals.size(); ++i)
+            full.other[i] -= full.vocals[i];
+
+        track.arrangement = hearArrangement (full, track.tempo > 0 ? std::optional (track.tempo) : std::nullopt);
+
+        if (progress && ! progress (1.0))
+            throw std::runtime_error ("Stopped");
     }
 
     return track;

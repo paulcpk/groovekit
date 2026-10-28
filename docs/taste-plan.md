@@ -115,13 +115,45 @@ Curating (the References tab in the agent panel):
 Built in this order:
 
 1. Map files, the index, the queue, the References tab and export/import, with what the hearing
-   already measures (tempo, swing, density, loudness, balance, levels and sounds per part).
+   already measures (tempo, swing, density, loudness, balance, levels and sounds per part). Built.
 2. The full-track hearing: form, parts per bar, energy; the map window shows them. The user checks
-   the first maps against tracks they know by heart.
+   the first maps against tracks they know by heart. Built (hearing 6: the whole track is split,
+   about three minutes for a seven-minute track; the agent reads maps with song_maps).
 3. Drum-hit labels, patterns per part, notes, the timing feel; the rhythm vocabulary.
 4. Flavours and templates per style, into the guides and the agent's tools; the agent plans a song
    as a map first, and a song can name its references.
 5. The review (below) compares the song's own map with the template.
+
+### Sound matching (a sound like the reference's)
+
+A perfect arrangement of the wrong kick and rumble still sounds wrong. The agent has to find, or
+make, the sound a reference uses for a part, not just the right kind of sound. The fingerprints
+(CLAP) hear "dark techno kick", not "a short click, a body at 48 Hz, a distorted rumble tail of
+180 ms", and they compare a stretch of a mixed track with a clean file. So samples are measured
+in the same terms as the references' parts:
+
+1. **Clean reference parts.** The map knows where a part plays alone or nearly ("bars 1-16: kick
+   and rumble only"); a part is measured there, not under the whole mix. The measurements are
+   kept in the map, so they work for imported maps too.
+2. **Sound maps of samples.** One-shots and loops get the same measurements: for kicks the note
+   of the body, the click and attack, how long the body rings, the rumble tail (length, level,
+   grit) and width; for loops also their rhythm on the 16-step grid and their timing. Drum loops
+   are drums already, so they're split by band, not by the separator. Run in the background like
+   the sound index.
+3. **"Sounds like this".** A search by a reference part (a map, a part, its clean bars): samples
+   ranked by the measurements first and the fingerprint second, each with what's close and what
+   differs ("1 semitone higher, a 60 ms shorter tail").
+4. **Checked by ear, in numbers.** The agent renders its best candidates at the song's tempo, alone,
+   measures them like the reference part and keeps the closest. The best three go to the user as
+   A/B/C (a window with play and pick); the pick and the ones passed over teach the taste model.
+5. **Closing the gap.** What the closest still differs by, as changes: tune to the reference's
+   note, EQ towards its spectrum, attack, saturation; measured again after each.
+6. **Built from one-shots.** A kick chosen by its measurements, played in the reference's rhythm,
+   with the rumble made the classic way (kick, reverb, distortion, low-pass, ducked by the kick),
+   compared with the reference part like any candidate.
+
+It won't find the record's exact sound; it finds the same family and brings it closer, and the
+numbers say how close. The user's ear stays the judge.
 
 ### 3. A review (the ears)
 
@@ -178,21 +210,22 @@ In this order; each step is judged by the test round (6) before the next.
 1. **Conversation mode** (done). The agent talks when asked a question or for ideas: it answers,
    explains, offers options with their trade-offs and asks back, and edits only when asked. It looks
    at the song (and renders or compares it with the references) before giving an opinion.
-2. **Song maps** (next; see "Song maps" above, built in its five steps). The references heard in
-   full into maps the user curates and shares; flavours, templates and the rhythm vocabulary per
-   style come from them. This takes in "Arrangement from the references" (the old step 5).
-3. **The review** (one to two sessions). Measures the song against its guide and the user's
+2. **Song maps** (in progress; see "Song maps" above: step 1, the files, the Maps tab and the queue,
+   is built). The references heard in full into maps the user curates and shares; flavours,
+   templates and the rhythm vocabulary per style come from them. This takes in "Arrangement from
+   the references" (the old step 5).
+3. **Sound matching** (right after map step 2, which finds the clean stretches it compares with;
+   see "Sound matching" above). This takes in "Sound choice from the references".
+4. **The review** (one to two sessions). Measures the song against its guide and the user's
    reference folders and returns ranked, concrete problems ("the clap is 2 dB under the kick; your
    references put it 7 to 16 dB under", "bars 33 to 48 have 9 parts; the budget is 6", "the highs
    are busier than your Berlin references"). The guides' targets come from the references'
    measurements instead of estimates.
-4. **The process** (one session). The agent builds the groove first, adds one part at a time,
+5. **The process** (one session). The agent builds the groove first, adds one part at a time,
    reviews after each and fixes the top problem before going on, then masters and compares with
    the references.
-5. **Sound choice from the references.** Every search ranks by fit to the song's style folder and
-   by the user's taste, so a kick is chosen because it sounds like the references' kicks.
 6. **Testing with the user.** A fixed prompt per style, the songs rated blind (good, okay, bad), one
-   change at a time; keep what improves the ratings. The first round comes after step 4.
+   change at a time; keep what improves the ratings. The first round comes after step 5.
 7. **A/B/C variations and trusted folders.** Three short versions to pick from by ear, which trains
    the taste on whole kits; trusted sample folders searches prefer.
 8. **A mastering chain per style**, tuned to the references' loudness and balance.

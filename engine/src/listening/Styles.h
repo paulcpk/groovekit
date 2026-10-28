@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Arrangement.h"
 #include "Clap.h"
 #include "Groove.h"
 #include "Separator.h"
@@ -49,6 +50,7 @@ struct StyleProfile
         std::vector<float> balance;                 // the mix's spectral balance (dB per band)
         std::map<Role, float> levels;               // each stem's level against the mix, dB
         std::map<Role, std::vector<Embedding>> sounds;
+        std::optional<Arrangement> arrangement;     // heard from the whole track (analysis 6 on)
 
         model::Json toJson() const;
         static Track fromJson (const model::Json&);
@@ -75,11 +77,12 @@ struct StyleProfile
 
 /** Hears a track as a style's references are heard: six stretches through its middle, each
     split into drums, bass and the rest, with what each part sounds like, the parts' levels, the
-    mix's loudness and balance, and the groove (the tempo from the kick unless it's known). Blocks
-    for several seconds. Throws if the file can't be read or is shorter than 8 seconds. progress
-    hears how far it is (0 to 1); returning false stops it with an error. */
+    mix's loudness and balance, and the groove (the tempo from the kick unless it's known). With
+    wholeTrack, the whole track is split (about a fifth of its length) and its arrangement heard
+    too. Blocks for seconds to a minute or more. Throws if the file can't be read or is shorter
+    than 8 seconds. progress hears how far it is (0 to 1); returning false stops it with an error. */
 StyleProfile::Track hearTrack (Separator&, Clap&, const std::filesystem::path&, std::optional<double> knownTempo = {},
-                               const std::function<bool (double)>& progress = {});
+                               const std::function<bool (double)>& progress = {}, bool wholeTrack = false);
 
 /** The version of hearTrack: maps heard by an older one are used for what they have, and can be
     heard again. */
