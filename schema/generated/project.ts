@@ -5,6 +5,7 @@ export type SamplerFilterType = "off" | "lowpass" | "lowpass24" | "highpass" | "
 export type LfoShape = "sine" | "triangle" | "square" | "saw" | "random";
 export type SamplerLayerMode = "oneShot" | "gate";
 export type SamplerLayerLoop = "off" | "forward" | "pingPong";
+export type GrainsShape = "smooth" | "flat" | "pluck";
 export type PluginRefFormat = "VST3" | "AU";
 export type AutomationTargetScope = "channel" | "insert" | "effect" | "send";
 export type BuiltinEffectKind = "eq" | "compressor" | "multiband" | "limiter" | "reverb" | "delay" | "phaser" | "chorus" | "distortion" | "exciter" | "bitcrusher" | "stereo" | "lowpass" | "highpass";
@@ -110,6 +111,26 @@ export interface VelocityRange {
   high?: number;
 }
 
+/** Granular playback (notes only): the part plays as short overlapping grains read at the note's pitch, while a playhead moves through it at its own speed, so pitch and timing are apart: a higher key sounds higher but no faster, and a slower speed stretches the sound without lowering it. Few, short grains leave space between them (stutter, texture); many long ones are smooth. */
+export interface Grains {
+  /** Plays the layer as grains; off (the default) plays the sample straight, pitch and speed together, and keeps the other settings. */
+  on?: boolean;
+  /** Seconds each grain lasts. */
+  size?: number;
+  /** Grains started a second. */
+  density?: number;
+  /** How fast the playhead moves through the part: 1 its own pace, 0.5 half (twice as long), 0 holds still (a held texture until the note ends), 2 twice as fast. */
+  speed?: number;
+  /** Seconds grains scatter around the playhead, at random: smears and blurs. */
+  spray?: number;
+  /** Random detuning of each grain, up to this many cents either way: thickens. */
+  detune?: number;
+  /** How widely grains are spread in stereo, 0 to 1. */
+  width?: number;
+  /** Each grain's rise and fall: smooth, flat (fuller, more of the sound) or pluck (struck, then dying away). */
+  shape?: GrainsShape;
+}
+
 export interface SamplerLayer {
   id: Id;
   /** Audio file path, absolute or relative to the project folder. */
@@ -152,6 +173,7 @@ export interface SamplerLayer {
   punch?: number;
   /** Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it. */
   tail?: number;
+  grains?: Grains;
   /** Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it. */
   sourceTempo?: number;
 }
@@ -351,8 +373,8 @@ export interface Mixer {
 
 /** A GrooveKit project (song.json). Times are integer ticks at 960 PPQ unless a field says otherwise. */
 export interface Project {
-  /** 3 since playlist tracks are numbered lanes and audio clips play sampler channels. Older songs are converted when they open. */
-  schemaVersion: 3;
+  /** 4 since sampler layers follow the keys played by default (3: playlist tracks are numbered lanes and audio clips play sampler channels). Older songs are converted when they open. */
+  schemaVersion: 4;
   name?: string;
   /** Beats per minute. */
   tempo: number;

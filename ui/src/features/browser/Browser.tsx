@@ -1,4 +1,4 @@
-import { AudioLines, Check, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, Headphones, Play, RefreshCw, Repeat, Search, Sparkles, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { AudioLines, Check, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, Headphones, Heart, Play, RefreshCw, Repeat, Search, Sparkles, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
@@ -31,6 +31,8 @@ interface Sample {
   fit?: number;
   match?: number;
   rating?: "fits" | "doesn't fit";
+  /** 0-100: how likely you are to say it fits, learned from your ratings. */
+  taste?: number;
   /** What it sounds like, in words. */
   sounds?: string[];
 }
@@ -116,6 +118,9 @@ function SampleRow({ sample: s, depth = 0, selected, playing, onClick, style, on
           <button type="button" title={`Doesn't fit ${style}`} onClick={(e) => { e.stopPropagation(); onRate(s.rating === "doesn't fit" ? null : false); }}
             className={cn(s.rating === "doesn't fit" ? "text-rec" : "text-faint hover:text-fg")}><ThumbsDown size={11} /></button>
         </span>
+      )}
+      {s.taste !== undefined && s.taste >= 70 && !s.rating && (
+        <span title={`Your taste: ${s.taste}. It sounds like the samples you said fit`} className="shrink-0 text-agent"><Heart size={10} fill="currentColor" /></span>
       )}
       {s.fit !== undefined && <Fit fit={s.fit} />}
     </div>

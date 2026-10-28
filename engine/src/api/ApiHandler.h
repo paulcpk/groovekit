@@ -51,6 +51,9 @@ public:
     /** Where the agent's conversations are kept; empty for <app data>/chats. */
     std::filesystem::path chatsFolder;
 
+    /** Where the user's notes for the agent are kept; empty for <app data>/agent-notes.json. */
+    std::filesystem::path notesFile;
+
     /** Called for every change; the server sends the message to all clients. */
     void setBroadcast (Send);
 
@@ -93,6 +96,7 @@ private:
     model::Json callMelody (const std::string& method, const model::Json& params);
     model::Json callListening (const std::string& method, const model::Json& params);
     model::Json callChats (const std::string& method, const model::Json& params);
+    model::Json callNotes (const std::string& method, const model::Json& params);
     model::Json compareToStyle (const model::Json& params);
     model::Json importIntoProject (const std::string& method, const model::Json& params);
     void startLibraryScan();

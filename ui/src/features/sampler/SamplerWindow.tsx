@@ -17,10 +17,11 @@ import { setUi } from "@/state/ui";
 import type { OpenWindow } from "@/state/windows";
 import { DEFAULT_ENVELOPE, EnvelopeGraph, formatSeconds, positionToTime, timeToPosition } from "./EnvelopeGraph";
 import { FilterGraph } from "./FilterGraph";
+import { GrainsPanel } from "./GrainsPanel";
 import { DEFAULT_LFO, LfoPanel, type LfoValues } from "./LfoPanel";
 import { Waveform } from "./Waveform";
 
-type Tab = "sample" | "envelopes" | "filter";
+type Tab = "sample" | "grains" | "envelopes" | "filter";
 type Target = "volume" | "cutoff" | "resonance" | "pan" | "pitch";
 
 const TARGETS: { value: Target; label: string; color: string }[] = [
@@ -95,10 +96,16 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
       >
         <ChannelBar doc={doc} channel={channel} />
         <div className="flex items-center gap-2">
-          <Tabs<Tab> value={tab} onChange={setTab} items={[{ value: "sample", label: "Sample" }, { value: "envelopes", label: "Envelopes" }, { value: "filter", label: "Filter" }]} />
+          <Tabs<Tab> value={tab} onChange={setTab} items={[
+            { value: "sample", label: "Sample" },
+            { value: "grains", label: <span className="flex items-center gap-1">Grains{saved?.grains?.on && <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />}</span>,
+              title: "Granular: pitch and speed apart" },
+            { value: "envelopes", label: "Envelopes" },
+            { value: "filter", label: "Filter" },
+          ]} />
           <div className="flex-1" />
           {clips > 0 && <span className="text-2xs text-faint">{clips} clip{clips === 1 ? "" : "s"} in the playlist</span>}
-          {sampler.layers.length > 1 && (tab === "sample" || (tab === "envelopes" && target === "volume")) && (
+          {sampler.layers.length > 1 && (tab === "sample" || tab === "grains" || (tab === "envelopes" && target === "volume")) && (
             <div className="flex items-center gap-1" title="Layers">
               {sampler.layers.map((l, i) => (
                 <button key={l.id} type="button" title={fileName(l.sample)}
@@ -113,6 +120,8 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
           <div className="rounded-md border border-dashed border-line p-8 text-center text-xs text-faint">Drop a sample here</div>
         ) : tab === "sample" ? (
           <SampleTab channel={channel} sampler={sampler} saved={saved} color={color} first={saved === sampler.layers[0]} clips={clips} tempo={doc.tempo} />
+        ) : tab === "grains" ? (
+          <GrainsTab channel={channel} saved={saved} color={color} />
         ) : tab === "envelopes" ? (
           <EnvelopesTab channel={channel} sampler={sampler} layer={saved} target={target} setTarget={setTarget} clips={clips} tempo={doc.tempo}
             showFilter={() => setTab("filter")} />
@@ -138,6 +147,22 @@ function useLayer(channel: Channel, saved: SamplerLayer) {
       else (commit ? live.onCommit : live.onChange)(changes);
     },
   };
+}
+
+function GrainsTab({ channel, saved, color }: { channel: Channel; saved: SamplerLayer; color: string }) {
+  const { layer, change } = useLayer(channel, saved);
+  const key = layer.rootKey ?? 60;
+  return (
+    <GrainsPanel layer={layer} color={color} change={change}
+      onPress={() => {
+        notePlayed(true);
+        void call("live.noteOn", { channel: channel.id, key, velocity: 110 });
+      }}
+      onRelease={() => {
+        notePlayed(false);
+        void call("live.noteOff", { channel: channel.id, key });
+      }} />
+  );
 }
 
 function SampleTab({ channel, sampler, saved, color, first, clips, tempo }: {

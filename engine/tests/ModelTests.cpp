@@ -11,7 +11,7 @@ namespace
     Json minimalProject()
     {
         return Json::parse (R"({
-            "schemaVersion": 3,
+            "schemaVersion": 4,
             "tempo": 120,
             "channels": [
                 { "id": "kick", "instrument": { "type": "sampler", "layers": [ { "id": "a", "sample": "kick.wav" } ] } }
@@ -136,7 +136,7 @@ TEST_CASE ("Schema errors report a JSON pointer")
 
     SECTION ("wrong schema version")
     {
-        j["schemaVersion"] = 4;
+        j["schemaVersion"] = 5;
         CHECK (readErrorPath (j) == "/schemaVersion");
     }
 }
@@ -235,7 +235,7 @@ TEST_CASE ("Songs from schema 1 get channels for their audio clips")
     clips.push_back ({ { "type", "audio" }, { "id", "a3" }, { "track", "t1" }, { "start", 1920 }, { "length", 960 }, { "sample", "loops/Drum Loop.wav" }, { "reverse", true } });
 
     CHECK (migrateProject (j));
-    CHECK (j["schemaVersion"] == 3);
+    CHECK (j["schemaVersion"] == 4);
     CHECK_FALSE (migrateProject (j));
 
     auto project = parseProject (j);
@@ -354,4 +354,43 @@ TEST_CASE ("Schema 1 effects carry over to the new EQ, reverb and delay")
     auto& automation = std::get<AutomationClip> (project.playlist.clips.back());
     CHECK (automation.target.param == "size");
     CHECK (automation.points[0].value == 20);
+}
+
+TEST_CASE ("Songs from schema 3 follow the keys played where they sound the same")
+{
+    auto j = minimalProject();
+    j["schemaVersion"] = 3;
+    auto& channels = j["channels"];
+    channels[0]["instrument"]["layers"][0]["pitchTracking"] = false;
+    channels[0]["instrument"]["layers"][0]["rootKey"] = 31;
+
+    // A clap played on D2 only, a hat on two keys, a pad that follows already, and a channel
+    // with no notes.
+    channels.push_back (Json::parse (R"({ "id": "clap", "instrument": { "type": "sampler", "layers": [ { "id": "a", "sample": "clap.wav", "pitchTracking": false } ] } })"));
+    channels.push_back (Json::parse (R"({ "id": "hat", "instrument": { "type": "sampler", "layers": [ { "id": "a", "sample": "hat.wav", "pitchTracking": false } ] } })"));
+    channels.push_back (Json::parse (R"({ "id": "pad", "instrument": { "type": "sampler", "layers": [ { "id": "a", "sample": "pad.wav", "rootKey": 48 } ] } })"));
+    channels.push_back (Json::parse (R"({ "id": "loop", "instrument": { "type": "sampler", "layers": [ { "id": "a", "sample": "loop.wav", "pitchTracking": false, "rootKey": 57 } ] } })"));
+
+    auto& notes = j["patterns"][0]["notes"];
+    notes.push_back ({ { "channel", "clap" }, { "start", 960 }, { "length", 240 }, { "key", 38 } });
+    notes.push_back ({ { "channel", "hat" }, { "start", 0 }, { "length", 240 }, { "key", 60 } });
+    notes.push_back ({ { "channel", "hat" }, { "start", 480 }, { "length", 240 }, { "key", 62 } });
+    notes.push_back ({ { "channel", "pad" }, { "start", 0 }, { "length", 960 }, { "key", 55 } });
+
+    CHECK (migrateProject (j));
+    CHECK (j["schemaVersion"] == 4);
+    const auto layer = [&] (int channel) { return j["channels"][static_cast<size_t> (channel)]["instrument"]["layers"][0]; };
+
+    // The kick's notes are on C4 (the default key): it now plays on C4 at its own pitch.
+    CHECK_FALSE (layer (0).contains ("pitchTracking"));
+    CHECK_FALSE (layer (0).contains ("rootKey"));
+    CHECK_FALSE (layer (1).contains ("pitchTracking"));
+    CHECK (layer (1)["rootKey"] == 38);
+    CHECK (layer (2)["pitchTracking"] == false);
+    CHECK (layer (3)["rootKey"] == 48);
+    CHECK_FALSE (layer (4).contains ("pitchTracking"));
+    CHECK (layer (4)["rootKey"] == 57);
+
+    CHECK (issuePaths (parseProject (j)).empty());
+    CHECK_FALSE (migrateProject (j));
 }

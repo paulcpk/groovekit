@@ -30,6 +30,7 @@ target_sources(gk_engine PRIVATE
     src/listening/SoundIndex.cpp
     src/listening/Styles.cpp
     src/listening/Taste.cpp
+    src/listening/TasteModel.cpp
     src/live/AudioDevices.cpp
     src/live/LiveEngine.cpp
     src/live/MidiClock.cpp
@@ -50,6 +51,7 @@ target_sources(gk_engine PRIVATE
     src/sampler/Modulation.cpp
     src/sampler/SamplerEngine.cpp
     src/sampler/SamplerPlugin.cpp
+    src/session/AgentNotes.cpp
     src/session/Chats.cpp
     src/session/Commands.cpp
     src/session/Mastering.cpp

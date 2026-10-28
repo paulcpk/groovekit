@@ -6,8 +6,9 @@
 // bundled as a sidecar, which quits when the app does. The app opens the project opened last;
 // opening another one switches the engine over (project.open), so the app stays with that engine.
 //
-// Quitting (Cmd+Q, or closing the window) asks the UI first, which offers to save unsaved changes
-// and then calls quit. If the UI doesn't answer (it may have crashed), the app quits anyway.
+// Quitting (Cmd+Q, the Dock's Quit, or closing the window) asks the UI first, which offers to save
+// unsaved changes and then calls quit. If the UI doesn't answer (it may have crashed), the app quits
+// anyway.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -186,6 +187,48 @@ fn request_quit(app: &tauri::AppHandle) {
     });
 }
 
+/// The Dock's Quit (and logging out) ask the app delegate whether to terminate, which the window
+/// toolkit's delegate doesn't answer, so the app would quit at once. Answering "not now" and asking
+/// the UI instead makes them quit the way Cmd+Q does; quitting itself stops the event loop and
+/// doesn't ask again.
+#[cfg(target_os = "macos")]
+mod dock_quit {
+    use std::ffi::{c_char, c_void};
+    use std::sync::OnceLock;
+
+    static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+    #[link(name = "objc")]
+    extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn class_addMethod(class: *mut c_void, sel: *mut c_void, imp: *const c_void, types: *const c_char) -> bool;
+    }
+
+    const TERMINATE_CANCEL: usize = 0;
+    const TERMINATE_NOW: usize = 1;
+
+    extern "C" fn should_terminate(_this: *mut c_void, _sel: *mut c_void, _sender: *mut c_void) -> usize {
+        match APP.get() {
+            Some(app) => {
+                super::request_quit(app);
+                TERMINATE_CANCEL
+            }
+            None => TERMINATE_NOW,
+        }
+    }
+
+    pub fn install(app: &tauri::AppHandle) {
+        let _ = APP.set(app.clone());
+        unsafe {
+            let class = objc_getClass(c"TaoAppDelegateParent".as_ptr());
+            if !class.is_null() {
+                class_addMethod(class, sel_registerName(c"applicationShouldTerminate:".as_ptr()), should_terminate as *const c_void, c"Q@:@".as_ptr());
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn quit_acknowledged(state: tauri::State<'_, Arc<Quitting>>) {
     state.acknowledged.store(true, Ordering::SeqCst);
@@ -216,6 +259,8 @@ fn main() {
                 app_menu.append(&MenuItem::with_id(handle, "quit", "Quit GrooveKit", true, Some("CmdOrCtrl+Q"))?)?;
             }
             app.set_menu(menu)?;
+            #[cfg(target_os = "macos")]
+            dock_quit::install(handle);
             Ok(())
         })
         .on_menu_event(|app, event| {

@@ -20,6 +20,7 @@ namespace
     {
         std::unique_ptr<tracktion::Edit> edit = tracktion::Edit::createSingleTrackEdit (test::getEngine());
         tracktion::Plugin::Ptr plugin;
+        int64_t played = 0;
 
         Harness (BuiltinEffectKind kind, std::map<std::string, double> params)
         {
@@ -40,11 +41,16 @@ namespace
         {
             for (int start = 0; start < buffer.getNumSamples(); start += 512)
             {
-                tracktion::PluginRenderContext context (&buffer, juce::AudioChannelSet::stereo(), start,
-                                                        std::min (512, buffer.getNumSamples() - start), nullptr, 0.0,
-                                                        {}, true, false, true, false);
+                // Playing from where the last buffer ended.
+                const auto n = std::min (512, buffer.getNumSamples() - start);
+                const auto time = tracktion::TimeRange (tracktion::TimePosition::fromSeconds ((played + start) / rate),
+                                                        tracktion::TimeDuration::fromSeconds (n / rate));
+                tracktion::PluginRenderContext context (&buffer, juce::AudioChannelSet::stereo(), start, n, nullptr, 0.0,
+                                                        time, true, false, true, false);
                 plugin->applyToBuffer (context);
             }
+
+            played += buffer.getNumSamples();
         }
 
         model::Json meter (const model::Json& params = model::Json::object())

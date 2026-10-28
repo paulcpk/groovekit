@@ -21,6 +21,28 @@ namespace
     }
 }
 
+float Grains::window (Shape shape, float x)
+{
+    x = juce::jlimit (0.0f, 1.0f, x);
+
+    switch (shape)
+    {
+        case Shape::flat:   // full in the middle, tapered over a fifth at each end
+        {
+            const auto edge = std::min (x, 1.0f - x) / 0.2f;
+            return edge >= 1 ? 1.0f : 0.5f - 0.5f * std::cos (juce::MathConstants<float>::pi * edge);
+        }
+
+        case Shape::pluck:  // struck, then dying away
+            return std::min (1.0f, x / 0.02f) * std::exp (-4.5f * x) * std::min (1.0f, (1.0f - x) / 0.05f);
+
+        case Shape::smooth:
+            break;
+    }
+
+    return 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * x);
+}
+
 SamplerEngine::SamplerEngine()
     : voices (maxVoices)
 {
@@ -221,6 +243,13 @@ void SamplerEngine::startVoice (const Layer& layer, int note, int velocity)
     v->samplesToControls = 0;
     v->controlsSet = false;
 
+    for (auto& g : v->grains)
+        g.active = false;
+
+    v->activeGrains = 0;
+    v->untilGrain = 0;
+    v->seed = static_cast<uint32_t> (v->age * 2654435761u + static_cast<uint64_t> (note) * 40503u) | 1u;
+
     // Where the played part cuts into the file (rather than starting or ending with it), a 1 ms
     // fade keeps the cut from clicking.
     const auto fileLength = layer.sample->audio.getNumSamples();
@@ -329,6 +358,34 @@ void SamplerEngine::updateControls (Voice& v)
     v.gainStepR = (targetR - v.gainR) / controlInterval;
 }
 
+void SamplerEngine::startGrain (Voice& v, double length)
+{
+    auto* g = std::find_if (std::begin (v.grains), std::end (v.grains), [] (auto& x) { return ! x.active; });
+
+    if (g == std::end (v.grains))
+        return;
+
+    const auto& grains = v.layer->grains;
+    const bool looping = v.layer->loop != Layer::Loop::off;
+
+    // From around the playhead, scattered by the spray.
+    auto read = v.position + grains.spray * v.layer->sample->sampleRate * (2 * v.random() - 1);
+
+    if (! looping)
+        read = juce::jlimit (0.0, std::max (0.0, length - 1), read);
+
+    g->read = read;
+    g->step = std::exp2 (grains.detune / 1200.0f * (2 * v.random() - 1));
+    g->length = std::max (8, static_cast<int> (grains.size * sampleRate));
+    g->age = 0;
+
+    const auto pan = grains.width * (2 * v.random() - 1);
+    g->left = std::min (1.0f, 1.0f - pan);
+    g->right = std::min (1.0f, 1.0f + pan);
+    g->active = true;
+    ++v.activeGrains;
+}
+
 void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSamples)
 {
     const auto& layer = *v.layer;
@@ -341,10 +398,34 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
     const auto filterType = config->filter.type;
     const bool looping = layer.loop != Layer::Loop::off;
     const auto secondsPerSample = 1.0 / sampleRate;
+    const auto& grains = layer.grains;
+
+    // Granular: the playhead moves at the grains' speed, and the grains read at the note's pitch.
+    const auto playIncrement = grains.on ? grains.speed * layer.sample->sampleRate / sampleRate : 0.0;
+
+    // A point in the part, in the order it plays, to a frame of the file: round again if it
+    // loops; outside it, nothing.
+    const auto frameAt = [&] (double position) -> std::optional<double>
+    {
+        if (layer.loop == Layer::Loop::forward)
+            position = std::fmod (std::fmod (position, length) + length, length);
+        else if (layer.loop == Layer::Loop::pingPong && length > 1)
+        {
+            const auto period = 2 * (length - 1);
+            position = std::fmod (std::fmod (position, period) + period, period);
+            position = position > length - 1 ? period - position : position;
+        }
+        else if (position < 0 || position >= length)
+            return {};
+
+        return layer.reverse ? end - 1 - position : layer.start + position;
+    };
 
     for (int i = 0; i < numSamples; ++i)
     {
-        if ((! looping && v.position >= length) || ! v.envelope.isActive())
+        const bool finished = ! looping && v.position >= length && (! grains.on || v.activeGrains == 0);
+
+        if (finished || ! v.envelope.isActive())
         {
             v.active = false;
             return;
@@ -370,7 +451,7 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
         }
 
         // Fades over the part as it plays: the 1 ms ones where it cuts into the file, and the layer's own.
-        const auto position = v.position;
+        const auto position = std::min (v.position, length);
         const auto remaining = length - position;
 
         if (v.edgeFadeIn > 0 && position < edgeFadeSamples)
@@ -388,9 +469,57 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
                 gain *= static_cast<float> (remaining / layer.fadeOut);
         }
 
-        const auto at = layer.reverse ? end - 1 - position : layer.start + position;
-        auto l = interpolate (srcL, fileLength, at) * v.gainL * gain;
-        auto r = interpolate (srcR, fileLength, at) * v.gainR * gain;
+        float l = 0, r = 0;
+
+        if (grains.on)
+        {
+            // A new grain now and then, a little early or late, until the playhead runs out.
+            if ((v.untilGrain -= 1) <= 0 && (looping || v.position < length))
+            {
+                startGrain (v, length);
+                v.untilGrain += sampleRate / grains.density * (0.85 + 0.3 * v.random());
+            }
+
+            // Where grains overlap, their average; alone, each with its own rise and fall, so few
+            // short grains leave space between them.
+            float weight = 0;
+
+            for (auto& g : v.grains)
+            {
+                if (! g.active)
+                    continue;
+
+                const auto w = Grains::window (grains.shape, static_cast<float> (g.age) / static_cast<float> (g.length));
+
+                if (const auto at = frameAt (g.read))
+                {
+                    // Near the ends of a part that doesn't loop, a 1 ms fade keeps grains from clicking.
+                    const auto edge = looping ? 1.0f : static_cast<float> (std::min (1.0, std::min (g.read, length - g.read) / edgeFadeSamples));
+                    l += interpolate (srcL, fileLength, *at) * w * edge * g.left;
+                    r += interpolate (srcR, fileLength, *at) * w * edge * g.right;
+                }
+
+                weight += w;
+                g.read += v.increment * g.step;
+
+                if (++g.age >= g.length)
+                {
+                    g.active = false;
+                    --v.activeGrains;
+                }
+            }
+
+            const auto norm = 1.0f / std::max (1.0f, weight);
+            l *= norm * v.gainL * gain;
+            r *= norm * v.gainR * gain;
+        }
+        else
+        {
+            const auto at = layer.reverse ? end - 1 - position : layer.start + position;
+            l = interpolate (srcL, fileLength, at) * v.gainL * gain;
+            r = interpolate (srcR, fileLength, at) * v.gainR * gain;
+        }
+
         v.gainL += v.gainStepL;
         v.gainR += v.gainStepR;
 
@@ -405,7 +534,7 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
         v.since += secondsPerSample;
 
         // On through the part, round again if it loops (ping-pong turning at either end).
-        v.position += v.increment * v.direction;
+        v.position += (grains.on ? playIncrement : v.increment) * v.direction;
 
         if (layer.loop == Layer::Loop::forward && v.position >= length)
         {

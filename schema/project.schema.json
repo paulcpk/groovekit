@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "tempo", "channels", "patterns", "playlist", "mixer"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "description": "3 since playlist tracks are numbered lanes and audio clips play sampler channels. Older songs are converted when they open.", "const": 3 },
+    "schemaVersion": { "description": "4 since sampler layers follow the keys played by default (3: playlist tracks are numbered lanes and audio clips play sampler channels). Older songs are converted when they open.", "const": 4 },
     "name": { "type": "string", "default": "" },
     "tempo": { "description": "Beats per minute.", "type": "number", "minimum": 20, "maximum": 999 },
     "key": {
@@ -183,6 +183,7 @@
         "swapStereo": { "description": "Swaps left and right (notes only).", "type": "boolean", "default": false },
         "punch": { "description": "Transient shaping (notes only): positive sharpens each hit's attack, negative softens it.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
         "tail": { "description": "Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "grains": { "$ref": "#/$defs/Grains" },
         "sourceTempo": {
           "description": "Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it.",
           "type": "number", "minimum": 20, "maximum": 999
@@ -190,6 +191,21 @@
       }
     },
 
+    "Grains": {
+      "description": "Granular playback (notes only): the part plays as short overlapping grains read at the note's pitch, while a playhead moves through it at its own speed, so pitch and timing are apart: a higher key sounds higher but no faster, and a slower speed stretches the sound without lowering it. Few, short grains leave space between them (stutter, texture); many long ones are smooth.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "on": { "description": "Plays the layer as grains; off (the default) plays the sample straight, pitch and speed together, and keeps the other settings.", "type": "boolean", "default": false },
+        "size": { "description": "Seconds each grain lasts.", "type": "number", "minimum": 0.005, "maximum": 0.5, "default": 0.08 },
+        "density": { "description": "Grains started a second.", "type": "number", "minimum": 1, "maximum": 200, "default": 40 },
+        "speed": { "description": "How fast the playhead moves through the part: 1 its own pace, 0.5 half (twice as long), 0 holds still (a held texture until the note ends), 2 twice as fast.", "type": "number", "minimum": 0, "maximum": 4, "default": 1 },
+        "spray": { "description": "Seconds grains scatter around the playhead, at random: smears and blurs.", "type": "number", "minimum": 0, "maximum": 1, "default": 0.005 },
+        "detune": { "description": "Random detuning of each grain, up to this many cents either way: thickens.", "type": "number", "minimum": 0, "maximum": 100, "default": 0 },
+        "width": { "description": "How widely grains are spread in stereo, 0 to 1.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "shape": { "description": "Each grain's rise and fall: smooth, flat (fuller, more of the sound) or pluck (struck, then dying away).", "type": "string", "enum": ["smooth", "flat", "pluck"], "default": "smooth" }
+      }
+    },
     "KeyRange": {
       "type": "object",
       "additionalProperties": false,

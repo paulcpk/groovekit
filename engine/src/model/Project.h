@@ -22,8 +22,9 @@ Ticks getSongEnd (const Project&);
 
 //==============================================================================
 /** Brings a song document written by an older GrooveKit up to the current schema, in place:
-    tracks become numbered lanes, and audio clips play sampler channels that hold their file,
-    settings and routing. Returns whether it changed anything. Safe to run on any document. */
+    tracks become numbered lanes, audio clips play sampler channels that hold their file,
+    settings and routing, and sampler layers follow the keys played where the song sounds the same
+    (4). Returns whether it changed anything. Safe to run on any document. */
 bool migrateProject (Json&);
 
 /** Parses and schema-checks a document. Throws ReadError. */

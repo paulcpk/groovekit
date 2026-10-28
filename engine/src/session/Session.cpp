@@ -128,11 +128,13 @@ std::unique_ptr<Session> Session::open (const std::filesystem::path& dir)
 
     auto doc = exists ? readJsonFile (songFile) : createEmptyProject();
 
-    // A song from an older GrooveKit is converted, and its history set aside: its changes were
-    // recorded against the old layout and can't be undone in the new one.
+    // A song from an older GrooveKit is converted. From before numbered lanes (3), its history is
+    // set aside: its changes were recorded against the old layout and can't be undone in the new
+    // one. Later conversions leave the history as it is.
+    const auto version = doc.value ("schemaVersion", 0);
     const bool migrating = exists && migrateProject (doc);
 
-    if (migrating && std::filesystem::exists (dir / historyFileName))
+    if (migrating && version < 3 && std::filesystem::exists (dir / historyFileName))
     {
         std::error_code ec;
         std::filesystem::rename (dir / historyFileName, dir / "history-before-update.jsonl", ec);

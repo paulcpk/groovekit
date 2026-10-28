@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { create } from "zustand";
 import { engine as uiEngine, useEngine } from "@/state/engine";
 import { useUi } from "@/state/ui";
+import { notesForAgent } from "./notes";
 import { createTools, instructions, type AgentTool } from "./tools";
 
 const MODEL = "claude-opus-5-5";
@@ -13,7 +14,7 @@ const KEY_STORAGE = "groovekit.anthropicApiKey";
 
 const SYSTEM = `${instructions}
 
-You're working inside GrooveKit's own agent panel. The user watches the song change as you work: your edits are outlined in violet, listed in the Agent tab, and one request undoes with a single ⌘Z. Keep replies short and concrete: what you changed, and what to listen for. Ask when a request is ambiguous in a way that matters musically; otherwise make a good choice and say what it was. Use transport play to let the user hear a result when it helps, and render when you need numbers.`;
+You're working inside GrooveKit's own agent panel, where the user's notes that apply here are part of these instructions (below, if there are any), so there's no need to list them. The user watches the song change as you work: your edits are outlined in violet, listed in the Agent tab, and one request undoes with a single ⌘Z. Keep replies short and concrete: what you changed, and what to listen for. Ask when a request is ambiguous in a way that matters musically; otherwise make a good choice and say what it was. Use transport play to let the user hear a result when it helps, and render when you need numbers.`;
 
 export type ChatItem =
   | { kind: "user"; text: string }
@@ -267,6 +268,9 @@ export async function send(text: string, resume = false) {
   let jsonRetries = 0;
 
   try {
+    const notes = await notesForAgent();
+    const system = notes ? `${SYSTEM}\n\n${notes}` : SYSTEM;
+
     while (!controller.signal.aborted) {
       const stream = client.beta.messages.stream(
         {
@@ -279,7 +283,7 @@ export async function send(text: string, resume = false) {
           thinking: { type: "adaptive", display: "updates" },
           output_config: { effort: "medium" },
           cache_control: { type: "ephemeral" },
-          system: SYSTEM,
+          system,
           tools: list.map((t) => t.definition),
           messages: useAgent.getState().history,
         },

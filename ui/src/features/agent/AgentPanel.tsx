@@ -8,6 +8,7 @@ import { Activity } from "@/features/history/Activity";
 import { cn } from "@/lib/cn";
 import { toast, useEngine } from "@/state/engine";
 import { deleteChat, newChat, openChat, refreshChats, retry, send, setApiKey, stop, useAgent, useApiKey, useChats, type ChatItem, type ChatSummary } from "./agent";
+import { NotesView } from "./NotesView";
 import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, transcriptText, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
 
 const SUGGESTIONS = [
@@ -38,6 +39,8 @@ const TOOL_LABELS: Record<string, string> = {
   list_effects: "List effects",
   sample_library: "Sample library",
   project: "Project",
+  notes: "Notes",
+  melody: "Hear a melody",
 };
 
 const VOICE_SHORTCUT = "⌘⇧M";
@@ -70,17 +73,17 @@ const MARKDOWN: Components = {
 };
 
 export function AgentPanel() {
-  const [view, setView] = useState<"chat" | "changes" | "chats">("chat");
+  const [view, setView] = useState<"chat" | "notes" | "changes" | "chats">("chat");
   const items = useAgent((s) => s.items);
   const running = useAgent((s) => s.running);
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line px-2">
-        <Tabs<"chat" | "changes"> value={view === "changes" ? "changes" : "chat"} onChange={setView}
-          items={[{ value: "chat", label: "Chat" }, { value: "changes", label: "Changes" }]} />
+        <Tabs<"chat" | "notes" | "changes"> value={view === "chats" ? "chat" : view} onChange={setView}
+          items={[{ value: "chat", label: "Chat" }, { value: "notes", label: "Notes", title: "What the agent should always keep in mind" }, { value: "changes", label: "Changes" }]} />
         <div className="flex-1" />
-        {view !== "changes" && (
+        {(view === "chat" || view === "chats") && (
           <>
             <IconButton size="sm" title="Conversations" onClick={() => setView(view === "chats" ? "chat" : "chats")}
               className={cn(view === "chats" && "bg-control text-fg")}><History size={12} /></IconButton>
@@ -93,7 +96,7 @@ export function AgentPanel() {
         )}
       </div>
       <div className="min-h-0 flex-1">
-        {view === "chat" ? <Chat /> : view === "chats" ? <Conversations onOpen={() => setView("chat")} /> : <Activity />}
+        {view === "chat" ? <Chat /> : view === "chats" ? <Conversations onOpen={() => setView("chat")} /> : view === "notes" ? <NotesView /> : <Activity />}
       </div>
     </div>
   );

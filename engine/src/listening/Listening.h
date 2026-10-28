@@ -4,6 +4,7 @@
 #include "SoundIndex.h"
 #include "Styles.h"
 #include "Taste.h"
+#include "TasteModel.h"
 
 namespace gk::listening
 {
@@ -127,9 +128,22 @@ private:
 
     std::map<std::pair<std::string, Role>, Baseline> baselines; // by style and role
 
+    // The taste learned from the verdicts that apply to a style (or to any style: ""), retrained
+    // when they change.
+    struct LearnedTaste
+    {
+        std::string verdicts;
+        size_t indexSize = 0;
+        std::optional<TasteModel> model;
+    };
+
+    std::map<std::string, LearnedTaste> tastes;
+
     void notify();
     Words& getWords();      // with statsMutex held
     float baseline (const StyleProfile&, Role);
+    std::optional<TasteModel> learnedTaste (const std::string& style, const std::vector<std::pair<bool, Embedding>>& verdicts,
+                                            const std::string& signature);
     std::vector<std::pair<std::string, Embedding>> indexSnapshot() const;
 };
 

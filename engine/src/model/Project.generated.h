@@ -199,6 +199,39 @@ inline void readValue (Reader& r, const Json& j, SamplerLayerLoop& out)
     r.fail ("unknown value \"" + s + "\"");
 }
 
+enum class GrainsShape
+{
+    smooth,
+    flat,
+    pluck
+};
+
+inline const char* toString (GrainsShape v)
+{
+    switch (v)
+    {
+        case GrainsShape::smooth: return "smooth";
+        case GrainsShape::flat: return "flat";
+        case GrainsShape::pluck: return "pluck";
+    }
+
+    return "";
+}
+
+inline Json toJson (GrainsShape v) { return toString (v); }
+
+inline void readValue (Reader& r, const Json& j, GrainsShape& out)
+{
+    std::string s;
+    readValue (r, j, s);
+
+    if (s == "smooth") { out = GrainsShape::smooth; return; }
+    if (s == "flat") { out = GrainsShape::flat; return; }
+    if (s == "pluck") { out = GrainsShape::pluck; return; }
+
+    r.fail ("unknown value \"" + s + "\"");
+}
+
 enum class PluginRefFormat
 {
     VST3,
@@ -638,6 +671,57 @@ inline Json toJson (const VelocityRange& v)
     return j;
 }
 
+/** Granular playback (notes only): the part plays as short overlapping grains read at the note's pitch, while a playhead moves through it at its own speed, so pitch and timing are apart: a higher key sounds higher but no faster, and a slower speed stretches the sound without lowering it. Few, short grains leave space between them (stutter, texture); many long ones are smooth. */
+struct Grains
+{
+    /** Plays the layer as grains; off (the default) plays the sample straight, pitch and speed together, and keeps the other settings. */
+    bool on = false;
+    /** Seconds each grain lasts. */
+    double size = 0.08;
+    /** Grains started a second. */
+    double density = 40;
+    /** How fast the playhead moves through the part: 1 its own pace, 0.5 half (twice as long), 0 holds still (a held texture until the note ends), 2 twice as fast. */
+    double speed = 1;
+    /** Seconds grains scatter around the playhead, at random: smears and blurs. */
+    double spray = 0.005;
+    /** Random detuning of each grain, up to this many cents either way: thickens. */
+    double detune = 0;
+    /** How widely grains are spread in stereo, 0 to 1. */
+    double width = 0;
+    /** Each grain's rise and fall: smooth, flat (fuller, more of the sound) or pluck (struck, then dying away). */
+    GrainsShape shape = GrainsShape::smooth;
+
+    bool operator== (const Grains&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, Grains& out)
+{
+    r.expectObject (j, { "on", "size", "density", "speed", "spray", "detune", "width", "shape" });
+
+    r.optional (j, "on", [&] (const Json& v) { readValue (r, v, out.on); });
+    r.optional (j, "size", [&] (const Json& v) { readValue (r, v, out.size); r.checkMin (out.size, 0.005); r.checkMax (out.size, 0.5); });
+    r.optional (j, "density", [&] (const Json& v) { readValue (r, v, out.density); r.checkMin (out.density, 1); r.checkMax (out.density, 200); });
+    r.optional (j, "speed", [&] (const Json& v) { readValue (r, v, out.speed); r.checkMin (out.speed, 0); r.checkMax (out.speed, 4); });
+    r.optional (j, "spray", [&] (const Json& v) { readValue (r, v, out.spray); r.checkMin (out.spray, 0); r.checkMax (out.spray, 1); });
+    r.optional (j, "detune", [&] (const Json& v) { readValue (r, v, out.detune); r.checkMin (out.detune, 0); r.checkMax (out.detune, 100); });
+    r.optional (j, "width", [&] (const Json& v) { readValue (r, v, out.width); r.checkMin (out.width, 0); r.checkMax (out.width, 1); });
+    r.optional (j, "shape", [&] (const Json& v) { readValue (r, v, out.shape); });
+}
+
+inline Json toJson (const Grains& v)
+{
+    auto j = Json::object();
+    j["on"] = toJson (v.on);
+    j["size"] = toJson (v.size);
+    j["density"] = toJson (v.density);
+    j["speed"] = toJson (v.speed);
+    j["spray"] = toJson (v.spray);
+    j["detune"] = toJson (v.detune);
+    j["width"] = toJson (v.width);
+    j["shape"] = toJson (v.shape);
+    return j;
+}
+
 struct SamplerLayer
 {
     Id id;
@@ -681,6 +765,7 @@ struct SamplerLayer
     double punch = 0;
     /** Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it. */
     double tail = 0;
+    Grains grains;
     /** Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it. */
     std::optional<double> sourceTempo;
 
@@ -689,7 +774,7 @@ struct SamplerLayer
 
 inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
 {
-    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "loop", "fadeIn", "fadeOut", "normalize", "invert", "swapStereo", "punch", "tail", "sourceTempo" });
+    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "loop", "fadeIn", "fadeOut", "normalize", "invert", "swapStereo", "punch", "tail", "grains", "sourceTempo" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "sample", [&] (const Json& v) { readValue (r, v, out.sample); r.checkMinLength (out.sample, 1); });
@@ -714,6 +799,7 @@ inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
     r.optional (j, "swapStereo", [&] (const Json& v) { readValue (r, v, out.swapStereo); });
     r.optional (j, "punch", [&] (const Json& v) { readValue (r, v, out.punch); r.checkMin (out.punch, -1); r.checkMax (out.punch, 1); });
     r.optional (j, "tail", [&] (const Json& v) { readValue (r, v, out.tail); r.checkMin (out.tail, -1); r.checkMax (out.tail, 1); });
+    r.optional (j, "grains", [&] (const Json& v) { readValue (r, v, out.grains); });
     r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
 }
 
@@ -746,6 +832,7 @@ inline Json toJson (const SamplerLayer& v)
     j["swapStereo"] = toJson (v.swapStereo);
     j["punch"] = toJson (v.punch);
     j["tail"] = toJson (v.tail);
+    j["grains"] = toJson (v.grains);
 
     if (v.sourceTempo)
         j["sourceTempo"] = toJson (*v.sourceTempo);
@@ -1520,7 +1607,7 @@ inline void readValue (Reader& r, const Json& j, Project& out)
 {
     r.expectObject (j, { "schemaVersion", "name", "tempo", "key", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
 
-    r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 3); });
+    r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 4); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.required (j, "tempo", [&] (const Json& v) { readValue (r, v, out.tempo); r.checkMin (out.tempo, 20); r.checkMax (out.tempo, 999); });
     r.optional (j, "key", [&] (const Json& v) { readValue (r, v, out.key.emplace()); r.checkMinLength (*out.key, 2); });
@@ -1535,7 +1622,7 @@ inline void readValue (Reader& r, const Json& j, Project& out)
 inline Json toJson (const Project& v)
 {
     auto j = Json::object();
-    j["schemaVersion"] = 3;
+    j["schemaVersion"] = 4;
     j["name"] = toJson (v.name);
     j["tempo"] = toJson (v.tempo);
 

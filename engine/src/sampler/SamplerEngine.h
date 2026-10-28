@@ -7,10 +7,30 @@
 
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace gk::sampler
 {
+
+/** Granular playback: grains read at the note's pitch while a playhead moves through the part
+    at its own speed (see the model's Grains). */
+struct Grains
+{
+    enum class Shape { smooth, flat, pluck };
+
+    bool on = false;
+    float size = 0.08f;         // seconds
+    float density = 40;         // grains a second
+    float speed = 1;            // the playhead's pace through the part
+    float spray = 0.005f;       // seconds of scatter around the playhead
+    float detune = 0;           // cents, either way
+    float width = 0;            // 0..1
+    Shape shape = Shape::smooth;
+
+    /** A grain's level at a point through it (0-1). The UI draws the same shapes. */
+    static float window (Shape, float progress);
+};
 
 /** One playable layer, already resolved from the project model. */
 struct Layer
@@ -33,11 +53,12 @@ struct Layer
     Loop loop = Loop::off;
     int fadeIn = 0, fadeOut = 0;    // frames of the sample
     bool swapStereo = false;
+    Grains grains;
 
     int endFrame() const        { return end < 0 ? sample->audio.getNumSamples() : end; }
 
-    /** A looping layer plays until its note ends, like a gated one. */
-    bool releasesOnNoteOff() const  { return ! oneShot || loop != Loop::off; }
+    /** A looping layer plays until its note ends, like a gated one; so do grains held still. */
+    bool releasesOnNoteOff() const  { return ! oneShot || loop != Loop::off || (grains.on && grains.speed < 0.01f); }
 };
 
 /** A resonant state-variable filter per voice (12 or 24 dB/octave), its cutoff moved by its own envelope. */
@@ -202,6 +223,17 @@ private:
     /** The LFOs, in the order of their phases. */
     enum Lfo { volumeLfo, cutoffLfo, resonanceLfo, panLfo, pitchLfo, numLfos };
 
+    static constexpr int maxGrains = 32;   // a voice's
+
+    struct Grain
+    {
+        double read = 0;            // frames into the part
+        float step = 1;             // its detuning, times the voice's increment
+        float left = 1, right = 1;
+        int age = 0, length = 0;
+        bool active = false;
+    };
+
     struct Voice
     {
         const Layer* layer = nullptr;
@@ -225,7 +257,22 @@ private:
         bool active = false;
         int stealSamplesLeft = 0;   // > 0 while fading out after being stolen
 
+        // Granular playback: v.position is the playhead.
+        Grain grains[maxGrains];
+        int activeGrains = 0;
+        double untilGrain = 0;
+        uint32_t seed = 1;
+
         bool isStolen() const { return stealSamplesLeft > 0; }
+
+        /** 0-1, from the voice's own sequence. */
+        float random()
+        {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            return static_cast<float> (seed & 0xffffff) / static_cast<float> (0x1000000);
+        }
     };
 
     juce::CriticalSection configLock;
@@ -249,6 +296,7 @@ private:
     void stealOldestVoice();
     void renderVoices (juce::AudioBuffer<float>&, int startSample, int numSamples);
     void renderVoice (Voice&, float* left, float* right, int numSamples);
+    void startGrain (Voice&, double length);
     void updateControls (Voice&);
     void setEnvelopes (Voice&);
 };

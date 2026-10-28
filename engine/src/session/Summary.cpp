@@ -41,6 +41,7 @@ namespace
 
                 if (l.reverse)          layer["reverse"] = true;
                 if (l.sourceTempo)      layer["sourceTempo"] = *l.sourceTempo;
+                if (l.grains.on)        layer["grains"] = { { "speed", l.grains.speed }, { "size", l.grains.size }, { "density", l.grains.density } };
 
                 layers.push_back (std::move (layer));
             }

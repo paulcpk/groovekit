@@ -553,3 +553,103 @@ TEST_CASE ("Transient shaping sharpens hits or brings up their tails")
     CHECK (attackToTail (shapeTransients (hit, rate, -1.0f, 0.0f)) < original / 1.5f);
     CHECK (attackToTail (shapeTransients (hit, rate, 0.0f, 1.0f)) < original / 1.5f);
 }
+
+TEST_CASE ("Grains move the pitch apart from the speed")
+{
+    // A second of 220 Hz.
+    const auto tone = toneSample (static_cast<int> (rate), 220);
+
+    // Where the output stops sounding, in seconds, and its frequency (from zero crossings) in its
+    // first half.
+    auto measure = [] (const juce::AudioBuffer<float>& b)
+    {
+        int last = 0;
+
+        for (int i = 0; i < b.getNumSamples(); ++i)
+            if (std::abs (b.getSample (0, i)) > 0.01f)
+                last = i;
+
+        int crossings = 0;
+        const auto from = static_cast<int> (0.1 * rate), to = std::max (from + 1, last / 2);
+
+        for (int i = from + 1; i < to; ++i)
+            if ((b.getSample (0, i - 1) < 0) != (b.getSample (0, i) < 0))
+                ++crossings;
+
+        return std::pair { last / rate, crossings / 2.0 / ((to - from) / rate) };
+    };
+
+    auto play = [&] (Grains grains, int note, double seconds = 2.5)
+    {
+        auto l = layer (tone);
+        l.grains = grains;
+        Config config;
+        config.layers = { l };
+        Harness h (config);
+        h.run (static_cast<int> (seconds * rate), { Harness::on (0, note) });
+        return measure (h.out);
+    };
+
+    SECTION ("straight, an octave up is twice as fast")
+    {
+        const auto [length, hz] = play ({}, 72);
+        CHECK (length == Approx (0.5).margin (0.01));
+        CHECK (hz == Approx (440).margin (5));
+    }
+
+    SECTION ("in grains, an octave up keeps the timing")
+    {
+        const auto [length, hz] = play ({ .on = true, .spray = 0 }, 72);
+        CHECK (length == Approx (1.0).margin (0.1));
+        CHECK (hz == Approx (440).margin (8));
+    }
+
+    SECTION ("half speed is twice as long, at the same pitch")
+    {
+        const auto [length, hz] = play ({ .on = true, .speed = 0.5f, .spray = 0 }, 60);
+        CHECK (length == Approx (2.0).margin (0.12));
+        CHECK (hz == Approx (220).margin (5));
+    }
+
+    SECTION ("at its own pitch and pace, grains sound like the sample")
+    {
+        auto l = layer (tone);
+        l.grains = { .on = true, .spray = 0 };
+        Config config;
+        config.layers = { l };
+        Harness h (config);
+        h.run (static_cast<int> (0.9 * rate), { Harness::on (0, 60) });
+        const auto level = h.out.getRMSLevel (0, static_cast<int> (0.2 * rate), static_cast<int> (0.6 * rate));
+        CHECK (juce::Decibels::gainToDecibels (level) == Approx (juce::Decibels::gainToDecibels (0.5f / std::sqrt (2.0f))).margin (1.0));
+    }
+
+    SECTION ("few short grains leave space between them")
+    {
+        auto l = layer (tone);
+        l.grains = { .on = true, .size = 0.02f, .density = 8, .spray = 0, .shape = Grains::Shape::pluck };
+        Config config;
+        config.layers = { l };
+        Harness h (config);
+        h.run (static_cast<int> (rate), { Harness::on (0, 60) });
+
+        int silent = 0, windows = 0;
+
+        for (int start = 0; start + 480 <= h.out.getNumSamples(); start += 480, ++windows)
+            if (h.out.getMagnitude (0, start, 480) < 0.001f)
+                ++silent;
+
+        CHECK (silent > windows / 2);
+    }
+
+    SECTION ("held still, grains play on until the note ends")
+    {
+        auto l = layer (tone);
+        l.grains = { .on = true, .speed = 0 };
+        Config config;
+        config.layers = { l };
+        Harness h (config);
+        h.run (static_cast<int> (3 * rate), { Harness::on (0, 60), Harness::off (static_cast<int> (2.5 * rate), 60) });
+        CHECK (h.out.getRMSLevel (0, static_cast<int> (2.0 * rate), static_cast<int> (0.4 * rate)) > 0.1f);
+        CHECK (h.out.getMagnitude (0, static_cast<int> (2.6 * rate), static_cast<int> (0.4 * rate)) == 0.0f);
+    }
+}

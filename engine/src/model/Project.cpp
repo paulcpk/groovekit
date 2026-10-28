@@ -472,6 +472,55 @@ namespace
     }
 }
 
+namespace
+{
+    /** Sampler layers that ignored the keys played (as drums used to) follow them, so the
+        keyboards play them at any pitch, where that leaves the song sounding as it did: the
+        channel's notes are all on one key, which becomes the layer's root key. */
+    void followKeys (Json& doc)
+    {
+        if (! doc.contains ("channels") || ! doc["channels"].is_array())
+            return;
+
+        std::map<std::string, std::set<int>> keys;
+
+        if (doc.contains ("patterns") && doc["patterns"].is_array())
+            for (auto& pattern : doc["patterns"])
+                if (pattern.contains ("notes") && pattern["notes"].is_array())
+                    for (auto& note : pattern["notes"])
+                        if (note.is_object() && note.contains ("channel") && note["channel"].is_string())
+                            keys[note["channel"].get<std::string>()].insert (note.value ("key", 60));
+
+        for (auto& channel : doc["channels"])
+        {
+            if (! channel.is_object() || ! channel.contains ("instrument") || channel["instrument"].value ("type", "") != "sampler"
+                 || ! channel["instrument"].contains ("layers") || ! channel["instrument"]["layers"].is_array())
+                continue;
+
+            const auto& played = keys[channel.value ("id", "")];
+
+            if (played.size() > 1)
+                continue;
+
+            for (auto& layer : channel["instrument"]["layers"])
+            {
+                if (! layer.is_object() || layer.value ("pitchTracking", true))
+                    continue;
+
+                layer.erase ("pitchTracking");
+
+                if (played.size() == 1)
+                {
+                    if (*played.begin() == 60)
+                        layer.erase ("rootKey");
+                    else
+                        layer["rootKey"] = *played.begin();
+                }
+            }
+        }
+    }
+}
+
 bool migrateProject (Json& doc)
 {
     if (! doc.is_object())
@@ -492,6 +541,13 @@ bool migrateProject (Json& doc)
         changed = true;
     }
 
+    if (doc.value ("schemaVersion", 0) == 3)
+    {
+        followKeys (doc);
+        doc["schemaVersion"] = 4;
+        changed = true;
+    }
+
     return changed;
 }
 
@@ -501,7 +557,7 @@ Project parseProject (const Json& json)
     Project project;
 
     // Current documents are read as they are; older ones through a converted copy.
-    if (json.is_object() && json.value ("schemaVersion", 0) < 3)
+    if (json.is_object() && json.value ("schemaVersion", 0) < 4)
     {
         auto copy = json;
         migrateProject (copy);

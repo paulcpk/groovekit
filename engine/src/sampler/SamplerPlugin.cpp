@@ -51,6 +51,13 @@ std::shared_ptr<const Config> buildConfig (const model::SamplerInstrument& instr
         layer.fadeOut = toFrame (l.fadeOut);
         layer.swapStereo = l.swapStereo;
 
+        const auto& g = l.grains;
+        layer.grains = { .on = g.on, .size = static_cast<float> (g.size), .density = static_cast<float> (g.density), .speed = static_cast<float> (g.speed),
+                         .spray = static_cast<float> (g.spray), .detune = static_cast<float> (g.detune), .width = static_cast<float> (g.width),
+                         .shape = g.shape == model::GrainsShape::flat ? Grains::Shape::flat
+                                : g.shape == model::GrainsShape::pluck ? Grains::Shape::pluck
+                                                                       : Grains::Shape::smooth };
+
         if (l.invert)
             layer.gain = -layer.gain;
 

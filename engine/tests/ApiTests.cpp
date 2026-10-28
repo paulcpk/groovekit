@@ -583,3 +583,62 @@ TEST_CASE ("The agent's conversations are kept, listed, reopened and deleted")
     CHECK (h.call ("chats.get", { { "id", "second" } }).contains ("error"));
     CHECK (h.call ("chats.save", { { "chat", chat ("../escape", "/x") } }).contains ("error"));
 }
+
+TEST_CASE ("The user's notes for the agent are added, listed, changed and deleted")
+{
+    const auto file = test::tempDir() / "agent-notes.json";
+    std::filesystem::remove (file);
+
+    Harness h;
+    h.handler.notesFile = file;
+
+    auto loops = h.call ("notes.add", { { "text", "  Prefer loops over one-shots " } })["result"];
+    CHECK (loops["text"] == "Prefer loops over one-shots");
+    CHECK (loops["enabled"] == true);
+    CHECK (loops["here"] == true);
+    CHECK_FALSE (loops.contains ("project"));
+    CHECK (h.broadcasts.back()["method"] == "notes");
+    CHECK (h.broadcasts.back()["params"]["notes"].size() == 1);
+
+    h.call ("notes.add", { { "text", "Techno here means hard, industrial, 140 BPM" } });
+    CHECK (h.call ("notes.add", { { "text", "   " } }).contains ("error"));
+
+    // This session has no project folder to keep a note for.
+    CHECK (h.call ("notes.add", { { "text", "Keep the Digitakt kick" }, { "scope", "song" } }).contains ("error"));
+
+    const auto id = loops["id"].get<std::string>();
+    auto changed = h.call ("notes.update", { { "id", id }, { "text", "Prefer loops" }, { "enabled", false } })["result"];
+    CHECK (changed["text"] == "Prefer loops");
+    CHECK (changed["enabled"] == false);
+    CHECK (changed["created"] == loops["created"]);
+
+    auto list = h.call ("notes.list")["result"]["notes"];
+    REQUIRE (list.size() == 2);
+    CHECK (list[0]["id"] == id); // oldest first
+    CHECK (list[0]["enabled"] == false);
+
+    CHECK (h.call ("notes.update", { { "id", "nope" }, { "enabled", true } }).contains ("error"));
+    CHECK (h.call ("notes.delete", { { "id", id } })["result"]["deleted"] == true);
+    CHECK (h.call ("notes.delete", { { "id", id } })["result"]["deleted"] == false);
+    CHECK (h.call ("notes.list")["result"]["notes"].size() == 1);
+
+    // A note for one song applies there only.
+    const auto folder = test::tempDir() / "notes-song";
+    std::filesystem::remove_all (folder);
+    auto session = Session::open (folder);
+    ApiHandler songHandler (*session, test::getEngineContext());
+    songHandler.notesFile = file;
+    ApiHandler::Client client;
+
+    auto kick = songHandler.call ("notes.add", { { "text", "Keep the Digitakt kick" }, { "scope", "song" } }, client);
+    CHECK (kick["project"] == folder.string());
+    CHECK (kick["projectName"] == "notes-song");
+    CHECK (kick["here"] == true);
+
+    list = h.call ("notes.list")["result"]["notes"];
+    REQUIRE (list.size() == 2);
+    CHECK (list[1]["here"] == false);
+
+    auto everywhere = songHandler.call ("notes.update", { { "id", kick["id"] }, { "scope", "all" } }, client);
+    CHECK_FALSE (everywhere.contains ("project"));
+}

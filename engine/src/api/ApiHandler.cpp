@@ -15,6 +15,7 @@
 #include "plugins/PluginWindows.h"
 #include "render/Render.h"
 #include "session/Mastering.h"
+#include "session/AgentNotes.h"
 #include "session/Chats.h"
 #include "session/Presets.h"
 #include "session/RecentProjects.h"
@@ -430,6 +431,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
 
     if (method.starts_with ("chats."))
         return callChats (method, params);
+
+    if (method.starts_with ("notes."))
+        return callNotes (method, params);
 
     if (method.starts_with ("presets."))
     {
@@ -1951,6 +1955,99 @@ Json ApiHandler::callChats (const std::string& method, const Json& params)
 
     if (method == "chats.delete")
         return { { "deleted", store.remove (readParam<std::string> (params, "id")) } };
+
+    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+Json ApiHandler::callNotes (const std::string& method, const Json& params)
+{
+    AgentNotes notes (notesFile.empty() ? AgentNotes::getDefaultFile() : notesFile);
+    const auto here = session.getProjectDir() ? session.getProjectDir()->string() : std::string();
+
+    // A note's song: this one ("song"), or every song ("all").
+    auto scope = [&] () -> std::optional<std::pair<std::string, std::string>>
+    {
+        if (! params.contains ("scope"))
+            return {};
+
+        const auto value = readParam<std::string> (params, "scope");
+
+        if (value == "all")
+            return std::pair<std::string, std::string>();
+
+        if (value != "song")
+            throw RpcError (invalidParams, "scope must be \"all\" or \"song\"");
+
+        if (here.empty())
+            throw RpcError (operationFailed, "No project is open to keep a note for");
+
+        auto name = session.getProject().name;
+        return std::pair (here, name.empty() ? session.getProjectDir()->filename().string() : name);
+    };
+
+    // here: whether the note applies to the open song (and so to the agent working on it).
+    auto noteJson = [&] (const AgentNotes::Note& n)
+    {
+        auto j = toJson (n);
+        j["here"] = n.project.empty() || n.project == here;
+        return j;
+    };
+
+    auto listJson = [&]
+    {
+        auto list = Json::array();
+
+        for (auto& n : notes.list())
+            list.push_back (noteJson (n));
+
+        return Json { { "notes", list } };
+    };
+
+    auto changed = [&] (Json result)
+    {
+        if (broadcast)
+            broadcast (notification ("notes", listJson()).dump());
+
+        return result;
+    };
+
+    try
+    {
+        if (method == "notes.list")
+            return listJson();
+
+        if (method == "notes.add")
+        {
+            const auto where = scope();
+            return changed (noteJson (notes.add (readParam<std::string> (params, "text"), where ? where->first : "", where ? where->second : "")));
+        }
+
+        if (method == "notes.update")
+        {
+            AgentNotes::Change change;
+
+            if (params.contains ("text"))       change.text = readParam<std::string> (params, "text");
+            if (params.contains ("enabled"))    change.enabled = readParam<bool> (params, "enabled");
+            change.project = scope();
+
+            if (auto note = notes.update (readParam<std::string> (params, "id"), change))
+                return changed (noteJson (*note));
+
+            throw RpcError (invalidParams, "No note " + params["id"].dump() + " (notes.list)");
+        }
+
+        if (method == "notes.delete")
+        {
+            if (notes.remove (readParam<std::string> (params, "id")))
+                return changed ({ { "deleted", true } });
+
+            return { { "deleted", false } };
+        }
+    }
+    catch (const std::invalid_argument& e)
+    {
+        throw RpcError (invalidParams, e.what());
+    }
 
     throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
 }

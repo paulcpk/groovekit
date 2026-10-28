@@ -5,6 +5,7 @@
 #include "listening/Separator.h"
 #include "listening/Styles.h"
 #include "listening/Taste.h"
+#include "listening/TasteModel.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -321,4 +322,71 @@ TEST_CASE ("A style profile keeps its sounds and measures fit against the other 
     CHECK (roleOf ("clap", true) == Role::drums);
     CHECK (roleOf ("synth", false) == Role::music);
     CHECK (roleFromName ("percHit") == Role::percHit);
+}
+
+TEST_CASE ("A taste is learned from the user's verdicts")
+{
+    juce::Random random (11);
+
+    auto direction = [&]
+    {
+        Embedding e;
+        for (auto& v : e) v = random.nextFloat() * 2 - 1;
+        return e;
+    };
+
+    // Sounds near a centre: CLAP's embeddings of similar sounds share most of their direction.
+    auto near = [&] (const Embedding& centre, float spread)
+    {
+        auto noise = direction();
+        Embedding e;
+        float length = 0;
+
+        for (size_t d = 0; d < e.size(); ++d)
+        {
+            e[d] = centre[d] + spread * noise[d];
+            length += e[d] * e[d];
+        }
+
+        for (auto& v : e) v /= std::sqrt (length);
+        return e;
+    };
+
+    const auto dusty = direction(), harsh = direction(), library = direction();
+    auto some = [&] (const Embedding& centre, int count, float spread = 1.2f)
+    {
+        std::vector<Embedding> list;
+        for (int i = 0; i < count; ++i) list.push_back (near (centre, spread));
+        return list;
+    };
+
+    std::vector<Embedding> background;
+    for (int i = 0; i < 200; ++i) background.push_back (near (library, 3.0f));
+
+    CHECK_FALSE (TasteModel::train (some (dusty, 1), {}, background));
+
+    auto mean = [] (const TasteModel& m, const std::vector<Embedding>& list)
+    {
+        float sum = 0;
+        for (auto& e : list) sum += m.probability (e);
+        return sum / static_cast<float> (list.size());
+    };
+
+    SECTION ("from samples that fit and ones that don't")
+    {
+        const auto model = TasteModel::train (some (dusty, 5), some (harsh, 4), background);
+        REQUIRE (model);
+        CHECK (mean (*model, some (dusty, 20)) > 0.6f);
+        CHECK (mean (*model, some (harsh, 20)) < 0.3f);
+        CHECK (mean (*model, background) < 0.4f);
+        CHECK (model->confidence() == Approx (8.0f / 11.0f));
+    }
+
+    SECTION ("from samples that fit alone, against the library")
+    {
+        const auto model = TasteModel::train (some (dusty, 3), {}, background);
+        REQUIRE (model);
+        CHECK (mean (*model, some (dusty, 20)) > mean (*model, background) + 0.2f);
+        CHECK (model->confidence() < 0.3f);
+    }
 }

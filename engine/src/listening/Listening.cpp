@@ -372,6 +372,39 @@ float Listening::baseline (const StyleProfile& profile, Role role)
     return median;
 }
 
+std::optional<TasteModel> Listening::learnedTaste (const std::string& style, const std::vector<std::pair<bool, Embedding>>& verdicts,
+                                                   const std::string& signature)
+{
+    const auto size = index.size();
+
+    {
+        std::lock_guard lock (statsMutex);
+
+        if (auto it = tastes.find (style); it != tastes.end() && it->second.verdicts == signature && ! changedMuch (it->second.indexSize, size))
+            return it->second.model;
+    }
+
+    std::vector<Embedding> fits, misfits, background;
+
+    for (auto& [fit, e] : verdicts)
+        (fit ? fits : misfits).push_back (e);
+
+    // The library's sounds at large: an even spread of up to 256.
+    const auto every = std::max<size_t> (1, size / 256);
+    size_t i = 0;
+
+    index.forEach ([&] (const std::string&, const Embedding& e)
+    {
+        if (i++ % every == 0 && background.size() < 256)
+            background.push_back (e);
+    });
+
+    auto model = TasteModel::train (fits, misfits, background);
+    std::lock_guard lock (statsMutex);
+    tastes[style] = { signature, size, model };
+    return model;
+}
+
 double Listening::fitPercent (const StyleProfile& profile, Role role, const Embedding& e)
 {
     const auto target = available (profile, role);
@@ -426,12 +459,29 @@ Json Listening::search (const library::SampleQuery& filters, const SoundQuery& q
             if (auto e = index.find (r.path))
                 verdicts.push_back ({ r.path, r.fits, *e });
 
+    // And what they have in common, learned from them.
+    std::optional<TasteModel> learned;
+
+    if (verdicts.size() >= 2)
+    {
+        std::string signature;
+        std::vector<std::pair<bool, Embedding>> rated;
+
+        for (auto& v : verdicts)
+        {
+            signature += (v.fits ? "+" : "-") + v.path + "\n";
+            rated.push_back ({ v.fits, v.embedding });
+        }
+
+        learned = learnedTaste (profile != nullptr ? profile->name : "", rated, signature);
+    }
+
     struct Result
     {
         const library::SampleEntry* entry;
         double key = 0;
         std::optional<Embedding> embedding;
-        std::optional<double> fit, match;
+        std::optional<double> fit, match, liking;
         std::optional<bool> rating;
     };
 
@@ -461,6 +511,14 @@ Json Listening::search (const library::SampleQuery& filters, const SoundQuery& q
             // comparable between parts, so it mustn't pull, say, drum loops over a described synth.)
             r.key = r.fit && r.match ? 0.7 * *r.match + 0.3 * std::clamp (*r.fit, -50.0, 120.0)
                                      : r.fit ? *r.fit : *r.match;
+
+            // The learned taste: up to 30 either way, as far as it can be trusted.
+            if (learned)
+            {
+                const auto p = learned->probability (*r.embedding);
+                r.liking = 100.0 * p;
+                r.key += 60.0 * (p - 0.5) * learned->confidence();
+            }
 
             // Verdicts: the sample itself, and samples that sound almost the same.
             for (auto& v : verdicts)
@@ -500,6 +558,7 @@ Json Listening::search (const library::SampleQuery& filters, const SoundQuery& q
         if (r.fit)      j["fit"] = static_cast<int> (std::lround (*r.fit));
         if (r.match)    j["match"] = static_cast<int> (std::lround (*r.match));
         if (r.rating)   j["rating"] = *r.rating ? "fits" : "doesn't fit";
+        if (r.liking)   j["taste"] = static_cast<int> (std::lround (*r.liking));
 
         if (listening && r.embedding)
             j["sounds"] = describe (*r.embedding, 3);
@@ -507,7 +566,12 @@ Json Listening::search (const library::SampleQuery& filters, const SoundQuery& q
         list.push_back (std::move (j));
     }
 
-    return { { "results", list }, { "librarySize", library.size() }, { "heard", index.size() } };
+    Json result { { "results", list }, { "librarySize", library.size() }, { "heard", index.size() } };
+
+    if (learned)
+        result["taste"] = { { "verdicts", verdicts.size() }, { "confidence", std::round (learned->confidence() * 100) / 100 } };
+
+    return result;
 }
 
 //==============================================================================
