@@ -53,9 +53,14 @@ for i in np.argsort(change):
     if len(chosen) == wanted:
         break
 
+# Compressed mixes are cut as they are; uncompressed ones become FLAC, which is lossless and smaller.
+extension = os.path.splitext(mix)[1].lower()
+codec = ["-c:a", "flac"] if extension in (".wav", ".aif", ".aiff") else ["-c", "copy"]
+extension = ".flac" if codec[1] == "flac" else extension
+
 os.makedirs(outdir, exist_ok=True)
 for n, s in enumerate(sorted(chosen), 1):
-    out = os.path.join(outdir, f"{name} - {n:02d} ({s // 60}m{s % 60:02d}s).mp3")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(s), "-t", str(SLICE), "-i", mix, "-c", "copy", out], check=True)
+    out = os.path.join(outdir, f"{name} - {n:02d} ({s // 60}m{s % 60:02d}s){extension}")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(s), "-t", str(SLICE), "-i", mix, *codec, out], check=True)
 
 print(f"{name}: {seconds // 60} min, {len(chosen)} slices at " + ", ".join(f"{s // 60}:{s % 60:02d}" for s in sorted(chosen)))
