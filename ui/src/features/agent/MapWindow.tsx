@@ -4,6 +4,7 @@ import { IconButton, ToggleChip } from "@/components/controls";
 import { ArrangementView } from "./ArrangementView";
 import { KickMatches } from "./KickMatches";
 import { FloatingWindow } from "@/components/window";
+import { useStopPreviewsOnClose } from "@/features/shell/actions";
 import { closeWindow, type OpenWindow } from "@/state/windows";
 import { forget, getMap, hear, setInUse, useMaps, type SongMap } from "./maps";
 
@@ -20,6 +21,7 @@ const date = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: "
     again or forgetting it. */
 export function MapWindow({ window: w, id }: { window: OpenWindow; id: string }) {
   const song = useMaps((s) => s.songs.find((x) => x.id === id));
+  useStopPreviewsOnClose();
   const [map, setMap] = useState<SongMap | null>();
 
   // Read again when it's heard again or ticked.

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { call, engine, execute, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { formatDb } from "@/lib/model";
@@ -8,6 +9,20 @@ export function previewSample(path: string, durationSeconds: number) {
   useEngine.setState({ previewing: path });
   setTimeout(() => useEngine.getState().previewing === path && useEngine.setState({ previewing: undefined }), Math.min(30, durationSeconds) * 1000);
   return call("preview.play", { path });
+}
+
+/** Stops, when the component goes, whatever it started playing: the previews that began while it
+    was open. */
+export function useStopPreviewsOnClose() {
+  useEffect(() => {
+    const started = new Set<string>();
+    const unsubscribe = useEngine.subscribe((s) => s.previewing && started.add(s.previewing));
+    return () => {
+      unsubscribe();
+      const playing = useEngine.getState().previewing;
+      if (playing && started.has(playing)) void stopPreview();
+    };
+  }, []);
 }
 
 export function stopPreview() {

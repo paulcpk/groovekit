@@ -1,7 +1,7 @@
 import { Play, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FloatingWindow } from "@/components/window";
-import { stopPreview } from "@/features/shell/actions";
+import { stopPreview, useStopPreviewsOnClose } from "@/features/shell/actions";
 import { cn } from "@/lib/cn";
 import { call, listen, useEngine } from "@/state/engine";
 import { closeWindow, openWindow, type OpenWindow } from "@/state/windows";
@@ -45,6 +45,7 @@ function usePlayer() {
 export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }) {
   const [offer, setOffer] = useState<Offer | undefined>(() => offers.get(id));
   const { previewing, play } = usePlayer();
+  useStopPreviewsOnClose();
 
   // Opened again after a reload: ask the engine.
   useEffect(() => {
