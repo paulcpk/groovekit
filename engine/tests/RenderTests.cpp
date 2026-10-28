@@ -172,3 +172,25 @@ TEST_CASE ("Resampling changes speed and pitch together, without aliasing")
     // An 8 kHz tone 8 times as fast would land at 64 kHz: taken out rather than folded back down.
     CHECK (resampleAudio (sine (8000, 48000), rate, 8).getMagnitude (0, 1000, 4000) < 0.01f);
 }
+
+TEST_CASE ("An insert takes as many effects as the song gives it")
+{
+    // Each effect is three plugins on the insert's track: eight of them used to go past the
+    // track's limit, and the ones turned away were freed while the mixer still pointed at them.
+    auto json = Json::parse (R"({ "schemaVersion": 5, "tempo": 120, "channels": [], "patterns": [],
+                                  "playlist": { "rows": [], "clips": [] },
+                                  "mixer": { "inserts": [ { "id": "master" }, { "id": "bus", "effects": [] } ] } })");
+
+    for (int i = 0; i < 8; ++i)
+        json["mixer"]["inserts"][1]["effects"].push_back ({ { "type", "builtin" }, { "id", "eq" + std::to_string (i) }, { "kind", "eq" } });
+
+    const auto project = model::parseProject (json);
+    auto compiled = compileProject (test::getEngine(), project, { test::tempDir(), tracktion::Edit::forRendering });
+    auto& list = compiled.insertTracks.at ("bus")->pluginList;
+
+    for (int i = 0; i < 8; ++i)
+    {
+        auto* plugin = compiled.plugins.at ("effect:bus/eq" + std::to_string (i));
+        CHECK (list.indexOf (plugin) >= 0);
+    }
+}

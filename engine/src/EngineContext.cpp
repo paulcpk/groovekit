@@ -30,6 +30,12 @@ namespace
         bool autoInitialiseDeviceManager() override     { return false; }
         bool canScanPluginsOutOfProcess() override      { return outOfProcess; }
 
+        // Each effect takes three plugins (mix tap, effect, blend), so the default 16 per track
+        // would turn away a sixth effect. The song decides how much there is, not these limits.
+        tracktion::EditLimits getEditLimits() override  { return { .maxNumTracks = 100000, .maxClipsInTrack = 1000000,
+                                                                    .maxPluginsOnClip = 1000, .maxPluginsOnTrack = 10000,
+                                                                    .maxNumMasterPlugins = 1000 }; }
+
         const bool outOfProcess;
     };
 

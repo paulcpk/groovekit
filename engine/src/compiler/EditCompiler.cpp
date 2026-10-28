@@ -136,8 +136,18 @@ namespace
             if (typed == nullptr)
                 throw std::logic_error (std::string ("Couldn't create plugin ") + PluginType::xmlTypeName);
 
-            track.pluginList.insertPlugin (plugin, -1, nullptr);
+            insertPlugin (track, plugin);
             return *typed;
+        }
+
+        /** Adds a plugin at the end of a track. A plugin the track turned away would be freed while
+            the compiled result still pointed at it, so that's an error instead. */
+        static void insertPlugin (te::AudioTrack& track, const te::Plugin::Ptr& plugin)
+        {
+            track.pluginList.insertPlugin (plugin, -1, nullptr);
+
+            if (track.pluginList.indexOf (plugin.get()) < 0)
+                throw std::runtime_error ("Couldn't add a " + plugin->getPluginType().toStdString() + " plugin to " + track.getName().toStdString());
         }
 
         mixer::FaderPlugin& addFader (te::AudioTrack& track, double volumeDb, double pan)
@@ -225,14 +235,14 @@ namespace
                     if (auto builtin = std::get_if<BuiltinEffect> (&effect))
                     {
                         plugin = effects::createEffect (*edit, *builtin);
-                        track.pluginList.insertPlugin (plugin, -1, nullptr);
+                        insertPlugin (track, plugin);
                         effectPlugins[insert.id][id] = { plugin.get(), builtin->kind };
                     }
                     else
                     {
                         auto& pe = std::get<PluginEffect> (effect);
                         plugin = createHostedPlugin (pe.plugin, "Insert \"" + insert.id + "\"");
-                        track.pluginList.insertPlugin (plugin, -1, nullptr);
+                        insertPlugin (track, plugin);
                         plugin->setEnabled (! pe.bypass);
                         effectPlugins[insert.id][id] = { plugin.get(), {} };
                     }
@@ -318,7 +328,7 @@ namespace
                 else if (auto pi = std::get_if<PluginInstrument> (&channel.instrument))
                 {
                     auto plugin = createHostedPlugin (pi->plugin, "Channel \"" + channel.id + "\"");
-                    track.pluginList.insertPlugin (plugin, -1, nullptr);
+                    insertPlugin (track, plugin);
                     result.plugins["channel:" + channel.id] = plugin.get();
                 }
 
