@@ -1,8 +1,9 @@
 # Style and taste: the plan
 
 Status (2026-10-28): step 1 built (the guides in the engine, the song's style, the guide in the
-agent's instructions, Styles in the agent panel and the top bar). The review, the process and the
-feedback are next.
+agent's instructions, Styles in the agent panel and the top bar), reference folders for Berlin,
+industrial and hard techno (music discovery, `docs/music-discovery.md`), and the agent's
+conversation mode. Next: the review. The full order is in "The road to excellent results" below.
 
 ## The problem
 
@@ -98,17 +99,35 @@ A fixed set of prompts per style ("a 6-minute Berlin techno track at 136 BPM fro
 each version of the guides and the review: build the songs, review them, and the user rates them
 blind (good, okay, bad). Change one thing at a time; keep what improves the ratings.
 
-## Order and effort
+## The road to excellent results
 
-1. Guides in the engine, the song's style, guide in the agent's instructions, Styles in the panel:
-   about one session.
-2. The review with its measurements, calibrated on the user's techno references: one to two
-   sessions.
-3. The process in the instructions, and a first round of test songs with the user: one session.
-4. A/B/C variations and trusted folders: one session.
+In this order; each step is judged by the test round (6) before the next.
+
+1. **Conversation mode** (done). The agent talks when asked a question or for ideas: it answers,
+   explains, offers options with their trade-offs and asks back, and edits only when asked. It looks
+   at the song (and renders or compares it with the references) before giving an opinion.
+2. **The review** (next; one to two sessions). Measures the song against its guide and the user's
+   reference folders and returns ranked, concrete problems ("the clap is 2 dB under the kick; your
+   references put it 7 to 16 dB under", "bars 33 to 48 have 9 parts; the budget is 6", "the highs
+   are busier than your Berlin references"). The guides' targets come from the references'
+   measurements instead of estimates.
+3. **The process** (one session). The agent builds the groove first, adds one part at a time,
+   reviews after each and fixes the top problem before going on, then masters and compares with
+   the references.
+4. **Sound choice from the references.** Every search ranks by fit to the song's style folder and
+   by the user's taste, so a kick is chosen because it sounds like the references' kicks.
+5. **Arrangement from the references.** How the references evolve (parts at once over time,
+   breakdowns, intro length) becomes the arrangement target per style.
+6. **Testing with the user.** A fixed prompt per style, the songs rated blind (good, okay, bad), one
+   change at a time; keep what improves the ratings. The first round comes after step 3.
+7. **A/B/C variations and trusted folders.** Three short versions to pick from by ear, which trains
+   the taste on whole kits; trusted sample folders searches prefer.
+8. **A mastering chain per style**, tuned to the references' loudness and balance.
+
+Music discovery (a Claude Code skill) adds reference folders and sharpens guides for more styles
+along the way.
 
 ## Open questions for the user
 
-- Which styles matter most, and does the Techno reference folder really sound like the target
-  (some tracks may be further from it than others)?
-- Reference folders for the other styles: the guides' numbers are estimates until there are some.
+- Which styles matter most after the techno ones, for music discovery and the user's read of their
+  guides?

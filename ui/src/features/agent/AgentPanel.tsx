@@ -16,7 +16,7 @@ import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcr
 const SUGGESTIONS = [
   "Make a 4-bar techno groove at 128 BPM with kick, clap and hats",
   "Add a bassline that follows the kick",
-  "Mix the drums so the kick cuts through",
+  "What would make this groove more hypnotic?",
   "Master the song to −14 LUFS",
 ];
 
