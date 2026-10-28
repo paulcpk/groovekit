@@ -31,6 +31,14 @@ the research; keep the user's own words where they gave them. If the style overl
 separate them (say what makes each different) or merge them. Build the engine and run the guides test
 (`gk_tests "Style guides*"`; it counts the guides), then commit.
 
+Two places hold guides, and the user's wins:
+- **Built in:** `guides/*.md` in this repository, compiled into the engine. A change reaches the app after a rebuild or the next release.
+- **The user's own:** `~/Library/Application Support/GrooveKit/guides/<id>.md`, which replaces the built-in guide of the same id and takes effect at once. It holds edits made in the app's Styles tab, and their own guides.
+
+Before changing a guide, check for the user's copy. If there is one, show what differs and ask whether
+to sharpen their copy (`guides.save`, or the `style_guide` tool's save), the built-in one, or both;
+never overwrite their copy without asking.
+
 ## 3. Tier one: free, official downloads
 
 Download only what the publisher offers as a download: podcast RSS feeds and official free mixes.
