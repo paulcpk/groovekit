@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Circle, KeyboardMusic, Layers, ListMusic, Metronome, Pause, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
+import { ChevronDown, Circle, Ellipsis, KeyboardMusic, Layers, ListMusic, Metronome, Pause, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
 import { Button, DragNumber, IconButton } from "@/components/controls";
-import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
+import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownSub, DropdownTrigger } from "@/components/menu";
 import { cn } from "@/lib/cn";
 import { useLivePosition } from "@/lib/playhead";
 import { formatPosition, formatTime } from "@/lib/model";
 import { inDesktopApp } from "@/engine/client";
-import { useStyleGuides } from "@/features/agent/guides";
 import { execute, useEngine } from "@/state/engine";
-import { openWindow } from "@/state/windows";
 import { setUi, useUi, type BottomPanel } from "@/state/ui";
 import { masterSong, record, redo, renderSong, setCountIn, setMetronome, setPlayMode, setTempo, stop, toggleLoop, togglePlay, undo } from "./actions";
 import { browseForProject, openProject, recentProjects, saveProject, type RecentProject } from "./ProjectDialog";
@@ -38,7 +36,7 @@ function Position() {
   return (
     <div className="flex h-7 items-center gap-2 rounded-[4px] bg-bg px-2.5 font-mono text-sm tabular">
       <span ref={bars} className="min-w-[56px] text-fg" />
-      <span ref={time} className="text-faint" />
+      <span ref={time} className="hidden text-faint min-[1000px]:inline" />
     </div>
   );
 }
@@ -129,32 +127,7 @@ function Tempo() {
         <span>{ts.denominator ?? 4}</span>
       </div>
       <KeyMenu songKey={doc.key} />
-      <StyleMenu style={doc.style} />
     </div>
-  );
-}
-
-/** The song's style: the guide the agent follows here. */
-function StyleMenu({ style }: { style?: string }) {
-  const { guides } = useStyleGuides();
-  const current = guides.find((g) => g.id === style);
-  const set = (id?: string, name?: string) => void execute(id ? { type: "setStyle", style: id } : { type: "setStyle" }, { label: name ? `Style: ${name}` : "No style" });
-  return (
-    <Dropdown>
-      <DropdownTrigger asChild>
-        <button type="button" title="The song's style: the guide the agent follows"
-          className={cn("max-w-32 truncate rounded-[3px] px-1 text-sm hover:bg-control", style ? "text-fg" : "text-faint")}>
-          {current?.name ?? style ?? "Style"}
-        </button>
-      </DropdownTrigger>
-      <DropdownContent>
-        {guides.filter((g) => !g.hidden || g.id === style).map((g) => <DropdownItem key={g.id} checked={g.id === style} onSelect={() => set(g.id, g.name)}>{g.name}</DropdownItem>)}
-        <DropdownSeparator />
-        {style && <DropdownItem onSelect={() => openWindow({ kind: "guide", guide: style })}>Read the guide</DropdownItem>}
-        {style && <DropdownItem onSelect={() => set()}>No style</DropdownItem>}
-        {!style && <DropdownItem onSelect={() => openWindow({ kind: "guide", guide: "" })}>New style guide…</DropdownItem>}
-      </DropdownContent>
-    </Dropdown>
   );
 }
 
@@ -273,57 +246,117 @@ function ProjectMenu() {
   );
 }
 
+function SongItems() {
+  return (
+    <>
+      <DropdownLabel>Bounce</DropdownLabel>
+      <DropdownItem onSelect={() => setUi({ exportOpen: true })}>Export… <span className="ml-auto text-2xs text-faint">⌘R</span></DropdownItem>
+      <DropdownItem onSelect={() => void renderSong()}>Quick render to the project</DropdownItem>
+      <DropdownSeparator />
+      <DropdownLabel>Master limiter</DropdownLabel>
+      <DropdownItem onSelect={() => void masterSong(-14)}>Master to −14 LUFS (streaming)</DropdownItem>
+      <DropdownItem onSelect={() => void masterSong(-9)}>Master to −9 LUFS (club)</DropdownItem>
+    </>
+  );
+}
+
 function SongMenu() {
   return (
     <Dropdown>
       <DropdownTrigger asChild>
         <Button size="sm"><ListMusic size={13} /> Song <ChevronDown size={11} /></Button>
       </DropdownTrigger>
+      <DropdownContent align="end"><SongItems /></DropdownContent>
+    </Dropdown>
+  );
+}
+
+/** What a narrow window has no room for in the bar. */
+function MoreMenu({ snap, song, history }: { snap: boolean; song: boolean; history: boolean }) {
+  const current = useUi((s) => s.snap);
+  const head = useEngine((s) => s.head);
+
+  return (
+    <Dropdown>
+      <DropdownTrigger asChild>
+        <IconButton title="More"><Ellipsis size={15} /></IconButton>
+      </DropdownTrigger>
       <DropdownContent align="end">
-        <DropdownLabel>Bounce</DropdownLabel>
-        <DropdownItem onSelect={() => setUi({ exportOpen: true })}>Export… <span className="ml-auto text-2xs text-faint">⌘R</span></DropdownItem>
-        <DropdownItem onSelect={() => void renderSong()}>Quick render to the project</DropdownItem>
-        <DropdownSeparator />
-        <DropdownLabel>Master limiter</DropdownLabel>
-        <DropdownItem onSelect={() => void masterSong(-14)}>Master to −14 LUFS (streaming)</DropdownItem>
-        <DropdownItem onSelect={() => void masterSong(-9)}>Master to −9 LUFS (club)</DropdownItem>
+        {history && (
+          <>
+            <DropdownItem disabled={head === null} onSelect={() => void undo()}>Undo <span className="ml-auto text-2xs text-faint">⌘Z</span></DropdownItem>
+            <DropdownItem onSelect={() => void redo()}>Redo <span className="ml-auto text-2xs text-faint">⇧⌘Z</span></DropdownItem>
+          </>
+        )}
+        {snap && (
+          <DropdownSub label={`Snap: ${(snaps.find((s) => s.ticks === current) ?? snaps[0]).label}`}>
+            {snaps.map((s) => <DropdownItem key={s.label} checked={s.ticks === current} onSelect={() => setUi({ snap: s.ticks })}>{s.label}</DropdownItem>)}
+          </DropdownSub>
+        )}
+        {song && (
+          <>
+            {(history || snap) && <DropdownSeparator />}
+            <SongItems />
+          </>
+        )}
       </DropdownContent>
     </Dropdown>
   );
+}
+
+/** The window's width, kept current. */
+function useWindowWidth() {
+  const [width, setWidth] = useState(() => innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(innerWidth);
+    addEventListener("resize", onResize);
+    return () => removeEventListener("resize", onResize);
+  }, []);
+  return width;
 }
 
 export function TopBar() {
   const status = useEngine((s) => s.status);
   const head = useEngine((s) => s.head);
 
+  // As the window narrows, the less used parts move into More; the panels and settings stay.
+  const width = useWindowWidth();
+  const wide = width >= 1400, roomy = width >= 1300, history = width >= 1080;
+
   return (
     // In the desktop app the bar is also the title bar: it moves the window, and leaves room
     // for the window buttons.
     <div className={cn("flex h-11 shrink-0 items-center gap-3 bg-panel px-3", inDesktopApp && "pl-[90px]")} data-tauri-drag-region>
-      <div className="flex items-center gap-2" data-tauri-drag-region>
-        <img src="/logo-small.svg" alt="" className="pointer-events-none h-[18px] w-[18px]" />
-        <div className="text-[13px] font-semibold tracking-tight text-fg">GrooveKit</div>
+      <div className="flex min-w-0 shrink items-center gap-2" data-tauri-drag-region>
+        <img src="/logo-small.svg" alt="" className="pointer-events-none h-[18px] w-[18px] shrink-0" />
+        {wide && <div className="shrink-0 text-[13px] font-semibold tracking-tight text-fg">GrooveKit</div>}
         <ProjectName />
         <ProjectMenu />
       </div>
-      <div className="h-5 w-px bg-line" />
-      <PlayMode />
-      <TransportButtons />
-      <Position />
-      <Tempo />
-      <SnapMenu />
-      <div className="flex-1" />
-      <div className="flex items-center gap-0.5">
-        <IconButton title="Undo (⌘Z)" disabled={head === null} onClick={() => void undo()}><Undo2 size={15} /></IconButton>
-        <IconButton title="Redo (⇧⌘Z)" onClick={() => void redo()}><Redo2 size={15} /></IconButton>
+      <div className="h-5 w-px shrink-0 bg-line" />
+      <div className="flex min-w-0 items-center gap-3 overflow-hidden" data-tauri-drag-region>
+        <PlayMode />
+        <TransportButtons />
+        <Position />
+        <Tempo />
+        {roomy && <SnapMenu />}
       </div>
-      <SongMenu />
-      <PanelToggles />
-      <IconButton title="Audio and MIDI settings" onClick={() => setUi({ settingsOpen: true })}><Settings size={15} /></IconButton>
-      <div
-        title={status === "connected" ? "Connected to the engine" : status}
-        className={cn("h-2 w-2 rounded-full", status === "connected" ? "bg-ok" : status === "connecting" ? "bg-accent" : "bg-rec")}
-      />
+      <div className="min-w-2 flex-1" data-tauri-drag-region />
+      <div className="flex shrink-0 items-center gap-3">
+        {history && (
+          <div className="flex items-center gap-0.5">
+            <IconButton title="Undo (⌘Z)" disabled={head === null} onClick={() => void undo()}><Undo2 size={15} /></IconButton>
+            <IconButton title="Redo (⇧⌘Z)" onClick={() => void redo()}><Redo2 size={15} /></IconButton>
+          </div>
+        )}
+        {roomy ? <SongMenu /> : <MoreMenu snap={! roomy} song={! roomy} history={! history} />}
+        <PanelToggles />
+        <IconButton title="Audio and MIDI settings" onClick={() => setUi({ settingsOpen: true })}><Settings size={15} /></IconButton>
+        <div
+          title={status === "connected" ? "Connected to the engine" : status}
+          className={cn("h-2 w-2 rounded-full", status === "connected" ? "bg-ok" : status === "connecting" ? "bg-accent" : "bg-rec")}
+        />
+      </div>
     </div>
   );
 }

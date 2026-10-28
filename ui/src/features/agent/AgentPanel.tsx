@@ -75,7 +75,7 @@ export function AgentPanel() {
             { value: "maps", label: "Maps", title: "Your reference tracks, heard into song maps" }, { value: "changes", label: "Changes" }]} />
         <div className="flex-1" />
         {(view === "chat" || view === "chats") && (
-          <>
+          <div className="flex shrink-0 items-center gap-1">
             <IconButton size="sm" title="Conversations" onClick={() => setView(view === "chats" ? "chat" : "chats")}
               className={cn(view === "chats" && "bg-control text-fg")}><History size={12} /></IconButton>
             <IconButton size="sm" title="New conversation" disabled={running || (items.length === 0 && view === "chat")}
@@ -83,7 +83,7 @@ export function AgentPanel() {
                 newChat();
                 setView("chat");
               }}><SquarePen size={12} /></IconButton>
-          </>
+          </div>
         )}
       </div>
       <div className="min-h-0 flex-1">

@@ -190,16 +190,23 @@ export function DragNumber({
 export function Tabs<T extends string>({ value, onChange, items, className }: {
   value: T; onChange: (v: T) => void; items: { value: T; label: React.ReactNode; title?: string }[]; className?: string;
 }) {
+  // Too narrow for all of them (a slim sidebar), they scroll sideways, by the wheel too.
   return (
-    <div className={cn("flex items-center gap-0.5", className)}>
+    <div className={cn("flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", className)}
+      onWheel={(e) => {
+        if (e.deltaY && !e.deltaX && e.currentTarget.scrollWidth > e.currentTarget.clientWidth) e.currentTarget.scrollLeft += e.deltaY;
+      }}>
       {items.map((item) => (
         <button
           key={item.value}
           type="button"
           title={item.title}
-          onClick={() => onChange(item.value)}
+          onClick={(e) => {
+            onChange(item.value);
+            e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+          }}
           className={cn(
-            "h-6 rounded-[4px] px-2 text-xs transition-colors",
+            "h-6 shrink-0 whitespace-nowrap rounded-[4px] px-2 text-xs transition-colors",
             value === item.value ? "bg-control text-fg" : "text-dim hover:text-fg",
           )}
         >
