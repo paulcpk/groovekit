@@ -37,8 +37,8 @@
   <rect x="101.5" y="101.5" width="821" height="821" rx="184.5" fill="none" stroke="#3a3a42" stroke-width="3"/>
 
   <!-- glows behind the lit pads -->
-  <rect x="228" y="228" width="268" height="268" rx="56" fill="#f2a33a" opacity="0.8" filter="url(#glow)"/>
-  <rect x="528" y="528" width="268" height="268" rx="56" fill="#a78bfa" opacity="0.8" filter="url(#glow)"/>
+  <rect x="228" y="228" width="268" height="268" rx="56" fill="#f2a33a" opacity="0.56" filter="url(#glow)"/>
+  <rect x="528" y="528" width="268" height="268" rx="56" fill="#a78bfa" opacity="0.56" filter="url(#glow)"/>
 
   <g filter="url(#shadow)">
     <!-- lit: amber, top left -->
