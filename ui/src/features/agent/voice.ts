@@ -1,7 +1,6 @@
 // Voice messages for the agent: the microphone is recorded here, and the engine turns it into text
 // with Whisper on this Mac (the model is downloaded once). Nothing goes anywhere else.
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { engine, listen } from "@/state/engine";
 
@@ -60,115 +59,119 @@ function toBase64Pcm(chunks: Float32Array[]) {
   return btoa(binary);
 }
 
+interface Recorder {
+  state: RecorderState;
+  error: RecorderError | null;
+  levels: number[];
+  elapsed: number;
+}
+
+/** The one recorder: kept here rather than in the chat, so a recording keeps going while the user
+    looks at other tabs (and the tabs show that it does). */
+export const useRecorder = create<Recorder>(() => ({ state: "idle", error: null, levels: Array(BAR_COUNT).fill(0), elapsed: 0 }));
+
+let session: {
+  stream: MediaStream;
+  context: AudioContext;
+  processor: ScriptProcessorNode;
+  chunks: Float32Array[];
+  timer: ReturnType<typeof setTimeout>;
+} | null = null;
+
+// Cancelled while the microphone was still starting.
+let cancelled = false;
+
+function release() {
+  const current = session;
+  if (!current) return;
+  session = null;
+  clearTimeout(current.timer);
+  current.processor.onaudioprocess = null;
+  current.processor.disconnect();
+  current.stream.getTracks().forEach((track) => track.stop());
+  void current.context.close().catch(() => {});
+  useRecorder.setState({ state: "idle", levels: Array(BAR_COUNT).fill(0), elapsed: 0 });
+}
+
+/** Ends the recording: the audio (base64 PCM), or null if nothing was said. */
+async function stopRecording() {
+  const current = session;
+  if (!current) return null;
+  const chunks = current.chunks;
+  release();
+  const samples = chunks.reduce((n, c) => n + c.length, 0);
+  return samples > RATE / 4 ? toBase64Pcm(chunks) : null;
+}
+
+async function startRecording() {
+  if (session) return;
+  useRecorder.setState({ error: null });
+  if (!navigator.mediaDevices?.getUserMedia) {
+    useRecorder.setState({ error: "unsupported" });
+    return;
+  }
+  useRecorder.setState({ state: "starting" });
+  cancelled = false;
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  } catch (cause) {
+    useRecorder.setState({ state: "idle", error: (cause as DOMException)?.name === "NotAllowedError" ? "denied" : "failed" });
+    return;
+  }
+  if (cancelled) {
+    stream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+  try {
+    const context = new AudioContext();
+    const source = context.createMediaStreamSource(stream);
+    // About 43 ms a block at 48 kHz: one bar each.
+    const processor = context.createScriptProcessor(2048, 1, 1);
+    const chunks: Float32Array[] = [];
+    const startedAt = performance.now();
+    const resampling = { phase: 0, sum: 0, count: 0 };
+    const ratio = context.sampleRate / RATE;
+
+    processor.onaudioprocess = (event) => {
+      const input = event.inputBuffer.getChannelData(0);
+      chunks.push(downsample(input, ratio, resampling));
+      const level = levelOf(input);
+      useRecorder.setState((r) => ({ levels: [...r.levels.slice(1), level], elapsed: performance.now() - startedAt }));
+    };
+    source.connect(processor);
+    // A script processor only runs while connected to the output; it writes silence.
+    processor.connect(context.destination);
+
+    session = { stream, context, processor, chunks, timer: setTimeout(() => void stopRecording(), MAX_RECORDING_MS) };
+    useRecorder.setState({ state: "recording" });
+  } catch {
+    stream.getTracks().forEach((track) => track.stop());
+    useRecorder.setState({ state: "idle", error: "failed" });
+  }
+}
+
+function cancelRecording() {
+  if (!session) {
+    cancelled = true;
+    useRecorder.setState({ state: "idle" });
+    return;
+  }
+  release();
+}
+
 /**
  * Records a voice message and measures its loudness for the animation. `stop()` resolves with the
  * recording (base64 PCM, or null if nothing was said), `cancel()` throws it away. The microphone
- * is released as soon as the recording ends, or when the component goes.
+ * is released as soon as the recording ends; leaving the chat doesn't end it.
  */
 export function useVoiceRecorder() {
-  const [state, setState] = useState<RecorderState>("idle");
-  const [error, setError] = useState<RecorderError | null>(null);
-  const [levels, setLevels] = useState<number[]>(() => Array(BAR_COUNT).fill(0));
-  const [elapsed, setElapsed] = useState(0);
-  const session = useRef<{
-    stream: MediaStream;
-    context: AudioContext;
-    processor: ScriptProcessorNode;
-    chunks: Float32Array[];
-    timer: ReturnType<typeof setTimeout>;
-  } | null>(null);
-  // Cancelled while the microphone was still starting.
-  const cancelled = useRef(false);
-  const stopRef = useRef<() => Promise<string | null>>(async () => null);
-
-  const release = useCallback(() => {
-    const current = session.current;
-    if (!current) return;
-    session.current = null;
-    clearTimeout(current.timer);
-    current.processor.onaudioprocess = null;
-    current.processor.disconnect();
-    current.stream.getTracks().forEach((track) => track.stop());
-    void current.context.close().catch(() => {});
-    setState("idle");
-    setLevels(Array(BAR_COUNT).fill(0));
-    setElapsed(0);
-  }, []);
-
-  useEffect(() => release, [release]);
-
-  const stop = useCallback(async () => {
-    const current = session.current;
-    if (!current) return null;
-    const chunks = current.chunks;
-    release();
-    const samples = chunks.reduce((n, c) => n + c.length, 0);
-    return samples > RATE / 4 ? toBase64Pcm(chunks) : null;
-  }, [release]);
-  stopRef.current = stop;
-
-  const start = useCallback(async () => {
-    if (session.current) return;
-    setError(null);
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError("unsupported");
-      return;
-    }
-    setState("starting");
-    cancelled.current = false;
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-    } catch (cause) {
-      setState("idle");
-      setError((cause as DOMException)?.name === "NotAllowedError" ? "denied" : "failed");
-      return;
-    }
-    if (cancelled.current) {
-      stream.getTracks().forEach((track) => track.stop());
-      return;
-    }
-    try {
-      const context = new AudioContext();
-      const source = context.createMediaStreamSource(stream);
-      // About 43 ms a block at 48 kHz: one bar each.
-      const processor = context.createScriptProcessor(2048, 1, 1);
-      const chunks: Float32Array[] = [];
-      const startedAt = performance.now();
-      const resampling = { phase: 0, sum: 0, count: 0 };
-      const ratio = context.sampleRate / RATE;
-
-      processor.onaudioprocess = (event) => {
-        const input = event.inputBuffer.getChannelData(0);
-        chunks.push(downsample(input, ratio, resampling));
-        const level = levelOf(input);
-        setLevels((previous) => [...previous.slice(1), level]);
-        setElapsed(performance.now() - startedAt);
-      };
-      source.connect(processor);
-      // A script processor only runs while connected to the output; it writes silence.
-      processor.connect(context.destination);
-
-      session.current = { stream, context, processor, chunks, timer: setTimeout(() => void stopRef.current(), MAX_RECORDING_MS) };
-      setState("recording");
-    } catch {
-      stream.getTracks().forEach((track) => track.stop());
-      setState("idle");
-      setError("failed");
-    }
-  }, []);
-
-  const cancel = useCallback(() => {
-    if (!session.current) {
-      cancelled.current = true;
-      setState("idle");
-      return;
-    }
-    release();
-  }, [release]);
-
-  return { state, error, levels, elapsed, start, stop, cancel };
+  const recorder = useRecorder();
+  return { ...recorder, start: startRecording, stop: stopRecording, cancel: cancelRecording };
 }
+
+/** Whether a voice message is being recorded, for the tabs to show it. */
+export const useRecording = () => useRecorder((r) => r.state !== "idle");
 
 //==============================================================================
 export interface VoiceModel {

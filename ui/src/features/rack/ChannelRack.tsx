@@ -11,6 +11,7 @@ import { newPattern } from "@/features/playlist/Playlist";
 import { cn } from "@/lib/cn";
 import { useLiveControl } from "@/lib/liveControl";
 import { useLivePosition } from "@/lib/playhead";
+import { ColorSwatch } from "@/components/color";
 import { colorFor, formatDb, formatPan, palette, patternLength, STEP, ticksPerBar, uniqueId } from "@/lib/model";
 import { drawPeaks, usePeaks } from "@/lib/peaks";
 import { Automatable } from "@/features/playlist/Automatable";
@@ -213,6 +214,8 @@ function RackToolbar({ doc, pattern }: { doc: Project; pattern: Pattern | undefi
               ))}
             </DropdownContent>
           </Dropdown>
+          <ColorSwatch color={colorFor(pattern.id, pattern.color)} chosen={!!pattern.color} title="Pattern colour" className="mx-1"
+            onChange={(c) => void execute({ type: "updatePattern", pattern: pattern.id, changes: { color: c } }, { label: c ? "Colour pattern" : "Reset pattern colour" })} />
           <IconButton size="sm" title="Clone pattern" onClick={() => {
             const id = uniqueId(pattern.id, doc.patterns);
             void execute({ type: "addPattern", pattern: { ...pattern, id, name: `${pattern.name ?? pattern.id} (copy)` } }, { label: "Clone pattern" })

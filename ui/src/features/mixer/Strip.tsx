@@ -7,6 +7,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { createAutomation } from "@/features/playlist/automation";
 import { effectNames } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
+import { ColorSwatch } from "@/components/color";
 import { colorFor, formatDb, formatPan, insertName, palette } from "@/lib/model";
 import { useLiveControl } from "@/lib/liveControl";
 import { useHeight } from "@/lib/useHeight";
@@ -134,10 +135,16 @@ function StripName({ insert, index, color }: { insert: Insert; index: number; co
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="flex h-8 shrink-0 flex-col justify-center border-b border-line px-2" style={{ boxShadow: `inset 0 2px 0 ${color}` }}
+        <div className="flex h-12 shrink-0 flex-col justify-center gap-0.5 border-b border-line px-2 pt-1.5 pb-1" style={{ boxShadow: `inset 0 4px 0 ${color}` }}
           onDoubleClick={() => !master && setEditing(true)}>
           <div className="truncate text-xs font-medium text-fg">{insertName(insert, index)}</div>
-          <div className="text-[9px] text-faint">{master ? "Output" : `Insert ${index}`}</div>
+          <div className="flex items-center gap-1">
+            <span className="flex-1 text-[9px] text-faint">{master ? "Output" : `Insert ${index}`}</span>
+            {!master && (
+              <ColorSwatch color={color} chosen={!!insert.color} size={10} title="Colour"
+                onChange={(c) => void execute({ type: "updateInsert", insert: insert.id, changes: { color: c } }, { label: c ? "Colour insert" : "Reset insert colour" })} />
+            )}
+          </div>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>

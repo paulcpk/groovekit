@@ -13,7 +13,7 @@ import { NotesView } from "./NotesView";
 import { StylesView } from "./StylesView";
 import { MapsView } from "./MapsView";
 import { useAgentView, type AgentView } from "./maps";
-import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, transcriptText, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
+import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, transcriptText, useRecording, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
 
 const SUGGESTIONS = [
   "Make a 4-bar techno groove at 128 BPM with kick, clap and hats",
@@ -60,6 +60,7 @@ function toolSummary(input: unknown) {
 
 export function AgentPanel() {
   const view = useAgentView((s) => s.view);
+  const recording = useRecording();
   const setView = (v: AgentView) => useAgentView.setState({ view: v });
   const items = useAgent((s) => s.items);
   const running = useAgent((s) => s.running);
@@ -68,7 +69,8 @@ export function AgentPanel() {
     <div className="flex h-full flex-col">
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line px-2">
         <Tabs<Exclude<AgentView, "chats">> value={view === "chats" ? "chat" : view} onChange={setView}
-          items={[{ value: "chat", label: "Chat" }, { value: "notes", label: "Notes", title: "What the agent should always keep in mind" },
+          items={[{ value: "chat", label: <span className="flex items-center gap-1">Chat{recording && view !== "chat" && <RecordingDot />}</span>,
+            title: recording && view !== "chat" ? "A voice message is being recorded" : undefined }, { value: "notes", label: "Notes", title: "What the agent should always keep in mind" },
             { value: "styles", label: "Styles", title: "How the agent makes each style" },
             { value: "maps", label: "Maps", title: "Your reference tracks, heard into song maps" }, { value: "changes", label: "Changes" }]} />
         <div className="flex-1" />
@@ -89,6 +91,11 @@ export function AgentPanel() {
       </div>
     </div>
   );
+}
+
+/** A voice message is being recorded (shown where the message box isn't). */
+export function RecordingDot() {
+  return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-rec shadow-[0_0_6px_var(--color-rec)]" />;
 }
 
 function ago(ms: number) {
