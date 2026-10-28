@@ -116,6 +116,6 @@ The agent is the exception, when you use it. The agent panel in the app sends yo
 
 ## License
 
-AGPLv3 (Settings → About → Licenses in the app lists the third-party software it includes). GrooveKit builds on [JUCE 8](https://juce.com) (AGPLv3), [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) (GPLv3), [Rubber Band](https://breakfastquay.com/rubberband/) (GPLv2+) and [IXWebSocket](https://github.com/machinezone/IXWebSocket) (BSD).
+AGPLv3 (Settings → About → Licenses in the app lists the third-party software it includes). GrooveKit builds on [JUCE 8](https://juce.com) (AGPLv3), [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) (GPLv3), [Rubber Band](https://breakfastquay.com/rubberband/) (GPLv2+), [LAME](https://lame.sourceforge.io) (LGPLv2+, for MP3 export) and [IXWebSocket](https://github.com/machinezone/IXWebSocket) (BSD).
 
 Bug reports and feature requests are welcome as [issues](https://github.com/paulcpk/groovekit/issues/new/choose); pull requests aren't accepted. See [CONTRIBUTING.md](CONTRIBUTING.md).

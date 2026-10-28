@@ -520,6 +520,35 @@ TEST_CASE ("Renders take a format and can include stems")
     auto mix = analysis::loadAudio (output);
     CHECK (mix.sampleRate == 44100);
     CHECK (h.call ("render", { { "bitDepth", 12 } })["error"]["code"] == -32602);
+
+    // Silence before and after, and peaks brought to -1 dB, the stems by the same gain.
+    const auto padded = output.parent_path() / "padded.wav";
+    result = h.call ("render", { { "path", padded.string() }, { "sampleRate", 44100 }, { "silenceBefore", 0.5 }, { "silenceAfter", 0.25 },
+                                 { "normalize", -1.0 }, { "stems", true } })["result"];
+    auto audio = analysis::loadAudio (padded);
+    CHECK (std::abs (audio.buffer.getNumSamples() / 44100.0 - (mix.buffer.getNumSamples() / 44100.0 + 0.75)) < 0.01);
+    CHECK (audio.buffer.getMagnitude (0, 22000) == 0.0f);
+    CHECK (std::abs (juce::Decibels::gainToDecibels (audio.buffer.getMagnitude (0, audio.buffer.getNumSamples())) + 1.0f) < 0.05f);
+    CHECK (result["gainDb"].is_number());
+    CHECK (std::filesystem::is_regular_file (output.parent_path() / "padded-drums.wav"));
+
+    // FLAC and MP3.
+    const auto flac = output.parent_path() / "mix.flac";
+    CHECK (h.call ("render", { { "path", flac.string() }, { "format", "flac" }, { "bitDepth", 16 } })["result"]["format"] == "flac");
+    CHECK (std::abs (analysis::loadAudio (flac).buffer.getNumSamples() - analysis::loadAudio (output).buffer.getNumSamples() * 48000.0 / 44100.0) < 64);
+
+    const auto mp3 = output.parent_path() / "mix.mp3";
+    CHECK (h.call ("render", { { "path", mp3.string() }, { "format", "mp3" }, { "bitrate", 192 }, { "sampleRate", 44100 } })["result"]["format"] == "mp3");
+    std::ifstream in (mp3, std::ios::binary);
+    unsigned char head[2] {};
+    in.read (reinterpret_cast<char*> (head), 2);
+    CHECK (head[0] == 0xFF);
+    CHECK ((head[1] & 0xE0) == 0xE0);
+    CHECK (std::filesystem::file_size (mp3) > 1000);
+
+    CHECK (h.call ("render", { { "format", "mp3" }, { "sampleRate", 96000 } })["error"]["code"] == -32602);
+    CHECK (h.call ("render", { { "format", "flac" }, { "bitDepth", 32 } })["error"]["code"] == -32602);
+    CHECK (h.call ("render", { { "format", "ogg" } })["error"]["code"] == -32602);
 }
 
 TEST_CASE ("Rows are numbered, need no adding, and move with their clips and settings")

@@ -44,6 +44,24 @@ if(NOT rubberband_POPULATED)
     FetchContent_Populate(rubberband)
 endif()
 
+# MP3 encoding for exports (LAME, LGPL-2.0-or-later). The encoder library, built from its sources.
+FetchContent_Declare(lame
+    URL https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+    URL_HASH SHA256=ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e)
+FetchContent_GetProperties(lame)
+if(NOT lame_POPULATED)
+    FetchContent_Populate(lame)
+endif()
+set(LAME_SOURCES VbrTag.c bitstream.c encoder.c fft.c gain_analysis.c id3tag.c lame.c newmdct.c presets.c psymodel.c
+    quantize.c quantize_pvt.c reservoir.c set_get.c tables.c takehiro.c util.c vbrquantize.c version.c)
+list(TRANSFORM LAME_SOURCES PREPEND "${lame_SOURCE_DIR}/libmp3lame/")
+add_library(mp3lame STATIC ${LAME_SOURCES})
+target_include_directories(mp3lame PUBLIC "${lame_SOURCE_DIR}/include"
+    PRIVATE "${lame_SOURCE_DIR}/libmp3lame" "${CMAKE_CURRENT_SOURCE_DIR}/engine/third_party/lame")
+target_compile_definitions(mp3lame PRIVATE HAVE_CONFIG_H)
+# Its own code, not GrooveKit's: no warnings, and no sanitizers (the ASan build checks ours).
+target_compile_options(mp3lame PRIVATE -w -fno-sanitize=all)
+
 # Speech to text for the agent's voice messages, on this Mac (MIT), with Metal.
 FetchContent_Declare(whisper
     GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git

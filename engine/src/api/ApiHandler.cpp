@@ -15,6 +15,7 @@
 #include "music/Notes.h"
 #include "plugins/PluginCatalog.h"
 #include "plugins/PluginWindows.h"
+#include "render/Encode.h"
 #include "render/Render.h"
 #include "render/Stretch.h"
 #include "session/Mastering.h"
@@ -624,10 +625,39 @@ Json ApiHandler::render (const Json& params)
     if (auto v = optionalNumber (params, "end"))            options.end = static_cast<model::Ticks> (*v);
     if (auto v = optionalNumber (params, "tailSeconds"))    options.tailSeconds = *v;
     if (auto v = optionalNumber (params, "sampleRate"))     options.sampleRate = *v;
-    if (auto v = optionalNumber (params, "bitDepth"))       options.bitDepth = static_cast<int> (*v);
 
-    if (options.bitDepth != 16 && options.bitDepth != 24 && options.bitDepth != 32)
+    EncodeOptions encode;
+    encode.format = params.value ("format", std::string ("wav"));
+    encode.bitDepth = static_cast<int> (optionalNumber (params, "bitDepth").value_or (24));
+    encode.bitrate = static_cast<int> (optionalNumber (params, "bitrate").value_or (320));
+    encode.dither = params.value ("dither", true);
+
+    const auto silenceBefore = std::max (0.0, optionalNumber (params, "silenceBefore").value_or (0.0));
+    const auto silenceAfter = std::max (0.0, optionalNumber (params, "silenceAfter").value_or (0.0));
+    const auto normalize = optionalNumber (params, "normalize");
+
+    std::string extension;
+
+    try
+    {
+        extension = extensionFor (encode.format);
+    }
+    catch (const std::invalid_argument& e)
+    {
+        throw RpcError (invalidParams, e.what());
+    }
+
+    if (encode.format != "mp3" && encode.bitDepth != 16 && encode.bitDepth != 24 && encode.bitDepth != 32)
         throw RpcError (invalidParams, "bitDepth must be 16, 24 or 32");
+
+    if (encode.format == "flac" && encode.bitDepth == 32)
+        throw RpcError (invalidParams, "FLAC is 16 or 24 bits");
+
+    if (encode.format == "mp3" && options.sampleRate != 44100 && options.sampleRate != 48000)
+        throw RpcError (invalidParams, "MP3 is 44.1 or 48 kHz");
+
+    if (encode.format == "mp3" && (encode.bitrate < 96 || encode.bitrate > 320))
+        throw RpcError (invalidParams, "bitrate must be 96 to 320 kbit/s");
 
     if (options.sampleRate < 8000 || options.sampleRate > 192000)
         throw RpcError (invalidParams, "sampleRate must be between 8000 and 192000");
@@ -643,17 +673,62 @@ Json ApiHandler::render (const Json& params)
     else
     {
         std::filesystem::create_directories (projectDir / "renders");
-        output = projectDir / "renders" / ("render-" + std::to_string (++renderCount) + ".wav");
+        output = projectDir / "renders" / ("render-" + std::to_string (++renderCount) + "." + extension);
     }
 
-    auto compiled = compileProject (context.getEngine(), session.getProject(), { projectDir, tracktion::Edit::forRendering });
-    renderToWav (compiled, session.getProject(), output, options);
+    // Rendered at full resolution, then given its silence, level and format. The mix and its
+    // stems get the same gain, so the stems still add up to the mix.
+    options.bitDepth = 32;
+    std::optional<float> gain;
 
-    Json result { { "path", std::filesystem::absolute (output).string() },
-                  { "analysis", analysis::analyse (analysis::loadAudio (output), true) } };
+    auto finish = [&] (const model::Project& project, const std::filesystem::path& file)
+    {
+        const auto temp = file.parent_path() / ("." + file.stem().string() + ".render.wav");
+        std::filesystem::create_directories (file.parent_path());
+        auto compiled = compileProject (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering });
+        renderToWav (compiled, project, temp, options);
+
+        auto audio = analysis::loadAudio (temp);
+        std::error_code ec;
+        std::filesystem::remove (temp, ec);
+
+        const auto before = static_cast<int> (std::round (silenceBefore * audio.sampleRate));
+        const auto after = static_cast<int> (std::round (silenceAfter * audio.sampleRate));
+
+        if (before > 0 || after > 0)
+        {
+            juce::AudioBuffer<float> padded (audio.buffer.getNumChannels(), audio.buffer.getNumSamples() + before + after);
+            padded.clear();
+
+            for (int c = 0; c < padded.getNumChannels(); ++c)
+                padded.copyFrom (c, before, audio.buffer, c, 0, audio.buffer.getNumSamples());
+
+            audio.buffer = std::move (padded);
+        }
+
+        if (normalize && ! gain)
+        {
+            const auto peak = audio.buffer.getMagnitude (0, audio.buffer.getNumSamples());
+            gain = peak > 0 ? juce::Decibels::decibelsToGain (static_cast<float> (*normalize)) / peak : 1.0f;
+        }
+
+        if (gain)
+            audio.buffer.applyGain (*gain);
+
+        writeAudio (audio.buffer, audio.sampleRate, file, encode);
+        return audio;
+    };
+
+    const auto mix = finish (session.getProject(), output);
+
+    Json result { { "path", std::filesystem::absolute (output).string() }, { "format", encode.format },
+                  { "analysis", analysis::analyse (mix, true) } };
+
+    if (gain)
+        result["gainDb"] = std::round (juce::Decibels::gainToDecibels (*gain) * 10) / 10;
 
     // Stems: each insert but master on its own (soloed, so it's heard through what it feeds),
-    // over the same range, next to the mix as <name>-<insert>.wav.
+    // over the same range, next to the mix as <name>-<insert>.<format>.
     if (params.value ("stems", false))
     {
         auto stems = Json::array();
@@ -674,9 +749,8 @@ Json ApiHandler::render (const Json& params)
             for (auto& t : project.playlist.rows)
                 t.solo = false;
 
-            auto stem = output.parent_path() / (output.stem().string() + "-" + insert.id + ".wav");
-            auto stemEdit = compileProject (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering });
-            renderToWav (stemEdit, project, stem, options);
+            auto stem = output.parent_path() / (output.stem().string() + "-" + insert.id + "." + extension);
+            finish (project, stem);
             stems.push_back ({ { "insert", insert.id }, { "path", std::filesystem::absolute (stem).string() } });
         }
 

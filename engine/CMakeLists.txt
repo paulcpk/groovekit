@@ -48,6 +48,7 @@ target_sources(gk_engine PRIVATE
     src/model/Project.cpp
     src/plugins/PluginCatalog.cpp
     src/plugins/PluginWindows.cpp
+    src/render/Encode.cpp
     src/render/Render.cpp
     src/render/Stretch.cpp
     src/sampler/AudioChannelPlugin.cpp
@@ -107,6 +108,7 @@ target_link_libraries(gk_engine
         juce::juce_audio_utils
         juce::juce_dsp
         whisper
+        mp3lame
     PUBLIC
         juce::juce_recommended_config_flags
         nlohmann_json::nlohmann_json
