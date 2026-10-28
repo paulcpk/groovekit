@@ -10,7 +10,9 @@ import { notePlayed } from "@/features/shell/liveInput";
 import { cn } from "@/lib/cn";
 import { useHeld } from "@/lib/held";
 import { useLiveControl } from "@/lib/liveControl";
+import { barRange, barsAt, describeFit, fitCommands, fitMode, formatBars, suggestedBars, tempoFor } from "@/lib/fit";
 import { colorFor, fileName, formatDb, formatPan, noteName, uniqueId } from "@/lib/model";
+import { usePeaks } from "@/lib/peaks";
 import { ChannelBar } from "@/features/rack/ChannelBar";
 import { call, execute, useEngine } from "@/state/engine";
 import { setUi } from "@/state/ui";
@@ -120,7 +122,7 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
         {!saved ? (
           <div className="rounded-md border border-dashed border-line p-8 text-center text-xs text-faint">Drop a sample here</div>
         ) : tab === "sample" ? (
-          <SampleTab channel={channel} sampler={sampler} saved={saved} color={color} first={saved === sampler.layers[0]} clips={clips} tempo={doc.tempo} />
+          <SampleTab channel={channel} sampler={sampler} saved={saved} color={color} first={saved === sampler.layers[0]} clips={clips} />
         ) : tab === "grains" ? (
           <GrainsTab channel={channel} saved={saved} color={color} />
         ) : tab === "envelopes" ? (
@@ -166,8 +168,53 @@ function GrainsTab({ channel, saved, color }: { channel: Channel; saved: Sampler
   );
 }
 
-function SampleTab({ channel, sampler, saved, color, first, clips, tempo }: {
-  channel: Channel; sampler: SamplerInstrument; saved: SamplerLayer; color: string; first: boolean; clips: number; tempo: number;
+/** How the sample fits the song in the arrangement: as recorded, stretched (pitch kept) or
+    resampled (pitch follows) to fill a number of bars, which it keeps filling at any tempo. */
+function FitToSong({ channel, layer }: { channel: Channel; layer: SamplerLayer }) {
+  const doc = useEngine((s) => s.doc)!;
+  const peaks = usePeaks(layer.sample);
+  if (!peaks) return null;
+
+  const mode = fitMode(layer);
+  const seconds = Math.max(0.001, (layer.end ?? peaks.durationSeconds) - (layer.start ?? 0));
+  const range = barRange(doc, seconds);
+  const bars = layer.sourceTempo ? barsAt(doc, seconds, layer.sourceTempo) : suggestedBars(doc, seconds);
+  const fit = (to: number, resample: boolean, label: string) => {
+    const b = Math.min(range.max, Math.max(range.min, to));
+    void execute(fitCommands(doc, channel, seconds, { sourceTempo: Math.round(tempoFor(doc, seconds, b) * 1000) / 1000, resample }), { label });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-2xs text-dim">
+      <span>Fit to song</span>
+      <div className="flex items-center gap-px">
+        {(["off", "stretch", "resample"] as const).map((m) => (
+          <ToggleChip key={m} on={mode === m} tone={m === "off" ? "dim" : "accent"} label={{ off: "Off", stretch: "Stretch", resample: "Resample" }[m]}
+            title={{ off: "Plays at its own speed, as recorded", stretch: "Sped up or slowed down to fill its bars, pitch kept",
+              resample: "Sped up or slowed down to fill its bars, the pitch moving with it like a record" }[m]}
+            onClick={() => m === "off"
+              ? void execute(fitCommands(doc, channel, seconds, { sourceTempo: null, resample: false }), { label: "Don't fit to the song" })
+              : fit(bars, m === "resample", m === "resample" ? "Resample to the song" : "Stretch to the song")} />
+        ))}
+      </div>
+      {mode !== "off" && layer.sourceTempo != null && (
+        <>
+          <button type="button" className="rounded-[3px] bg-control px-1 text-fg disabled:opacity-40" title="Half as many bars"
+            disabled={bars / 2 < range.min - 1e-6} onClick={() => fit(bars / 2, !!layer.resample, `Fit to ${formatBars(bars / 2)}`)}>÷2</button>
+          <DragNumber value={Math.round(bars * 1000) / 1000} min={range.min} max={range.max} step={0.125} pixelsPerStep={6} format={formatBars} className="text-fg"
+            parse={(t) => { const [a, b] = t.split("/").map(Number); return b ? a / b : a; }}
+            onCommit={(v) => fit(v, !!layer.resample, `Fit to ${formatBars(v)}`)} />
+          <button type="button" className="rounded-[3px] bg-control px-1 text-fg disabled:opacity-40" title="Twice as many bars"
+            disabled={bars * 2 > range.max + 1e-6} onClick={() => fit(bars * 2, !!layer.resample, `Fit to ${formatBars(bars * 2)}`)}>×2</button>
+          <span className="text-faint">{describeFit(doc, layer.sourceTempo, !!layer.resample)}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SampleTab({ channel, sampler, saved, color, first, clips }: {
+  channel: Channel; sampler: SamplerInstrument; saved: SamplerLayer; color: string; first: boolean; clips: number;
 }) {
   const { layer, change } = useLayer(channel, saved);
   const key = layer.rootKey ?? 60;
@@ -223,18 +270,7 @@ function SampleTab({ channel, sampler, saved, color, first, clips, tempo }: {
       </div>
       {(first && (clips > 0 || channel.group === "arrangement")) || (layer.start ?? 0) > 0 || layer.end != null ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          {first && (clips > 0 || channel.group === "arrangement") && (
-            <>
-              <ToggleChip on={layer.sourceTempo != null} label="Stretch to tempo" title="Audio clips are time-stretched to the song's tempo, keeping their pitch"
-                onClick={() => change({ sourceTempo: layer.sourceTempo != null ? (null as never) : tempo }, true, layer.sourceTempo != null ? "Don't stretch" : "Stretch to tempo")} />
-              {layer.sourceTempo != null && (
-                <span className="flex items-center gap-1 text-2xs text-dim">from
-                  <DragNumber value={layer.sourceTempo} min={20} max={999} step={0.1} format={(v) => `${v.toFixed(1)} BPM`} className="text-fg"
-                    onCommit={(v) => change({ sourceTempo: Math.round(v * 10) / 10 }, true, "Source tempo")} />
-                </span>
-              )}
-            </>
-          )}
+          {first && (clips > 0 || channel.group === "arrangement") && <FitToSong channel={channel} layer={layer} />}
           {((layer.start ?? 0) > 0 || layer.end != null) && (
             <button type="button" className="text-2xs text-faint hover:text-fg" onClick={() => change({ start: 0, end: null as never }, true, "Play the whole sample")}>Whole sample</button>
           )}

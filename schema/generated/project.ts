@@ -211,13 +211,15 @@ export interface SamplerLayer {
   /** Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it. */
   tail?: number;
   grains?: Grains;
-  /** Shortens the part that plays to this share of it, its end bending into a natural decay so it doesn't sound cut off: a 0.8 s hit at 0.25 is a 0.2 s one (notes only; a looping part just loops the shorter part). */
+  /** Shortens the part that plays to this share of it, cutting it off there: a 0.8 s hit at 0.25 is a 0.2 s one; fadeOut shapes its new end (notes only; a looping part just loops the shorter part). */
   length?: number;
   /** Seconds a forward loop crossfades over where it comes round, so the loop is smooth. */
   crossfade?: number;
   process?: SampleProcessing;
-  /** Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it. */
+  /** Tempo the file plays at in its own time, which fits it to the song: audio clips playing the layer are sped up or slowed down by the song's tempo over this one (at most 8 times either way), so it fills the same number of bars at any song tempo. Notes ignore it. */
   sourceTempo?: number;
+  /** How a layer with a sourceTempo is fitted to the song: false time-stretches it (pitch kept), true resamples it (pitch follows speed, like a record played faster or slower). */
+  resample?: boolean;
 }
 
 /** Built-in polyphonic sampler. Every layer whose key and velocity range match a note plays it; audio clips on the playlist play its first layer. */

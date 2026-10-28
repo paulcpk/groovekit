@@ -13,7 +13,7 @@ namespace fs = std::filesystem;
 namespace
 {
     /** Bump when the algorithm or its settings change, so old cache entries aren't reused. */
-    constexpr int stretchVersion = 6;
+    constexpr int stretchVersion = 7;
 
     std::string cacheKey (const fs::path& source, const ClipSource& how)
     {
@@ -21,7 +21,7 @@ namespace
         const auto modified = static_cast<long long> (fs::last_write_time (source).time_since_epoch().count());
         const auto description = canonical + "|" + std::to_string (fs::file_size (source)) + "|" + std::to_string (modified)
                                + "|" + std::to_string (how.start) + "|" + (how.end ? std::to_string (*how.end) : "-")
-                               + "|" + (how.reverse ? "r" : "") + "|" + std::to_string (how.speed) + "|" + std::to_string (how.semitones)
+                               + "|" + (how.reverse ? "r" : "") + "|" + std::to_string (how.speed) + (how.resample ? "s" : "") + "|" + std::to_string (how.semitones)
                                + "|" + std::to_string (stretchVersion);
 
         // FNV-1a: the key only needs to be stable on this machine.
@@ -110,6 +110,36 @@ juce::AudioBuffer<float> stretchAudio (const juce::AudioBuffer<float>& input, do
     return result;
 }
 
+juce::AudioBuffer<float> resampleAudio (const juce::AudioBuffer<float>& input, double sampleRate, double speed)
+{
+    const auto outputLength = std::max (1, static_cast<int> (std::llround (input.getNumSamples() / speed)));
+    juce::AudioBuffer<float> result (input.getNumChannels(), outputLength);
+    result.clear();
+
+    for (int ch = 0; ch < input.getNumChannels(); ++ch)
+    {
+        // Silence past the end, so the interpolator's last reads stay in bounds.
+        std::vector<float> padded (static_cast<size_t> (input.getNumSamples() + 64), 0.0f);
+        std::copy_n (input.getReadPointer (ch), input.getNumSamples(), padded.begin());
+
+        // Played faster, what would land above the new Nyquist is taken out first so it doesn't
+        // fold back down as aliasing.
+        if (speed > 1)
+            for (int stage = 0; stage < 4; ++stage)
+            {
+                juce::IIRFilter lowPass;
+                lowPass.setCoefficients (juce::IIRCoefficients::makeLowPass (sampleRate, 0.45 * sampleRate / speed));
+                lowPass.processSamples (padded.data(), static_cast<int> (padded.size()));
+            }
+
+        juce::WindowedSincInterpolator interpolator;
+        interpolator.process (speed, padded.data(), result.getWritePointer (ch), outputLength,
+                              static_cast<int> (padded.size()), 0);
+    }
+
+    return result;
+}
+
 fs::path getDefaultCacheDir()
 {
     if (auto env = std::getenv ("GROOVEKIT_CACHE_DIR"))
@@ -168,7 +198,15 @@ fs::path getClipFile (const fs::path& source, const ClipSource& how, const fs::p
     if (how.reverse)
         part.reverse (0, part.getNumSamples());
 
-    if (std::abs (how.speed - 1) > 1.0e-6 || std::abs (how.semitones) > 1.0e-6)
+    if (how.resample)
+    {
+        if (std::abs (how.speed - 1) > 1.0e-6)
+            part = resampleAudio (part, sampleRate, how.speed);
+
+        if (std::abs (how.semitones) > 1.0e-6)
+            part = stretchAudio (part, sampleRate, 1, how.semitones);
+    }
+    else if (std::abs (how.speed - 1) > 1.0e-6 || std::abs (how.semitones) > 1.0e-6)
         part = stretchAudio (part, sampleRate, how.speed, how.semitones);
 
     writeWav (part, sampleRate, target);

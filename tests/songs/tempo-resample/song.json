@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 4,
+  "name": "Tempo resample",
+  "tempo": 60,
+  "channels": [
+    {
+      "id": "clicks_120bpm",
+      "name": "clicks_120bpm",
+      "instrument": {
+        "type": "sampler",
+        "layers": [{ "id": "sample", "sample": "../../fixtures/samples/clicks_120bpm.wav", "sourceTempo": 120, "resample": true }]
+      },
+      "group": "arrangement"
+    }
+  ],
+  "patterns": [],
+  "playlist": {
+    "tracks": [],
+    "clips": [{ "type": "audio", "id": "loop", "track": 0, "start": 0, "length": 1920, "channel": "clicks_120bpm" }]
+  },
+  "mixer": { "inserts": [{ "id": "master" }] }
+}

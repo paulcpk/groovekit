@@ -13,12 +13,15 @@
 #include "analysis/Analysis.h"
 #include "compiler/EditCompiler.h"
 #include "render/Render.h"
+#include "render/Stretch.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <fstream>
 
 using namespace gk;
+using Catch::Approx;
 using model::Json;
 
 namespace
@@ -137,4 +140,35 @@ TEST_CASE ("Render tests")
     for (auto& song : songs)
         DYNAMIC_SECTION (song.filename().string())
             checkRender (song);
+}
+
+TEST_CASE ("Resampling changes speed and pitch together, without aliasing")
+{
+    constexpr double rate = 48000;
+    const auto sine = [&] (double hz, int frames)
+    {
+        juce::AudioBuffer<float> b (1, frames);
+
+        for (int i = 0; i < frames; ++i)
+            b.setSample (0, i, static_cast<float> (0.5 * std::sin (2 * juce::MathConstants<double>::pi * hz * i / rate)));
+
+        return b;
+    };
+
+    // A 1 kHz tone twice as fast: half as long and an octave up.
+    const auto faster = resampleAudio (sine (1000, 48000), rate, 2);
+    CHECK (faster.getNumSamples() == 24000);
+    int crossings = 0;
+
+    for (int i = 2001; i < 22000; ++i)
+        crossings += (faster.getSample (0, i - 1) < 0) != (faster.getSample (0, i) < 0);
+
+    CHECK (crossings == Approx (2 * 2000 * 20000 / rate).margin (2));
+    CHECK (faster.getMagnitude (0, 2000, 20000) == Approx (0.5f).margin (0.03f));
+
+    // Twice as slow: twice as long, an octave down.
+    CHECK (resampleAudio (sine (1000, 4800), rate, 0.5).getNumSamples() == 9600);
+
+    // An 8 kHz tone 8 times as fast would land at 64 kHz: taken out rather than folded back down.
+    CHECK (resampleAudio (sine (8000, 48000), rate, 8).getMagnitude (0, 1000, 4000) < 0.01f);
 }

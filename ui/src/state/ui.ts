@@ -1,6 +1,7 @@
 // UI-only state: views, selection, zoom. The engine never sees it.
 
 import { create } from "zustand";
+import type { FitMode } from "@/lib/fit";
 
 export type BottomPanel = "rack" | "piano" | "mixer";
 export type SidebarTab = "browser" | "history" | "activity";
@@ -38,6 +39,8 @@ export interface UiState {
   keyboardOctave: number;
   /** Recorded notes snap to this grid (ticks); 0 keeps them as played. */
   recordQuantize: number;
+  /** How a loop dropped onto the playlist fits the song (one-shots play as recorded). */
+  loopDrop: FitMode;
   /** The loop region in ticks, and whether the transport loops it. */
   loop?: { start: number; end: number };
   looping: boolean;
@@ -73,12 +76,13 @@ export const useUi = create<UiState>(() => ({
   keyboardOctave: 4,
   recordQuantize: 0,
   looping: false,
+  loopDrop: "stretch",
   ...saved,
 }));
 
 const persisted: (keyof UiState)[] = [
   "sidebarTab", "sidebarOpen", "bottomPanel", "bottomOpen", "bottomHeight", "sidebarWidth",
-  "rackView", "playlistZoom", "trackHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize",
+  "rackView", "playlistZoom", "trackHeight", "snap", "pianoZoom", "pianoKeyHeight", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize", "loopDrop",
 ];
 
 useUi.subscribe((state) => {

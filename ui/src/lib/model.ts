@@ -1,4 +1,5 @@
 import type { AudioClip, Clip, Insert, Pattern, Project } from "@groovekit/schema/project";
+import { fitSpeed } from "./fit";
 
 export const PPQ = 960;
 export const STEP = PPQ / 4; // a 16th
@@ -121,14 +122,14 @@ export function snapTicks(snap: number, doc: Project | undefined) {
   return snap === 0 ? ticksPerBar(doc) : snap;
 }
 
-/** What an audio clip plays, from its audio channel. */
 /** What an audio clip plays: its channel's first sampler layer, the part of the file it cuts out,
-    and the tempo the file was recorded at. */
+    and the tempo the file plays at in the song when it's fitted to it (within the speed limit). */
 export function audioSource(doc: Project, clip: AudioClip) {
   const channel = doc.channels.find((c) => c.id === clip.channel);
   const layer = channel?.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
   return {
-    channel, layer, sample: layer?.sample, reverse: !!layer?.reverse, sourceTempo: layer?.sourceTempo,
+    channel, layer, sample: layer?.sample, reverse: !!layer?.reverse,
+    sourceTempo: layer?.sourceTempo ? doc.tempo / fitSpeed(doc, layer.sourceTempo) : undefined,
     start: layer?.start ?? 0, end: layer?.end,
   };
 }

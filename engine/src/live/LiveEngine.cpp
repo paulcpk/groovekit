@@ -446,7 +446,7 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             // to which part, or how it's stretched or tuned, rebuilds; the rest is shaped live.
             if (auto it = compiled.audioChannelPlugins.find (channel.id); it != compiled.audioChannelPlugins.end())
             {
-                static const std::set<std::string> prepared { "sample", "start", "end", "reverse", "transpose", "fineTune", "sourceTempo" };
+                static const std::set<std::string> prepared { "sample", "start", "end", "reverse", "transpose", "fineTune", "sourceTempo", "resample" };
 
                 if (keys[3] == "layers" && (keys.size() < 6 || (keys[4] == "0" && prepared.contains (keys[5]))))
                     return false;

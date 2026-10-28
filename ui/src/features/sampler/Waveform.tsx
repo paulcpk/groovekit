@@ -11,17 +11,8 @@ export interface WaveShaping {
   fadeIn?: number;
   fadeOut?: number;
   loop?: "off" | "forward" | "pingPong";
-  /** The share of the part that plays, its end decaying naturally. */
+  /** The share of the part that plays, cut off there. */
   length?: number;
-}
-
-/** How a shortened part ends (sampler::naturalDecay): full for the first third, then falling
-    naturally to silence. */
-export function naturalDecay(x: number) {
-  const from = 0.3, k = 4.5;
-  if (x <= from) return 1;
-  const u = Math.min(1, (x - from) / (1 - from));
-  return (Math.exp(-k * u) - Math.exp(-k)) / (1 - Math.exp(-k));
 }
 
 const H = 140;
@@ -183,7 +174,6 @@ function drawWave(canvas: HTMLCanvasElement, wave: Wave, region: { start: number
     if (shaping.fadeIn) f *= Math.min(1, along / shaping.fadeIn);
     if ((shaping.loop ?? "off") === "off") {
       if (shaping.fadeOut) f *= Math.min(1, left / shaping.fadeOut);
-      if ((shaping.length ?? 1) < 1) f *= naturalDecay(along / played);
     }
     return f;
   };

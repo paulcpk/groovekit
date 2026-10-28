@@ -432,10 +432,11 @@ namespace
 
                 auto& target = getAudioClipTrack (ac->track, *channel);
 
-                // The layer's part of the file, reversed, stretched to the song's tempo (if it was
-                // recorded at another) and transposed, as a prepared copy.
+                // The layer's part of the file, reversed, fitted to the song's tempo (if it plays at
+                // another: stretched, or resampled) and transposed, as a prepared copy.
                 ClipSource how { .start = layer->start, .end = layer->end, .reverse = layer->reverse,
-                                 .speed = layer->sourceTempo ? project.tempo / *layer->sourceTempo : 1.0,
+                                 .speed = layer->sourceTempo ? std::clamp (project.tempo / *layer->sourceTempo, 0.125, 8.0) : 1.0,
+                                 .resample = layer->resample,
                                  .semitones = layer->transpose + layer->fineTune / 100.0 };
                 const auto speed = how.speed;
                 file = juce::File (getClipFile (file.getFullPathName().toStdString(), how, options.cacheDir).string());

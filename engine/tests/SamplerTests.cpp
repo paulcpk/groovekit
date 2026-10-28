@@ -655,30 +655,34 @@ TEST_CASE ("Grains move the pitch apart from the speed")
     }
 }
 
-TEST_CASE ("A shortened part ends in a natural decay")
+TEST_CASE ("A shortened part is cut off, its fade out shaping the new end")
 {
-    // 0.8 s at a steady level, shortened to a quarter: 0.2 s, full at first, fading to nothing.
-    auto l = layer (constantSample (static_cast<int> (0.8 * rate), 0.5f));
-    l.length = 0.25f;
-    Config config;
-    config.layers = { l };
-    Harness h (config);
-    h.run (static_cast<int> (0.4 * rate), { Harness::on (0, 60) });
+    // 0.8 s at a steady level, shortened to a quarter: 0.2 s.
+    const auto play = [] (double fadeOut)
+    {
+        auto l = layer (constantSample (static_cast<int> (0.8 * rate), 0.5f));
+        l.length = 0.25f;
+        l.fadeOut = static_cast<int> (fadeOut * rate);
+        Config config;
+        config.layers = { l };
+        auto h = std::make_unique<Harness> (config);
+        h->run (static_cast<int> (0.4 * rate), { Harness::on (0, 60) });
+        return h;
+    };
 
-    const auto at = [&] (double seconds) { return h.out.getSample (0, static_cast<int> (seconds * rate)); };
-    CHECK (at (0.03) == Approx (0.5f));
-    CHECK (at (0.1) < 0.4f);
-    CHECK (at (0.1) > 0.1f);
-    CHECK (at (0.195) < 0.01f);
-    CHECK (h.out.getMagnitude (0, static_cast<int> (0.2 * rate) + 1, static_cast<int> (0.1 * rate)) == 0.0f);
+    const auto at = [] (Harness& h, double seconds) { return h.out.getSample (0, static_cast<int> (seconds * rate)); };
 
-    // Every step down is small: no click.
-    float jump = 0;
+    // Without a fade: full to the end, then nothing.
+    auto cut = play (0);
+    CHECK (at (*cut, 0.03) == Approx (0.5f));
+    CHECK (at (*cut, 0.19) == Approx (0.5f));
+    CHECK (cut->out.getMagnitude (0, static_cast<int> (0.2 * rate) + 1, static_cast<int> (0.1 * rate)) == 0.0f);
 
-    for (int i = 1; i < static_cast<int> (0.21 * rate); ++i)
-        jump = std::max (jump, std::abs (h.out.getSample (0, i) - h.out.getSample (0, i - 1)));
-
-    CHECK (jump < 0.01f);
+    // A 0.1 s fade out: full until 0.1 s, halfway down at 0.15 s, silent at 0.2 s.
+    auto faded = play (0.1);
+    CHECK (at (*faded, 0.05) == Approx (0.5f));
+    CHECK (at (*faded, 0.15) == Approx (0.25f).margin (0.01f));
+    CHECK (at (*faded, 0.199) < 0.01f);
 }
 
 TEST_CASE ("A crossfaded loop comes round smoothly")

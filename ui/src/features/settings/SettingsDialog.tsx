@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, DragNumber } from "@/components/controls";
+import { Button, DragNumber, ToggleChip } from "@/components/controls";
 import { Dialog } from "@/components/dialog";
 import { Dropdown, DropdownContent, DropdownItem, DropdownTrigger } from "@/components/menu";
 import { inDesktopApp } from "@/engine/client";
@@ -49,6 +49,7 @@ function Picker({ value, options, onPick, none }: { value: string; options: stri
 
 export function SettingsDialog() {
   const open = useUi((s) => s.settingsOpen);
+  const loopDrop = useUi((s) => s.loopDrop);
   const connected = useEngine((s) => s.status === "connected");
   const [audio, setAudio] = useState<AudioDevices>();
   const [midi, setMidi] = useState<MidiDevices>();
@@ -145,6 +146,21 @@ export function SettingsDialog() {
           )}
         </div>
         <div className="mt-1 text-2xs text-faint">Use Calibrate in the record dialog with the hardware playing a clean kick to measure it.</div>
+      </Section>
+
+      <Section title="Arrangement">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="flex-1 text-dim">Loops dropped onto the playlist</span>
+          <div className="flex items-center gap-px">
+            {(["stretch", "resample", "off"] as const).map((m) => (
+              <ToggleChip key={m} on={loopDrop === m} tone={m === "off" ? "dim" : "accent"} label={{ stretch: "Stretch", resample: "Resample", off: "As recorded" }[m]}
+                onClick={() => setUi({ loopDrop: m })} />
+            ))}
+          </div>
+        </div>
+        <div className="mt-1 text-2xs text-faint">
+          Stretch keeps their pitch, resample lets it follow the speed; either way a loop fills as many bars as it's long, at any tempo. One-shots play as recorded. Change it for any sample in its window.
+        </div>
       </Section>
 
       <Section title="Plugins">

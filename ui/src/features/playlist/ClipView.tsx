@@ -1,9 +1,11 @@
 import type { Clip, Project } from "@groovekit/schema/project";
 import { AudioLines, Spline, VolumeX } from "lucide-react";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/menu";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger } from "@/components/menu";
 import { targetLabel } from "@/lib/automation";
 import { cn } from "@/lib/cn";
-import { colorFor, uniqueId } from "@/lib/model";
+import { barRange, barsAt, fitCommands, fitMode, formatBars, suggestedBars, tempoFor, type FitMode } from "@/lib/fit";
+import { audioSource, colorFor, uniqueId } from "@/lib/model";
+import { usePeaks } from "@/lib/peaks";
 import { openWindow } from "@/state/windows";
 import { makeAudioUnique } from "./clipOps";
 import { execute, useEngine } from "@/state/engine";
@@ -161,6 +163,7 @@ function ClipMenu({ clip, doc, at }: { clip: Clip; doc: Project; at: number }) {
         <>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => openWindow({ kind: "channel", channel: clip.channel })}>Open the channel</ContextMenuItem>
+          <FitMenu clip={clip} doc={doc} />
           <ContextMenuItem onSelect={() => void makeAudioUnique(doc, clip)}>Make unique</ContextMenuItem>
           <ContextMenuItem onSelect={() => void execute({ type: "updateClip", clip: clip.id, changes: { fadeIn: null, fadeOut: null } }, { label: "Remove fades" })}
             disabled={!clip.fadeIn && !clip.fadeOut}>Remove fades</ContextMenuItem>
@@ -172,5 +175,39 @@ function ClipMenu({ clip, doc, at }: { clip: Clip; doc: Project; at: number }) {
         setUi({ selectedClips: [] });
       }}>Delete{plural}</ContextMenuItem>
     </ContextMenuContent>
+  );
+}
+
+/** Quick choices for fitting an audio clip's sample to the song: how, and how many bars. */
+function FitMenu({ clip, doc }: { clip: Clip; doc: Project }) {
+  const source = clip.type === "audio" ? audioSource(doc, clip) : undefined;
+  const peaks = usePeaks(source?.sample);
+  if (!source?.channel || !source.layer || !peaks) return null;
+
+  const { channel, layer } = source;
+  const seconds = Math.max(0.001, (layer.end ?? peaks.durationSeconds) - (layer.start ?? 0));
+  const mode = fitMode(layer), range = barRange(doc, seconds);
+  const bars = layer.sourceTempo ? barsAt(doc, seconds, layer.sourceTempo) : suggestedBars(doc, seconds);
+  const fit = (to: number, resample: boolean, label: string) =>
+    void execute(fitCommands(doc, channel, seconds, { sourceTempo: Math.round(tempoFor(doc, seconds, to) * 1000) / 1000, resample }), { label });
+  const modes: { value: FitMode; label: string }[] = [{ value: "stretch", label: "Stretch, pitch kept" }, { value: "resample", label: "Resample, pitch follows" }, { value: "off", label: "As recorded" }];
+  const counts = [0.25, 0.5, 1, 2, 4, 8, 16, 32].filter((b) => b >= range.min - 1e-6 && b <= range.max + 1e-6);
+
+  return (
+    <ContextMenuSub label={`Fit to song${mode === "off" ? "" : `: ${formatBars(bars)}`}`}>
+      {modes.map((m) => (
+        <ContextMenuItem key={m.value} onSelect={() => m.value === "off"
+          ? void execute(fitCommands(doc, channel, seconds, { sourceTempo: null, resample: false }), { label: "Don't fit to the song" })
+          : fit(bars, m.value === "resample", m.value === "resample" ? "Resample to the song" : "Stretch to the song")}>
+          {mode === m.value ? "✓ " : ""}{m.label}
+        </ContextMenuItem>
+      ))}
+      <ContextMenuSeparator />
+      {counts.map((b) => (
+        <ContextMenuItem key={b} onSelect={() => fit(b, !!layer.resample, `Fit to ${formatBars(b)}`)}>
+          {mode !== "off" && Math.abs(bars - b) < 1e-3 ? "✓ " : ""}Fill {formatBars(b)}
+        </ContextMenuItem>
+      ))}
+    </ContextMenuSub>
   );
 }

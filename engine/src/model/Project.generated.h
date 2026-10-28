@@ -888,20 +888,22 @@ struct SamplerLayer
     /** Transient shaping (notes only): positive brings up what rings on after each hit, negative tightens it. */
     double tail = 0;
     Grains grains;
-    /** Shortens the part that plays to this share of it, its end bending into a natural decay so it doesn't sound cut off: a 0.8 s hit at 0.25 is a 0.2 s one (notes only; a looping part just loops the shorter part). */
+    /** Shortens the part that plays to this share of it, cutting it off there: a 0.8 s hit at 0.25 is a 0.2 s one; fadeOut shapes its new end (notes only; a looping part just loops the shorter part). */
     double length = 1;
     /** Seconds a forward loop crossfades over where it comes round, so the loop is smooth. */
     double crossfade = 0;
     std::optional<SampleProcessing> process;
-    /** Tempo the file was recorded at. When set, audio clips playing the layer are time-stretched (pitch kept) to the project tempo. Notes ignore it. */
+    /** Tempo the file plays at in its own time, which fits it to the song: audio clips playing the layer are sped up or slowed down by the song's tempo over this one (at most 8 times either way), so it fills the same number of bars at any song tempo. Notes ignore it. */
     std::optional<double> sourceTempo;
+    /** How a layer with a sourceTempo is fitted to the song: false time-stretches it (pitch kept), true resamples it (pitch follows speed, like a record played faster or slower). */
+    bool resample = false;
 
     bool operator== (const SamplerLayer&) const = default;
 };
 
 inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
 {
-    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "loop", "fadeIn", "fadeOut", "normalize", "invert", "swapStereo", "punch", "tail", "grains", "length", "crossfade", "process", "sourceTempo" });
+    r.expectObject (j, { "id", "sample", "rootKey", "keyRange", "velocityRange", "pitchTracking", "transpose", "fineTune", "gainDb", "pan", "mode", "envelope", "start", "end", "reverse", "loop", "fadeIn", "fadeOut", "normalize", "invert", "swapStereo", "punch", "tail", "grains", "length", "crossfade", "process", "sourceTempo", "resample" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "sample", [&] (const Json& v) { readValue (r, v, out.sample); r.checkMinLength (out.sample, 1); });
@@ -930,7 +932,8 @@ inline void readValue (Reader& r, const Json& j, SamplerLayer& out)
     r.optional (j, "length", [&] (const Json& v) { readValue (r, v, out.length); r.checkMin (out.length, 0.01); r.checkMax (out.length, 1); });
     r.optional (j, "crossfade", [&] (const Json& v) { readValue (r, v, out.crossfade); r.checkMin (out.crossfade, 0); r.checkMax (out.crossfade, 2); });
     r.optional (j, "process", [&] (const Json& v) { readValue (r, v, out.process.emplace()); });
-    r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 20); r.checkMax (*out.sourceTempo, 999); });
+    r.optional (j, "sourceTempo", [&] (const Json& v) { readValue (r, v, out.sourceTempo.emplace()); r.checkMin (*out.sourceTempo, 1); r.checkMax (*out.sourceTempo, 9999); });
+    r.optional (j, "resample", [&] (const Json& v) { readValue (r, v, out.resample); });
 }
 
 inline Json toJson (const SamplerLayer& v)
@@ -971,6 +974,8 @@ inline Json toJson (const SamplerLayer& v)
 
     if (v.sourceTempo)
         j["sourceTempo"] = toJson (*v.sourceTempo);
+
+    j["resample"] = toJson (v.resample);
     return j;
 }
 

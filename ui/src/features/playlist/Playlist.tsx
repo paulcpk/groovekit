@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
+import { fitSpeed } from "@/lib/fit";
 import { audioSource, baseName, colorFor, laneCount, patternLength, snapTicks, songEnd, ticksPerBar, ticksPerBeat, uniqueId } from "@/lib/model";
 import { getPeaks } from "@/lib/peaks";
 import { execute, reportError, toast, useEngine } from "@/state/engine";
@@ -360,18 +361,21 @@ function placePattern(doc: Project, track: number, start: number) {
 async function dropSample(doc: Project, sample: DraggedSample, track: number, start: number) {
   try {
     const duration = sample.durationSeconds ?? (await getPeaks(sample.path)).durationSeconds;
-    const loopTempo = sample.loop && sample.tempo ? sample.tempo : undefined;
-    const length = Math.max(1, Math.round((duration * (loopTempo ?? doc.tempo) * 960) / 60));
+    // Loops fit the song as set (by their own tempo, so they fill as many bars as they're long).
+    const fit = useUi.getState().loopDrop;
+    const loopTempo = sample.loop && sample.tempo && fit !== "off" ? sample.tempo : undefined;
+    const resample = !!loopTempo && fit === "resample";
+    const length = Math.max(1, Math.round((duration * (doc.tempo / fitSpeed(doc, loopTempo)) * 960) / 60));
     const existing = doc.channels.find((c) => {
       const layer = c.instrument.type === "sampler" && c.group === "arrangement" ? c.instrument.layers[0] : undefined;
       return layer && layer.sample === sample.path && !layer.reverse && !layer.start && layer.end === undefined
-        && !layer.transpose && !layer.fineTune && layer.sourceTempo === loopTempo;
+        && !layer.transpose && !layer.fineTune && layer.sourceTempo === loopTempo && !!layer.resample === resample;
     });
     const channel: Channel = existing ?? {
       id: uniqueId(baseName(sample.path).replace(/[^A-Za-z0-9_.-]+/g, "-").slice(0, 56) || "audio", doc.channels),
       name: baseName(sample.path),
       group: "arrangement",
-      instrument: { type: "sampler", layers: [{ id: "sample", sample: sample.path, ...(loopTempo ? { sourceTempo: loopTempo } : {}) }] },
+      instrument: { type: "sampler", layers: [{ id: "sample", sample: sample.path, ...(loopTempo ? { sourceTempo: loopTempo } : {}), ...(resample ? { resample } : {}) }] },
     };
     const clip: AudioClip = { type: "audio", id: uniqueId(baseName(sample.path), doc.playlist.clips), track, start, length, channel: channel.id };
     await execute([...(existing ? [] : [{ type: "addChannel" as const, channel }]), { type: "addClip", clip }], { label: `Add ${baseName(sample.path)}` });

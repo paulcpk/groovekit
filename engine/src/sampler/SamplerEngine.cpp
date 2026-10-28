@@ -21,19 +21,6 @@ namespace
     }
 }
 
-float naturalDecay (float x)
-{
-    // Untouched for the first third (the attack and body), then an exponential fall that reaches
-    // silence right at the end.
-    constexpr float from = 0.3f, k = 4.5f;
-
-    if (x <= from)
-        return 1;
-
-    const auto u = std::min (1.0f, (x - from) / (1 - from));
-    return (std::exp (-k * u) - std::exp (-k)) / (1 - std::exp (-k));
-}
-
 float Grains::window (Shape shape, float x)
 {
     x = juce::jlimit (0.0f, 1.0f, x);
@@ -267,7 +254,7 @@ void SamplerEngine::startVoice (const Layer& layer, int note, int velocity)
     // fade keeps the cut from clicking.
     const auto fileLength = layer.sample->audio.getNumSamples();
     const bool cutAtStart = layer.reverse ? layer.endFrame() < fileLength : layer.start > 0;
-    const bool cutAtEnd = layer.reverse ? layer.start > 0 : layer.endFrame() < fileLength;
+    const bool cutAtEnd = layer.length < 1 || (layer.reverse ? layer.start > 0 : layer.endFrame() < fileLength);
     v->edgeFadeIn = cutAtStart ? edgeFadeSamples : 0;
     v->edgeFadeOut = cutAtEnd ? edgeFadeSamples : 0;
     v->active = true;
@@ -481,9 +468,6 @@ void SamplerEngine::renderVoice (Voice& v, float* left, float* right, int numSam
 
             if (layer.fadeOut > 0 && remaining < layer.fadeOut)
                 gain *= static_cast<float> (remaining / layer.fadeOut);
-
-            if (layer.length < 1)
-                gain *= naturalDecay (static_cast<float> (position / length));
         }
 
         float l = 0, r = 0;

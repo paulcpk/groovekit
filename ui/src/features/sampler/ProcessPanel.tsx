@@ -73,7 +73,7 @@ export function ProcessPanel({ layer, color, change }: { layer: SamplerLayer; co
           <Led color={color} on={p.fadeStereo} label="Fade stereo" title="Fade from the left side to the right over the sample" onClick={() => set({ fadeStereo: !p.fadeStereo }, true, "Fade stereo")} />
         </div>
         <div className="flex items-start gap-3">
-          {knob({ label: "Length", title: "Shorten the sample: its end bends into a natural decay, so it never sounds cut off", value: layer.length ?? 1, fallback: 1,
+          {knob({ label: "Length", title: "Shorten the sample: it's cut off at the new end, which Out fades", value: layer.length ?? 1, fallback: 1,
             to: (v) => Math.sqrt(v), from: (k) => Math.max(0.01, k * k), format: (v) => (v >= 0.995 ? "Full" : `${Math.round(v * 100)}%`),
             apply: (v, commit) => change({ length: v >= 0.995 ? 1 : Math.round(v * 1000) / 1000 }, commit) })}
           {fade("fadeIn", "In", "Fade in")}

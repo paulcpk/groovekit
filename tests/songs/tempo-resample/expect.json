@@ -1,0 +1,10 @@
+{
+  "durationSeconds": 2.0,
+  "onsets": [0, 1.0],
+  "tolerance": { "seconds": 0.015 },
+  "segments": [
+    { "start": 0, "end": 0.06, "peakDb": [-6, 0] },
+    { "start": 0.97, "end": 1.03, "peakDb": [-6, 0] },
+    { "start": 0.2, "end": 0.9, "silent": true }
+  ]
+}

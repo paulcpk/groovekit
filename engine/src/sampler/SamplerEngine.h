@@ -13,10 +13,6 @@
 namespace gk::sampler
 {
 
-/** How a shortened part ends (see Layer::length): its level at a point through it (0-1),
-    full at first, falling naturally to silence at the end. The UI draws the same curve. */
-float naturalDecay (float progress);
-
 /** Granular playback: grains read at the note's pitch while a playhead moves through the part
     at its own speed (see the model's Grains). */
 struct Grains
@@ -58,7 +54,7 @@ struct Layer
     int fadeIn = 0, fadeOut = 0;    // frames of the sample
     bool swapStereo = false;
     Grains grains;
-    float length = 1;               // share of the part that plays, its end decaying naturally
+    float length = 1;               // share of the part that plays, cut off there (fadeOut shapes the end)
     int crossfade = 0;              // frames a forward loop crossfades over
 
     /** Frames of the part that play: the part, shortened by the length. */
