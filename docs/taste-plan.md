@@ -1,7 +1,8 @@
 # Style and taste: the plan
 
-Status (2026-10-28): planned, not built. Drafts of the twelve style guides and their store are on the
-local branch `style-guides`.
+Status (2026-10-28): step 1 built (the guides in the engine, the song's style, the guide in the
+agent's instructions, Styles in the agent panel and the top bar). The review, the process and the
+feedback are next.
 
 ## The problem
 

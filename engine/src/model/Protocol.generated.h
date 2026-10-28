@@ -96,6 +96,32 @@ inline Json toJson (const SetKey& v)
     return j;
 }
 
+struct SetStyle
+{
+    /** A style guide's id or name ("berlin-techno", "Drum & Bass"); leaving it out clears the song's style. */
+    std::optional<std::string> style;
+
+    bool operator== (const SetStyle&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, SetStyle& out)
+{
+    r.expectObject (j, { "type", "style" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "setStyle"); });
+    r.optional (j, "style", [&] (const Json& v) { readValue (r, v, out.style.emplace()); });
+}
+
+inline Json toJson (const SetStyle& v)
+{
+    auto j = Json::object();
+    j["type"] = "setStyle";
+
+    if (v.style)
+        j["style"] = toJson (*v.style);
+    return j;
+}
+
 struct SetTimeSignature
 {
     TimeSignature timeSignature;
@@ -1018,7 +1044,7 @@ inline Json toJson (const Patch& v)
     return j;
 }
 
-using Command = std::variant<SetTempo, SetKey, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
+using Command = std::variant<SetTempo, SetKey, SetStyle, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertTrack, UpdateTrack, RemoveTrack, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
 
 inline void readValue (Reader& r, const Json& j, Command& out)
 {
@@ -1030,6 +1056,7 @@ inline void readValue (Reader& r, const Json& j, Command& out)
 
     if (tag == "setTempo") { readValue (r, j, out.emplace<SetTempo>()); return; }
     if (tag == "setKey") { readValue (r, j, out.emplace<SetKey>()); return; }
+    if (tag == "setStyle") { readValue (r, j, out.emplace<SetStyle>()); return; }
     if (tag == "setTimeSignature") { readValue (r, j, out.emplace<SetTimeSignature>()); return; }
     if (tag == "setSwing") { readValue (r, j, out.emplace<SetSwing>()); return; }
     if (tag == "renameProject") { readValue (r, j, out.emplace<RenameProject>()); return; }

@@ -6,7 +6,9 @@ import { cn } from "@/lib/cn";
 import { useLivePosition } from "@/lib/playhead";
 import { formatPosition, formatTime } from "@/lib/model";
 import { inDesktopApp } from "@/engine/client";
+import { useStyleGuides } from "@/features/agent/guides";
 import { execute, useEngine } from "@/state/engine";
+import { openWindow } from "@/state/windows";
 import { setUi, useUi, type BottomPanel } from "@/state/ui";
 import { masterSong, record, redo, renderSong, setCountIn, setMetronome, setPlayMode, setTempo, stop, toggleLoop, togglePlay, undo } from "./actions";
 import { browseForProject, openProject, recentProjects, saveProject, type RecentProject } from "./ProjectDialog";
@@ -127,7 +129,32 @@ function Tempo() {
         <span>{ts.denominator ?? 4}</span>
       </div>
       <KeyMenu songKey={doc.key} />
+      <StyleMenu style={doc.style} />
     </div>
+  );
+}
+
+/** The song's style: the guide the agent follows here. */
+function StyleMenu({ style }: { style?: string }) {
+  const { guides } = useStyleGuides();
+  const current = guides.find((g) => g.id === style);
+  const set = (id?: string, name?: string) => void execute(id ? { type: "setStyle", style: id } : { type: "setStyle" }, { label: name ? `Style: ${name}` : "No style" });
+  return (
+    <Dropdown>
+      <DropdownTrigger asChild>
+        <button type="button" title="The song's style: the guide the agent follows"
+          className={cn("max-w-32 truncate rounded-[3px] px-1 text-sm hover:bg-control", style ? "text-fg" : "text-faint")}>
+          {current?.name ?? style ?? "Style"}
+        </button>
+      </DropdownTrigger>
+      <DropdownContent>
+        {guides.map((g) => <DropdownItem key={g.id} checked={g.id === style} onSelect={() => set(g.id, g.name)}>{g.name}</DropdownItem>)}
+        <DropdownSeparator />
+        {style && <DropdownItem onSelect={() => openWindow({ kind: "guide", guide: style })}>Read the guide</DropdownItem>}
+        {style && <DropdownItem onSelect={() => set()}>No style</DropdownItem>}
+        {!style && <DropdownItem onSelect={() => openWindow({ kind: "guide", guide: "" })}>New style guide…</DropdownItem>}
+      </DropdownContent>
+    </Dropdown>
   );
 }
 

@@ -85,6 +85,8 @@ Both find the engine serving the project (for example the one Claude Code's MCP 
 
 The agent panel has a Notes tab for what the agent should always keep in mind ("prefer loops over one-shots", what a style should sound like), for every song or just the open one; switch a note off to set it aside. The in-app agent reads the notes that apply before every request, and Claude Code gets them through the `notes` tool.
 
+A song can have a style (picked in the top bar, beside the key), and each style has a guide: what it should feel like, which parts it uses and how each should sound, the order to build it in, how loud each part sits against the kick, how many play at once, and what to avoid. Twelve come built in: Berlin techno, Detroit techno, hard techno, schranz, hardstyle, house, hip-hop, trap, juke and footwork, UK garage, jungle, and drum and bass. The agent follows the song's guide. The Styles tab in the agent panel lists them; open one to read it, edit it to make it yours (Reset brings back the original), or write a guide of your own. Claude Code reads them through the `style_guide` tool.
+
 Songs are JSON files described by [schema/project.schema.json](schema/project.schema.json). The examples in [tests/songs](tests/songs) double as render tests.
 
 ### Listening

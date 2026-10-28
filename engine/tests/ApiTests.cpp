@@ -642,3 +642,49 @@ TEST_CASE ("The user's notes for the agent are added, listed, changed and delete
     auto everywhere = songHandler.call ("notes.update", { { "id", kick["id"] }, { "scope", "all" } }, client);
     CHECK_FALSE (everywhere.contains ("project"));
 }
+
+TEST_CASE ("Style guides are listed, read, edited, restored, and set as the song's style")
+{
+    const auto folder = test::tempDir() / "guides";
+    std::filesystem::remove_all (folder);
+    ::setenv ("GROOVEKIT_GUIDES", folder.string().c_str(), 1);
+
+    Harness h;
+    auto list = h.call ("guides.list")["result"];
+    CHECK (list["guides"].size() == 12);
+    CHECK (list["style"].is_null());
+
+    // By id or by name.
+    auto dnb = h.call ("guides.get", { { "id", "Drum & Bass" } })["result"];
+    CHECK (dnb["id"] == "drum-and-bass");
+    CHECK (dnb["builtIn"] == true);
+    CHECK (dnb["targets"].contains ("tempo"));
+    CHECK (h.call ("guides.get", { { "id", "polka" } }).contains ("error"));
+
+    // No style yet, then the song's.
+    CHECK (h.call ("guides.get").contains ("error"));
+    CHECK (h.call ("execute", { { "commands", { { { "type", "setStyle" }, { "style", "Berlin Techno" } } } } }).contains ("result"));
+    CHECK (h.call ("guides.get")["result"]["id"] == "berlin-techno");
+    CHECK (h.call ("getSummary")["result"]["style"] == "berlin-techno");
+    CHECK (h.call ("execute", { { "commands", { { { "type", "setStyle" }, { "style", "polka" } } } } }).contains ("error"));
+
+    // The user's version replaces the built-in one until it's removed.
+    auto text = h.call ("guides.get", { { "id", "berlin-techno" } })["result"]["text"].get<std::string>();
+    const auto edited = text + "\nNo claps at all.\n";
+    auto saved = h.call ("guides.save", { { "id", "berlin-techno" }, { "text", edited } })["result"];
+    CHECK (saved["edited"] == true);
+    CHECK (h.broadcasts.back()["method"] == "guides");
+    CHECK (h.call ("guides.get", { { "id", "berlin-techno" } })["result"]["text"] == edited);
+    CHECK (h.call ("guides.save", { { "id", "berlin-techno" }, { "text", "# Broken\n\n```targets\n{ nope\n```\n" } }).contains ("error"));
+    CHECK (h.call ("guides.remove", { { "id", "berlin-techno" } })["result"]["removed"] == "restored");
+    CHECK (h.call ("guides.get", { { "id", "berlin-techno" } })["result"]["text"] == text);
+
+    // And guides of their own.
+    auto own = h.call ("guides.save", { { "text", "# Dub techno\n\nDeep chords in fog.\n" } })["result"];
+    CHECK (own["id"] == "dub-techno");
+    CHECK (own["builtIn"] == false);
+    CHECK (h.call ("guides.list")["result"]["guides"].size() == 13);
+    CHECK (h.call ("guides.remove", { { "id", "dub-techno" } })["result"]["removed"] == "deleted");
+
+    ::unsetenv ("GROOVEKIT_GUIDES");
+}

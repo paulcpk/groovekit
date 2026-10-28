@@ -7,6 +7,7 @@
       "oneOf": [
         { "$ref": "#/$defs/SetTempo" },
         { "$ref": "#/$defs/SetKey" },
+        { "$ref": "#/$defs/SetStyle" },
         { "$ref": "#/$defs/SetTimeSignature" },
         { "$ref": "#/$defs/SetSwing" },
         { "$ref": "#/$defs/RenameProject" },
@@ -73,6 +74,16 @@
       "properties": {
         "type": { "const": "setKey" },
         "key": { "description": "\"A minor\", \"F# major\" and the like; leaving it out clears the song's key.", "type": "string" }
+      }
+    },
+
+    "SetStyle": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "setStyle" },
+        "style": { "description": "A style guide's id or name (\"berlin-techno\", \"Drum & Bass\"); leaving it out clears the song's style.", "type": "string" }
       }
     },
 

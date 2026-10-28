@@ -426,6 +426,8 @@ export interface Project {
   tempo: number;
   /** The song's key, e.g. "A minor" or "F# major": melodies taken from humming or reference tracks move into it, and samples are matched against it. */
   key?: string;
+  /** The style the song aims for: a style guide's id ("berlin-techno"), which tells the agent how to make it and what to check. */
+  style?: string;
   timeSignature?: TimeSignature;
   /** Delays every second 16th note by up to half a 16th (1: a dotted-16th feel). Applies to pattern notes that start on an off-beat 16th. */
   swing?: number;

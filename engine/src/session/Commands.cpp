@@ -1,4 +1,5 @@
 #include "Commands.h"
+#include "guides/Guides.h"
 #include "music/Keys.h"
 
 #include "model/Project.h"
@@ -196,6 +197,32 @@ namespace
 
             e.tx.add ("/key", music::keyName (*key));
         }
+        void operator() (const SetStyle& c)
+        {
+            if (! c.style)
+            {
+                if (e.has ("/style"))
+                    e.tx.remove ("/style");
+
+                return;
+            }
+
+            guides::GuideStore store (guides::GuideStore::getDefaultFolder());
+            const auto guide = store.find (*c.style);
+
+            if (! guide)
+            {
+                std::string names;
+
+                for (auto& g : store.list())
+                    names += (names.empty() ? "" : ", ") + g.id;
+
+                throw CommandError ("No style guide \"" + *c.style + "\"; there are " + names);
+            }
+
+            e.tx.add ("/style", guide->id);
+        }
+
         void operator() (const SetTimeSignature& c)     { e.tx.add ("/timeSignature", toJson (c.timeSignature)); }
         void operator() (const SetSwing& c)             { e.tx.add ("/swing", c.swing); }
         void operator() (const RenameProject& c)        { e.tx.add ("/name", c.name); }
@@ -504,6 +531,7 @@ std::string describeCommand (const Command& command)
 
         if constexpr (std::is_same_v<T, SetTempo>)              return "Set tempo to " + (std::ostringstream() << c.tempo).str();
         else if constexpr (std::is_same_v<T, SetKey>)           return c.key ? "Set key to " + *c.key : std::string ("Clear the key");
+        else if constexpr (std::is_same_v<T, SetStyle>)         return c.style ? "Set style to " + *c.style : std::string ("Clear the style");
         else if constexpr (std::is_same_v<T, SetTimeSignature>) return "Set time signature";
         else if constexpr (std::is_same_v<T, SetSwing>)         return "Set swing to " + std::to_string (static_cast<int> (std::round (c.swing * 100))) + "%";
         else if constexpr (std::is_same_v<T, RenameProject>)    return "Rename project";

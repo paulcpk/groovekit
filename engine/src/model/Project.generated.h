@@ -1739,6 +1739,8 @@ struct Project
     double tempo {};
     /** The song's key, e.g. "A minor" or "F# major": melodies taken from humming or reference tracks move into it, and samples are matched against it. */
     std::optional<std::string> key;
+    /** The style the song aims for: a style guide's id ("berlin-techno"), which tells the agent how to make it and what to check. */
+    std::optional<std::string> style;
     TimeSignature timeSignature;
     /** Delays every second 16th note by up to half a 16th (1: a dotted-16th feel). Applies to pattern notes that start on an off-beat 16th. */
     double swing = 0;
@@ -1752,12 +1754,13 @@ struct Project
 
 inline void readValue (Reader& r, const Json& j, Project& out)
 {
-    r.expectObject (j, { "schemaVersion", "name", "tempo", "key", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
+    r.expectObject (j, { "schemaVersion", "name", "tempo", "key", "style", "timeSignature", "swing", "channels", "patterns", "playlist", "mixer" });
 
     r.required (j, "schemaVersion", [&] (const Json& v) { r.checkConst (v, 4); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
     r.required (j, "tempo", [&] (const Json& v) { readValue (r, v, out.tempo); r.checkMin (out.tempo, 20); r.checkMax (out.tempo, 999); });
     r.optional (j, "key", [&] (const Json& v) { readValue (r, v, out.key.emplace()); r.checkMinLength (*out.key, 2); });
+    r.optional (j, "style", [&] (const Json& v) { readValue (r, v, out.style.emplace()); r.checkMinLength (*out.style, 1); });
     r.optional (j, "timeSignature", [&] (const Json& v) { readValue (r, v, out.timeSignature); });
     r.optional (j, "swing", [&] (const Json& v) { readValue (r, v, out.swing); r.checkMin (out.swing, 0); r.checkMax (out.swing, 1); });
     r.required (j, "channels", [&] (const Json& v) { readValue (r, v, out.channels); });
@@ -1775,6 +1778,9 @@ inline Json toJson (const Project& v)
 
     if (v.key)
         j["key"] = toJson (*v.key);
+
+    if (v.style)
+        j["style"] = toJson (*v.style);
 
     j["timeSignature"] = toJson (v.timeSignature);
     j["swing"] = toJson (v.swing);

@@ -15,6 +15,12 @@ export interface SetKey {
   key?: string;
 }
 
+export interface SetStyle {
+  type: "setStyle";
+  /** A style guide's id or name ("berlin-techno", "Drum & Bass"); leaving it out clears the song's style. */
+  style?: string;
+}
+
 export interface SetTimeSignature {
   type: "setTimeSignature";
   timeSignature: TimeSignature;
@@ -244,7 +250,7 @@ export interface Patch {
   ops: PatchOp[];
 }
 
-export type Command = SetTempo | SetKey | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | UpdateInstrument | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | InsertTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
+export type Command = SetTempo | SetKey | SetStyle | SetTimeSignature | SetSwing | RenameProject | AddChannel | UpdateChannel | RemoveChannel | UpdateInstrument | AddSamplerLayer | UpdateSamplerLayer | RemoveSamplerLayer | AddPattern | UpdatePattern | RemovePattern | AddNotes | RemoveNotes | SetNotes | InsertTrack | UpdateTrack | RemoveTrack | AddClip | UpdateClip | RemoveClip | AddInsert | UpdateInsert | RemoveInsert | AddEffect | UpdateEffect | RemoveEffect | MoveEffect | AddSend | UpdateSend | RemoveSend | Patch;
 
 /** One applied change. Entries form a tree: undo moves to the parent, new changes after an undo start a branch. */
 export interface HistoryEntry {

@@ -97,6 +97,7 @@ private:
     model::Json callListening (const std::string& method, const model::Json& params);
     model::Json callChats (const std::string& method, const model::Json& params);
     model::Json callNotes (const std::string& method, const model::Json& params);
+    model::Json callGuides (const std::string& method, const model::Json& params);
     model::Json compareToStyle (const model::Json& params);
     model::Json importIntoProject (const std::string& method, const model::Json& params);
     void startLibraryScan();

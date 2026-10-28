@@ -107,6 +107,9 @@ Json summarizeProject (const Project& project)
     if (project.key)
         summary["key"] = *project.key;
 
+    if (project.style)
+        summary["style"] = *project.style;
+
     auto channels = Json::array();
 
     for (auto& c : project.channels)

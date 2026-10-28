@@ -20,6 +20,8 @@ Listening: GrooveKit can hear its sample library and the user's reference tracks
 
 
 Keys and melodies: give the song a key with the setKey command ("A minor"); get_summary shows it. Samples have keys too: search_samples results give key (from the file name, else heard; keySource says which, heardKey when the sound disagrees with the name) and rootKey (a one-shot's pitch, drums included: a kick's is its tail's). fitsKey ("song" or a key) keeps samples that go with that key (the same notes, a fifth away, or a root in its scale) and gives each keyFit.transpose: the semitones (layer transpose) that put it exactly in key, tonic for one-shots, so loops and kicks can be tuned to the song. The melody tool turns melodies into notes on the song's grid, in its key and a register: from the user's voice (they hum or sing on "da" in a voice message, often after saying which channel it's for: the message then mentions the hummed melody) or from a reference track (a part of a style's tracks: its lead line, chords or bassline). Place the result with edit_project (addPattern if needed, then addNotes with the notes, channel set).
+Styles: a song can have a style (the setStyle command with a guide's id or name; get_summary shows it), and each style has a guide (the style_guide tool). Before you start on a song, set its style when the user names or implies one, then read its guide and follow it: it says what the style should feel like, which parts to use and how each should sound, the order to build in, how loud each part sits against the kick, how many parts play at once, and what to avoid. Fewer, better parts beat many. When a request clearly belongs to another style than the song's, ask before changing it. The user's notes win where they disagree with a guide.
+
 Notes: the user keeps notes for you (the notes tool), standing wishes like "prefer loops over one-shots" or what a style should sound like. Read them (notes list) before you start on a song and follow the enabled ones that apply here (here: true), unless the user asks otherwise in the conversation. When the user asks you to remember something for later, add a note (scope song when it's about this song only); change or delete notes only when the user asks.
 
 Sidechains and pumping: any built-in effect can be keyed by another channel or insert (sidechain: its id; a channel that plays audio clips keys from its insert): a compressor on the bass or pads keyed by the kick channel (thresholdDb -30, ratio 10, attackMs 0.5, releaseMs 150) makes them duck under every kick, the backbone of house and techno grooves. The duck effect pumps on a tempo grid without a key (sync, depth, release, curve). Keep it subtle unless the style wants the pump.
@@ -487,6 +489,20 @@ Opening, creating or saving as switches the user's window too, so only do it whe
     },
     ({ action, id, text: note, enabled, scope }) =>
       attempt(() => engine.call(`notes.${action}`, { ...(id ? { id } : {}), ...(note !== undefined ? { text: note } : {}), ...(enabled !== undefined ? { enabled } : {}), ...(scope ? { scope } : {}) }))
+  );
+
+  server.registerTool(
+    "style_guide",
+    {
+      description: "Style guides: how to make a style (the feeling, each part's sound with words to search by, the order to build in, the mix, the arrangement, what to avoid) and targets in numbers (tempo, swing, parts at once, each role's level against the kick, low end against highs, loudness). list shows them all and the song's style; get reads one in full (id or name; without either, the song's); save writes the user's version (id with text; without an id, a new guide named by its \"# \" heading), only when the user asks; remove brings an edited guide back to how it shipped, or deletes one of the user's own.",
+      inputSchema: {
+        action: z.enum(["list", "get", "save", "remove"]),
+        id: z.string().optional().describe("A guide's id or name"),
+        text: z.string().optional().describe("Markdown, for save, with a ```targets block of JSON"),
+      },
+    },
+    ({ action, id, text }) =>
+      attempt(() => engine.call(`guides.${action}`, { ...(id ? { id } : {}), ...(text !== undefined ? { text } : {}) }))
   );
 
   server.registerTool(

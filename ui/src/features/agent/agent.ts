@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { create } from "zustand";
 import { engine as uiEngine, useEngine } from "@/state/engine";
 import { useUi } from "@/state/ui";
+import { guideForAgent } from "./guides";
 import { notesForAgent } from "./notes";
 import { createTools, instructions, type AgentTool } from "./tools";
 
@@ -14,7 +15,7 @@ const KEY_STORAGE = "groovekit.anthropicApiKey";
 
 const SYSTEM = `${instructions}
 
-You're working inside GrooveKit's own agent panel, where the user's notes that apply here are part of these instructions (below, if there are any), so there's no need to list them. The user watches the song change as you work: your edits are outlined in violet, listed in the Agent tab, and one request undoes with a single ⌘Z. Keep replies short and concrete: what you changed, and what to listen for. Ask when a request is ambiguous in a way that matters musically; otherwise make a good choice and say what it was. Use transport play to let the user hear a result when it helps, and render when you need numbers.`;
+You're working inside GrooveKit's own agent panel, where the song's style guide and the user's notes that apply here are part of these instructions (below, if there are any), so there's no need to read or list them. The user watches the song change as you work: your edits are outlined in violet, listed in the Agent tab, and one request undoes with a single ⌘Z. Keep replies short and concrete: what you changed, and what to listen for. Ask when a request is ambiguous in a way that matters musically; otherwise make a good choice and say what it was. Use transport play to let the user hear a result when it helps, and render when you need numbers.`;
 
 export type ChatItem =
   | { kind: "user"; text: string }
@@ -268,8 +269,8 @@ export async function send(text: string, resume = false) {
   let jsonRetries = 0;
 
   try {
-    const notes = await notesForAgent();
-    const system = notes ? `${SYSTEM}\n\n${notes}` : SYSTEM;
+    const [notes, guide] = await Promise.all([notesForAgent(), guideForAgent()]);
+    const system = [SYSTEM, guide, notes].filter(Boolean).join("\n\n");
 
     while (!controller.signal.aborted) {
       const stream = client.beta.messages.stream(

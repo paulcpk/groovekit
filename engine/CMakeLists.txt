@@ -17,6 +17,7 @@ target_sources(gk_engine PRIVATE
     src/effects/Saturation.cpp
     src/effects/Shapers.cpp
     src/effects/StereoPlugin.cpp
+    src/guides/Guides.cpp
     src/library/Classifier.cpp
     src/library/SampleFeatures.cpp
     src/library/SampleLibrary.cpp
@@ -65,6 +66,16 @@ target_sources(gk_engine PRIVATE
     src/voice/Transcriber.cpp)
 
 target_include_directories(gk_engine PUBLIC src)
+
+# The style guides (guides/*.md), built in.
+file(GLOB guide_files CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/guides/*.md")
+set(guides_cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/GuidesData.cpp")
+add_custom_command(
+    OUTPUT "${guides_cpp}"
+    COMMAND ${CMAKE_COMMAND} -DGUIDES_DIR=${CMAKE_SOURCE_DIR}/guides -DOUTPUT=${guides_cpp} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedGuides.cmake"
+    DEPENDS ${guide_files} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedGuides.cmake"
+    COMMENT "Embedding the style guides")
+target_sources(gk_engine PRIVATE "${guides_cpp}")
 target_include_directories(gk_engine SYSTEM PUBLIC "${onnxruntime_SOURCE_DIR}/include")
 
 target_sources(gk_engine PRIVATE "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")

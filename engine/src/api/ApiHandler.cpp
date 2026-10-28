@@ -16,6 +16,7 @@
 #include "render/Render.h"
 #include "session/Mastering.h"
 #include "sampler/SamplerPlugin.h"
+#include "guides/Guides.h"
 #include "session/AgentNotes.h"
 #include "session/Chats.h"
 #include "session/Presets.h"
@@ -435,6 +436,9 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
 
     if (method.starts_with ("notes."))
         return callNotes (method, params);
+
+    if (method.starts_with ("guides."))
+        return callGuides (method, params);
 
     if (method.starts_with ("presets."))
     {
@@ -2093,6 +2097,73 @@ Json ApiHandler::callNotes (const std::string& method, const Json& params)
                 return changed ({ { "deleted", true } });
 
             return { { "deleted", false } };
+        }
+    }
+    catch (const std::invalid_argument& e)
+    {
+        throw RpcError (invalidParams, e.what());
+    }
+
+    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+Json ApiHandler::callGuides (const std::string& method, const Json& params)
+{
+    guides::GuideStore store (guides::GuideStore::getDefaultFolder());
+    const auto style = session.getProject().style;
+
+    auto listJson = [&]
+    {
+        auto list = Json::array();
+
+        for (auto& g : store.list())
+        {
+            auto j = guides::toJson (g, false);
+            j["song"] = style && *style == g.id;
+            list.push_back (j);
+        }
+
+        return Json { { "guides", list }, { "style", style ? Json (*style) : Json() } };
+    };
+
+    auto changed = [&] (Json result)
+    {
+        if (broadcast)
+            broadcast (notification ("guides", listJson()).dump());
+
+        return result;
+    };
+
+    try
+    {
+        if (method == "guides.list")
+            return listJson();
+
+        // One guide in full: by id or name, or the song's.
+        if (method == "guides.get")
+        {
+            const auto wanted = params.contains ("id") ? readParam<std::string> (params, "id") : style.value_or ("");
+
+            if (wanted.empty())
+                throw RpcError (invalidParams, "The song has no style yet; name a guide (guides.list) or set one (setStyle)");
+
+            if (auto guide = store.find (wanted))
+                return guides::toJson (*guide, true);
+
+            throw RpcError (invalidParams, "No style guide \"" + wanted + "\" (guides.list)");
+        }
+
+        if (method == "guides.save")
+            return changed (guides::toJson (store.save (params.value ("id", std::string()), readParam<std::string> (params, "text")), true));
+
+        if (method == "guides.remove")
+        {
+            const auto removed = store.remove (readParam<std::string> (params, "id"));
+
+            if (removed == guides::GuideStore::Removed::nothing)
+                return { { "removed", "nothing" } };
+
+            return changed ({ { "removed", removed == guides::GuideStore::Removed::restored ? "restored" : "deleted" } });
         }
     }
     catch (const std::invalid_argument& e)

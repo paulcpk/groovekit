@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, Download, History, KeyRound, Loader2, Mic, RotateCcw, Sparkles, Square, SquarePen, Trash2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import Markdown, { type Components } from "react-markdown";
+import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button, IconButton, Tabs } from "@/components/controls";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/menu";
@@ -8,7 +8,9 @@ import { Activity } from "@/features/history/Activity";
 import { cn } from "@/lib/cn";
 import { toast, useEngine } from "@/state/engine";
 import { deleteChat, newChat, openChat, refreshChats, retry, send, setApiKey, stop, useAgent, useApiKey, useChats, type ChatItem, type ChatSummary } from "./agent";
+import { MARKDOWN } from "./markdown";
 import { NotesView } from "./NotesView";
+import { StylesView } from "./StylesView";
 import { BAR_COUNT, downloadVoiceModel, loadVoiceModel, RECORDER_ERRORS, transcribe, transcriptText, useVoiceModel, useVoiceRecorder, useVoiceRequest } from "./voice";
 
 const SUGGESTIONS = [
@@ -40,6 +42,7 @@ const TOOL_LABELS: Record<string, string> = {
   sample_library: "Sample library",
   project: "Project",
   notes: "Notes",
+  style_guide: "Style guide",
   melody: "Hear a melody",
 };
 
@@ -53,35 +56,17 @@ function toolSummary(input: unknown) {
   return typeof value === "string" ? value.replace(/^.*\//, "") : "";
 }
 
-// Replies are Markdown; images show their alt text only, so text that reached the model can't
-// make the panel load a URL.
-const MARKDOWN: Components = {
-  img: ({ alt }) => <>{alt}</>,
-  p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
-  ul: ({ children }) => <ul className="my-1.5 list-disc space-y-0.5 pl-4 marker:text-faint">{children}</ul>,
-  ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-0.5 pl-4 marker:text-faint">{children}</ol>,
-  code: ({ children }) => <code className="rounded-[3px] bg-bg px-1 py-px font-mono text-[11px]">{children}</code>,
-  pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[6px] bg-bg p-2 text-[11px] ring-1 ring-line [&_code]:bg-transparent [&_code]:p-0">{children}</pre>,
-  a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-2">{children}</a>,
-  h1: ({ children }) => <p className="mt-3 mb-1 font-semibold">{children}</p>,
-  h2: ({ children }) => <p className="mt-3 mb-1 font-semibold">{children}</p>,
-  h3: ({ children }) => <p className="mt-2 mb-1 font-semibold">{children}</p>,
-  blockquote: ({ children }) => <blockquote className="my-1.5 border-l-2 border-line pl-2 text-dim">{children}</blockquote>,
-  table: ({ children }) => <div className="my-2 overflow-x-auto"><table className="text-[11px]">{children}</table></div>,
-  th: ({ children }) => <th className="border-b border-line px-1.5 py-0.5 text-left">{children}</th>,
-  td: ({ children }) => <td className="border-b border-line/50 px-1.5 py-0.5">{children}</td>,
-};
-
 export function AgentPanel() {
-  const [view, setView] = useState<"chat" | "notes" | "changes" | "chats">("chat");
+  const [view, setView] = useState<"chat" | "notes" | "styles" | "changes" | "chats">("chat");
   const items = useAgent((s) => s.items);
   const running = useAgent((s) => s.running);
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line px-2">
-        <Tabs<"chat" | "notes" | "changes"> value={view === "chats" ? "chat" : view} onChange={setView}
-          items={[{ value: "chat", label: "Chat" }, { value: "notes", label: "Notes", title: "What the agent should always keep in mind" }, { value: "changes", label: "Changes" }]} />
+        <Tabs<"chat" | "notes" | "styles" | "changes"> value={view === "chats" ? "chat" : view} onChange={setView}
+          items={[{ value: "chat", label: "Chat" }, { value: "notes", label: "Notes", title: "What the agent should always keep in mind" },
+            { value: "styles", label: "Styles", title: "How the agent makes each style" }, { value: "changes", label: "Changes" }]} />
         <div className="flex-1" />
         {(view === "chat" || view === "chats") && (
           <>
@@ -96,7 +81,7 @@ export function AgentPanel() {
         )}
       </div>
       <div className="min-h-0 flex-1">
-        {view === "chat" ? <Chat /> : view === "chats" ? <Conversations onOpen={() => setView("chat")} /> : view === "notes" ? <NotesView /> : <Activity />}
+        {view === "chat" ? <Chat /> : view === "chats" ? <Conversations onOpen={() => setView("chat")} /> : view === "notes" ? <NotesView /> : view === "styles" ? <StylesView /> : <Activity />}
       </div>
     </div>
   );
