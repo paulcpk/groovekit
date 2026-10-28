@@ -13,7 +13,7 @@ using model::Json;
 
 namespace
 {
-    constexpr int fileVersion = 1;
+    constexpr int fileVersion = 2;      // 2: kick hits found on a loop's grid
 }
 
 KickIndex::KickIndex (library::SampleLibrary& l, std::filesystem::path f) : library (l), file (std::move (f))

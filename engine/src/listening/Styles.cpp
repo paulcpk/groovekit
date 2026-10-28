@@ -17,7 +17,7 @@ using model::Json;
 namespace
 {
     constexpr int fileVersion = 1;
-    constexpr int analysisVersion = 6;      // 6: the whole track, with its arrangement
+    constexpr int analysisVersion = 7;      // 6: the whole track, with its arrangement; 7: its grid fitted over the whole track
     constexpr int windowsPerTrack = 6;
     constexpr int windowSamples = 343980;  // one separator chunk, 7.8 s at 44.1 kHz
     constexpr float silentDb = -50.0f;
@@ -1046,7 +1046,8 @@ void Styles::migrate (const std::filesystem::path& oldProfilesFolder)
 }
 
 /** The kick and rumble of a track, measured on its drums and bass where the kick plays with the
-    least around it: the longest run of such bars, up to sixteen. */
+    least around it: a run of at least four bars where there is one (a stray bar measures one
+    hit), the least busy and then the longest, up to sixteen bars. */
 static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const Separator::Stems& stems)
 {
     if (a.bars == 0 || ! a.parts.contains ("kick"))
@@ -1064,35 +1065,45 @@ static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const 
         return count;
     };
 
-    int least = 99;
+    // Runs of bars with the kick and the same parts around it.
+    struct Run { int from, to, busy; };
+    std::optional<Run> best;
 
-    for (int b = 0; b < a.bars; ++b)
-        if (kickOn[static_cast<size_t> (b)])
-            least = std::min (least, busy (b));
+    auto better = [] (const Run& x, const Run& y)
+    {
+        const bool xLong = x.to - x.from >= 4, yLong = y.to - y.from >= 4;
 
-    if (least == 99)
-        return {};
+        if (xLong != yLong)
+            return xLong;
 
-    int from = 0, to = 0;
+        return x.busy != y.busy ? x.busy < y.busy : x.to - x.from > y.to - y.from;
+    };
 
     for (int b = 0; b < a.bars;)
     {
-        if (! kickOn[static_cast<size_t> (b)] || busy (b) != least)
+        if (! kickOn[static_cast<size_t> (b)])
         {
             ++b;
             continue;
         }
 
+        const auto level = busy (b);
         int e = b;
 
-        while (e < a.bars && kickOn[static_cast<size_t> (e)] && busy (e) == least)
+        while (e < a.bars && kickOn[static_cast<size_t> (e)] && busy (e) == level)
             ++e;
 
-        if (e - b > to - from)
-            from = b, to = e;
+        if (Run run { b, e, level }; ! best || better (run, *best))
+            best = run;
 
         b = e;
     }
+
+    if (! best)
+        return {};
+
+    int from = best->from, to = best->to;
+    const int least = best->busy;
 
     to = std::min (to, from + 16);
     const auto rate = Separator::sampleRate;
@@ -1102,9 +1113,9 @@ static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const 
     if (start < 0 || count < static_cast<int> (rate))
         return {};
 
-    // The low end is the drums' and the bass's (the rumble is often in the bass); the hits are the drums'.
+    // The low end is the drums' and the bass's (the rumble is often in the bass); the hits are
+    // found on the arrangement's grid.
     juce::AudioBuffer<float> audio (2, count);
-    std::vector<float> drumsLow (static_cast<size_t> (count));
 
     for (int c = 0; c < 2; ++c)
     {
@@ -1112,15 +1123,7 @@ static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const 
         audio.addFrom (c, 0, stems.bass, c, start, count);
     }
 
-    for (int i = 0; i < count; ++i)
-        drumsLow[static_cast<size_t> (i)] = 0.5f * (stems.drums.getSample (0, start + i) + stems.drums.getSample (1, start + i));
-
-    drumsLow = filter (std::move (drumsLow), rate, 150, false);
-    juce::AudioBuffer<float> lowBuffer (1, count);
-    lowBuffer.copyFrom (0, 0, drumsLow.data(), count);
-
     KickTiming timing;
-    timing.hits = library::detectTransients (toAudio (std::move (lowBuffer), rate));
     timing.beat = 60 / a.tempo;
     timing.downbeat = 0.0;
 
@@ -1393,6 +1396,10 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
 
         track.arrangement = hearArrangement (full, track.tempo > 0 ? std::optional (track.tempo) : std::nullopt);
         track.kick = hearKick (*track.arrangement, wholeStems);
+
+        // Fitted over the whole track: closer than the stretches'.
+        if (track.arrangement->tempo > 0)
+            track.tempo = track.arrangement->tempo;
 
         if (progress && ! progress (1.0))
             throw std::runtime_error ("Stopped");

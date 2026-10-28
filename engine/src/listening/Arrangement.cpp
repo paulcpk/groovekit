@@ -7,6 +7,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <numeric>
@@ -101,24 +102,114 @@ namespace
         return std::accumulate (v.begin() + from, v.begin() + to, 0.0f) / static_cast<float> (to - from);
     }
 
-    /** Where in the beat the hits land: the phase (seconds) most of them fall on, within 25 ms. */
-    double beatPhase (const std::vector<double>& hits, double period)
+    /** The low end's peaks: its loudest moments within 100 ms either side (seconds), each weighed
+        by how far it stands above a floor 40 dB under the loudest. Mostly the kicks: a rumble
+        swelling into each kick peaks at the kick too. */
+    std::pair<std::vector<double>, std::vector<float>> lowPeaks (const std::vector<float>& low, double rate)
+    {
+        const auto hop = std::max<size_t> (1, static_cast<size_t> (0.005 * rate));
+        std::vector<float> env;
+
+        for (size_t i = 0; i + hop <= low.size(); i += hop)
+        {
+            double sum = 0;
+
+            for (size_t j = i; j < i + hop; ++j)
+                sum += static_cast<double> (low[j]) * low[j];
+
+            env.push_back (db (sum / static_cast<double> (hop)));
+        }
+
+        std::vector<double> times;
+        std::vector<float> weights;
+
+        if (env.empty())
+            return {};
+
+        const auto floor = *std::max_element (env.begin(), env.end()) - 40;
+        constexpr int radius = 20;
+
+        for (int i = radius; i + radius < static_cast<int> (env.size()); ++i)
+        {
+            const auto e = env[static_cast<size_t> (i)];
+
+            if (e <= floor || e < *std::max_element (env.begin() + (i - radius), env.begin() + (i + radius + 1)))
+                continue;
+
+            times.push_back (static_cast<double> (i) * static_cast<double> (hop) / rate);
+            weights.push_back (e - floor);
+        }
+
+        return { times, weights };
+    }
+
+    /** How well the peaks land on a grid of beats: each one's weight, more the closer it is to a
+        beat, none from 25 ms off. */
+    double alignment (const std::vector<double>& times, const std::vector<float>& weights, double period, double phase)
+    {
+        constexpr double reach = 0.025;
+        double sum = 0;
+
+        for (size_t i = 0; i < times.size(); ++i)
+        {
+            auto d = std::fmod (times[i] - phase + 1000 * period, period);
+            d = std::min (d, period - d);
+            sum += d < reach ? weights[i] * (1 - d / reach) : 0.0;
+        }
+
+        return sum;
+    }
+
+    /** The tempo and phase whose grid lines the peaks up best, near a rough tempo (within 1.5 %):
+        over a whole track, a tempo 0.1 BPM off drifts a quarter of a beat in a hundred bars. */
+    std::pair<double, double> fitGrid (const std::vector<double>& times, const std::vector<float>& weights, double rough)
+    {
+        double bestTempo = rough, bestPhase = 0, best = -1;
+
+        auto tryTempo = [&] (double bpm)
+        {
+            const auto period = 60.0 / bpm;
+
+            for (double phase = 0; phase < period; phase += 0.004)
+            {
+                const auto s = alignment (times, weights, period, phase);
+
+                if (s > best)
+                    best = s, bestTempo = bpm, bestPhase = phase;
+            }
+        };
+
+        for (double bpm = rough * 0.985; bpm <= rough * 1.015; bpm += 0.02)
+            tryTempo (bpm);
+
+        const auto coarse = bestTempo;
+
+        for (double bpm = coarse - 0.03; bpm <= coarse + 0.03; bpm += 0.002)
+            tryTempo (bpm);
+
+        return { std::round (bestTempo * 100) / 100, bestPhase };
+    }
+
+    /** Where in the beat the hits land: the phase (seconds) the hardest of them fall on, within
+        25 ms. Each hit counts by how sharply it jumps (weights, dB): a kick hits, a rumble pumping
+        between the kicks only swells, though it can make as many onsets. */
+    double beatPhase (const std::vector<double>& hits, const std::vector<float>& weights, double period)
     {
         double best = 0;
-        int most = -1;
+        double most = -1;
 
         for (double phase = 0; phase < period; phase += 0.005)
         {
-            int count = 0;
+            double sum = 0;
 
-            for (auto t : hits)
+            for (size_t i = 0; i < hits.size(); ++i)
             {
-                const auto d = std::fmod (t - phase + 1000 * period, period);
-                count += d < 0.025 || d > period - 0.025 ? 1 : 0;
+                const auto d = std::fmod (hits[i] - phase + 1000 * period, period);
+                sum += d < 0.025 || d > period - 0.025 ? weights[i] : 0.0;
             }
 
-            if (count > most)
-                most = count, best = phase;
+            if (sum > most)
+                most = sum, best = phase;
         }
 
         // Centred on the hits it caught.
@@ -196,9 +287,47 @@ Arrangement hearArrangement (const TrackStems& stems, std::optional<double> know
     if (a.tempo <= 0 || a.seconds < 8)
         return a;
 
+    // The grid, fitted to the low end's peaks over the whole track; with too few of them, from
+    // the onsets.
+    double phase = 0;
+
+    if (const auto [times, weights] = lowPeaks (kickLow, rate); times.size() >= 16)
+    {
+        std::tie (a.tempo, phase) = fitGrid (times, weights, a.tempo);
+
+        // A kick peaks a few milliseconds after it starts: the grid goes on its onsets.
+        const auto beat = 60.0 / a.tempo;
+        std::vector<double> early;
+
+        for (auto t : kicks)
+        {
+            auto d = std::fmod (t - phase + 1000 * beat, beat);
+
+            if (d > beat / 2)
+                d -= beat;
+
+            if (d > -0.03 && d < 0.01)
+                early.push_back (d);
+        }
+
+        if (early.size() >= 8)
+        {
+            std::nth_element (early.begin(), early.begin() + static_cast<long> (early.size() / 2), early.end());
+            phase += early[early.size() / 2];
+        }
+    }
+    else
+    {
+        std::vector<float> jumps;
+
+        for (auto t : kicks)
+            jumps.push_back (std::max (0.0f, db (power (kickLow, rate, t, t + 0.03)) - db (power (kickLow, rate, t - 0.04, t - 0.005))));
+
+        phase = beatPhase (kicks, jumps, 60.0 / a.tempo);
+    }
+
     const auto period = 60.0 / a.tempo;
     const auto barSeconds = 4 * period;
-    const auto phase = beatPhase (kicks, period);
 
     // The parts' signals.
     std::vector<float> lowEnd (stems.drums.size());
@@ -247,6 +376,10 @@ Arrangement hearArrangement (const TrackStems& stems, std::optional<double> know
         }
 
         a.downbeat = std::fmod (phase + bestOffset * period, barSeconds);
+
+        // A grid a hair before the start begins there, not a bar later.
+        if (a.downbeat > barSeconds - 0.03)
+            a.downbeat = std::max (0.0, a.downbeat - barSeconds);
     }
 
     const auto span = a.seconds - a.downbeat;
@@ -257,12 +390,14 @@ Arrangement hearArrangement (const TrackStems& stems, std::optional<double> know
 
     // Each bar's levels.
     std::map<std::string, std::vector<float>> levels;
-    std::vector<float> kickContrast, musicBrightness;
+    std::vector<float> kickContrast, kickAttack, musicBrightness;
+    std::vector<bool> kickPumps;
 
     for (int b = 0; b < a.bars; ++b)
     {
         const auto from = a.downbeat + b * barSeconds, to = from + barSeconds;
         double kickOn = 0, kickOff = 0, rumble = 0;
+        float attack = 0;
 
         for (int beat = 0; beat < 4; ++beat)
         {
@@ -270,6 +405,37 @@ Arrangement hearArrangement (const TrackStems& stems, std::optional<double> know
             kickOn += power (kickLow, rate, t, t + 0.06);
             kickOff += power (kickLow, rate, t + 0.45 * period, t + 0.9 * period);
             rumble += power (lowEnd, rate, t + 0.45 * period, t + 0.9 * period);
+
+            // How sharply the low end jumps on the beat: a kick hits even where a rumble fills
+            // the space between the beats almost as loud.
+            attack += db (power (kickLow, rate, t, t + 0.03)) - db (power (kickLow, rate, t - 0.04, t - 0.005));
+        }
+
+        kickAttack.push_back (attack / 4);
+
+        // The low end's shape over the beat: a kick peaks in its first 60 ms and the low end dips
+        // well under it after, even where a rumble swells back up into the next kick.
+        {
+            constexpr int bins = 20;
+            std::array<double, bins> shape {};
+
+            for (int beat = 0; beat < 4; ++beat)
+                for (int j = 0; j < bins; ++j)
+                {
+                    const auto t = from + beat * period + j * period / bins;
+                    shape[static_cast<size_t> (j)] += power (kickLow, rate, t, t + period / bins);
+                }
+
+            std::array<float, bins> level {};
+
+            for (int j = 0; j < bins; ++j)
+                level[static_cast<size_t> (j)] = db (shape[static_cast<size_t> (j)] / 4);
+
+            const auto early = static_cast<int> (std::ceil (0.06 / (period / bins)));
+            const auto first = *std::max_element (level.begin(), level.begin() + early);
+            const auto rest = *std::max_element (level.begin() + early, level.end());
+            const auto [low, high] = std::minmax_element (level.begin(), level.end());
+            kickPumps.push_back (first >= rest - 1 && *high - *low >= 6);
         }
 
         levels["kick"].push_back (db (kickOn / 4));
@@ -312,7 +478,7 @@ Arrangement hearArrangement (const TrackStems& stems, std::optional<double> know
             bool on = playing;
 
             if (name == "kick")
-                on = on && kickContrast[static_cast<size_t> (b)] > 4;
+                on = on && (kickContrast[static_cast<size_t> (b)] > 4 || kickAttack[static_cast<size_t> (b)] > 6 || kickPumps[static_cast<size_t> (b)]);
 
             lane.on[static_cast<size_t> (b)] = on;
         }

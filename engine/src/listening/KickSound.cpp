@@ -131,6 +131,26 @@ std::optional<KickSound> measureKick (const juce::AudioBuffer<float>& audio, dou
 
     auto hits = timing.hits;
 
+    // On a grid: the sixteenths whose low end peaks strongly and higher than both neighbours'
+    // (a rumble swelling into the kick is still under the kick).
+    if (hits.empty() && timing.beat && timing.downbeat)
+    {
+        const auto step = *timing.beat / 4;
+        std::vector<float> peaks;
+
+        for (double t = *timing.downbeat; t < static_cast<double> (n) / rate; t += step)
+            peaks.push_back (peakNear (std::max (0.0, t - 0.01)));
+
+        const auto top = peaks.empty() ? 0.0f : *std::max_element (peaks.begin(), peaks.end());
+
+        for (size_t s = 0; s < peaks.size(); ++s)
+            if (peaks[s] >= top * 0.5f && (s == 0 || peaks[s] >= peaks[s - 1]) && (s + 1 == peaks.size() || peaks[s] >= peaks[s + 1]))
+                hits.push_back (*timing.downbeat + static_cast<double> (s) * step);
+
+        if (hits.size() < 2)
+            hits.clear();
+    }
+
     if (hits.empty())
     {
         analysis::Audio a;

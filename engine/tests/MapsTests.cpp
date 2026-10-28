@@ -643,3 +643,28 @@ TEST_CASE ("While songs are being heard, the queue follows the ticks")
     call ("maps.setInUse", { { "ids", { "Hard Techno/b" } }, { "inUse", true } });
     CHECK (queued().empty());
 }
+
+TEST_CASE ("A kick is heard under a rumble nearly as loud as it")
+{
+    // Hard techno: the rumble fills the space between the kicks almost at their level.
+    constexpr double rate = 22050;
+    const auto groove = kicks (rate, 52, 0.06, 0.7f, 64);
+    TrackStems stems;
+    stems.sampleRate = rate;
+    stems.drums.resize (static_cast<size_t> (groove.getNumSamples()));
+
+    for (size_t i = 0; i < stems.drums.size(); ++i)
+        stems.drums[i] = groove.getSample (0, static_cast<int> (i));
+
+    stems.mix = stems.drums;
+    stems.bass.assign (stems.drums.size(), 0.0f);
+    stems.other = stems.bass;
+    stems.vocals = stems.bass;
+
+    const auto a = hearArrangement (stems, 128.0);
+    INFO (a.describe());
+    const auto& kick = a.parts.at ("kick").on;
+    INFO (a.toJson()["parts"]["kick"].dump());
+    CHECK (std::count (kick.begin(), kick.end(), true) >= a.bars - 1);
+    CHECK (a.sections.front().role != "break");
+}
