@@ -149,6 +149,50 @@ TEST_CASE ("Live playback follows the song")
     CHECK_FALSE (live.isPlaying());
 }
 
+TEST_CASE ("The song stops a few bars after its end and goes back to the top")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-song-end");      // four bars long
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
+    constexpr model::Ticks bar = 3840;
+    const auto stopAt = (4 + LiveEngine::barsAfterSongEnd) * bar;
+
+    // The position moved by hand, as the timer would see it go by (the hosted test device
+    // doesn't move it on its own).
+    auto passBy = [&] (model::Ticks at)
+    {
+        live.setPosition (at);
+        live.stopAfterSongEnd();
+    };
+
+    live.play();
+    passBy (stopAt - bar / 4);              // the last beat before
+    CHECK (live.isPlaying());
+
+    passBy (stopAt + bar / 8);              // past it
+    CHECK_FALSE (live.isPlaying());
+    CHECK (live.getPosition() == 0);
+
+    SECTION ("a loop plays on")
+    {
+        live.setLoop (std::pair<model::Ticks, model::Ticks> { 0, 4 * bar });
+        live.play();
+        passBy (stopAt - bar / 4);
+        passBy (stopAt + bar / 8);
+        CHECK (live.isPlaying());
+        live.stop();
+    }
+
+    SECTION ("started past the end, it plays on")
+    {
+        live.play();
+        passBy (stopAt + bar);
+        passBy (stopAt + 2 * bar);
+        CHECK (live.isPlaying());
+        live.stop();
+    }
+}
+
 TEST_CASE ("Recording an input adds the take to the project")
 {
     HostedAudio audio (2);

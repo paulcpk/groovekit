@@ -70,6 +70,15 @@ public:
     void setPosition (model::Ticks);
     model::Ticks getPosition() const;
 
+    /** Bars played past the song's last clip before the transport stops (for tails): the same
+        musical length at any tempo, 8 seconds at 120 BPM. */
+    static constexpr int barsAfterSongEnd = 4;
+
+    /** Stops the transport and goes back to the top once it has passed the song's end and
+        barsAfterSongEnd more bars; not while a loop, a pattern or a recording plays. The timer
+        calls it; public for tests, which can't run the message loop while hosting audio. */
+    void stopAfterSongEnd();
+
     /** Loops between two positions of the song, or turns looping off. In pattern mode this is
         kept for when the song plays again. */
     void setLoop (std::optional<std::pair<model::Ticks, model::Ticks>>);
@@ -263,6 +272,7 @@ private:
 
     std::optional<model::Id> playPattern;
     std::optional<std::pair<model::Ticks, model::Ticks>> songLoop;
+    model::Ticks lastPosition = 0;          // at the timer's last look, to see the song's end go by
     bool metronome = false, clickForCountIn = false;
     bool followSystemOutput = true;
     std::shared_ptr<bool> lifetime = std::make_shared<bool> (true);  // for callbacks that may outlive this
@@ -330,6 +340,8 @@ private:
     void timerCallback() override;
     void notifyTransport (bool force);
     void reportLevels();
+
+
 };
 
 } // namespace gk

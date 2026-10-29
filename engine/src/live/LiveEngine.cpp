@@ -1281,8 +1281,36 @@ void LiveEngine::timerCallback()
         }
     }
 
+    stopAfterSongEnd();
     notifyTransport (false);
     reportLevels();
+}
+
+void LiveEngine::stopAfterSongEnd()
+{
+    const auto position = getPosition();
+    const auto previous = std::exchange (lastPosition, position);
+
+    if (! isPlaying() || playPattern || songLoop || ! recordings.empty() || noteRecording)
+        return;
+
+    const auto& project = session.getProject();
+    const auto end = getSongEnd (project);
+
+    if (end <= 0)
+        return;
+
+    // Only when playing goes by it: started further on, or moved there, it plays on.
+    const auto bar = ticksPerBar (project.timeSignature);
+    const auto stopAt = end + barsAfterSongEnd * bar;
+
+    if (position >= stopAt && previous < stopAt && position - previous < bar)
+    {
+        stopTransport();
+        transport().setPosition (toTime (0));
+        lastPosition = 0;
+        notifyTransport (true);
+    }
 }
 
 void LiveEngine::reportLevels()
