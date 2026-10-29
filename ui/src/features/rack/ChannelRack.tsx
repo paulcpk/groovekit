@@ -8,7 +8,7 @@ import { ActivityLed } from "@/components/fader";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { droppedSample, isSampleDrag } from "@/features/playlist/geometry";
 import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
-import { newPattern } from "@/features/playlist/Playlist";
+import { newPattern } from "@/features/playlist/edits";
 import { cn } from "@/lib/cn";
 import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";

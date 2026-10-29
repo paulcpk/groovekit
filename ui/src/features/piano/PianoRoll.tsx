@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Button, Empty, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
-import { newPattern } from "@/features/playlist/Playlist";
+import { newPattern } from "@/features/playlist/edits";
 import { stepKey } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
 import { useLivePosition } from "@/lib/playhead";
