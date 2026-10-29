@@ -1,7 +1,8 @@
 import type { Channel, Note, Pattern, Project } from "@groovekit/schema/project";
 import type { Command } from "@groovekit/schema/protocol";
 import { AudioLines, ChevronDown, Copy, Plus, Trash2, Volume2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Button, Empty, IconButton, Knob, ToggleChip } from "@/components/controls";
 import { ActivityLed } from "@/components/fader";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
@@ -13,7 +14,7 @@ import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { useLivePosition } from "@/lib/playhead";
 import { ColorSwatch } from "@/components/color";
-import { colorFor, formatDb, formatPan, palette, patternLength, STEP, ticksPerBar, uniqueId } from "@/lib/model";
+import { colorFor, formatDb, formatPan, palette, patternLength, patternLoop, STEP, ticksPerBar, uniqueId } from "@/lib/model";
 import { drawPeaks, usePeaks } from "@/lib/peaks";
 import { Automatable } from "@/features/playlist/Automatable";
 import { call, execute, useEngine } from "@/state/engine";
@@ -33,8 +34,9 @@ interface Paint {
 
 export function ChannelRack() {
   const doc = useEngine((s) => s.doc)!;
-  const { selectedPattern, selectedChannel, rackView } = useUi();
+  const { selectedPattern, selectedChannel, rackView } = useUi(useShallow((s) => ({ selectedPattern: s.selectedPattern, selectedChannel: s.selectedChannel, rackView: s.rackView })));
   const pattern = doc.patterns.find((p) => p.id === selectedPattern);
+  const root = useRef<HTMLDivElement>(null);
   const channels = doc.channels.filter((c) => rackView === "all" || (c.group ?? "rack") === rackView);
   const [paint, setPaint] = useState<Paint | null>(null);
   const paintRef = useRef<Paint | null>(null);
@@ -55,15 +57,24 @@ export function ChannelRack() {
   }, [doc, pattern]);
 
   const steps = pattern ? Math.round(patternLength(pattern, doc) / STEP) : 16;
-  // The step playing now, when this pattern plays in pattern mode.
-  const [playingStep, setPlayingStep] = useState(-1);
+  // The step playing now, when this pattern plays in pattern mode: lit by marking its pads, not
+  // by drawing the rack again sixteen times a bar.
+  const litStep = useRef(-1);
   useLivePosition(({ ticks, playing }) => {
     const t = useEngine.getState().transport;
-    setPlayingStep(playing && t.mode === "pattern" && t.pattern === pattern?.id ? Math.floor(ticks / STEP) : -1);
+    const step = playing && t.mode === "pattern" && t.pattern === pattern?.id ? Math.floor(ticks / STEP) : -1;
+    if (step === litStep.current || !root.current) return;
+    litStep.current = step;
+    for (const pad of root.current.querySelectorAll("[data-playing]")) pad.removeAttribute("data-playing");
+    if (step >= 0) for (const pad of root.current.querySelectorAll(`[data-step="${step}"]`)) pad.setAttribute("data-playing", "");
   }, [pattern?.id]);
 
+  const onPaintStart = useCallback((channel: string, step: number, on: boolean) => setPaint({ channel, on, steps: new Set([step]) }), []);
+  const onPaintEnter = useCallback((channel: string, step: number) =>
+    setPaint((p) => (p && !p.committed && p.channel === channel && !p.steps.has(step) ? { ...p, steps: new Set([...p.steps, step]) } : p)), []);
+
   return (
-    <div className="flex h-full">
+    <div ref={root} className="flex h-full">
       <div
         className="flex min-w-0 flex-1 flex-col"
         onDragOver={(e) => (isSampleDrag(e) || isFileDrag(e)) && e.preventDefault()}
@@ -93,11 +104,10 @@ export function ChannelRack() {
             channels.map((channel) => (
               <ChannelRow
                 key={channel.id}
-                doc={doc} channel={channel} pattern={pattern} steps={steps} playingStep={playingStep}
+                channel={channel} pattern={pattern} steps={steps}
                 selected={channel.id === selectedChannel}
                 paint={paint?.channel === channel.id ? paint : null}
-                onPaintStart={(step, on) => setPaint({ channel: channel.id, on, steps: new Set([step]) })}
-                onPaintEnter={(step) => setPaint((p) => (p && !p.committed && p.channel === channel.id && !p.steps.has(step) ? { ...p, steps: new Set([...p.steps, step]) } : p))}
+                onPaintStart={onPaintStart} onPaintEnter={onPaintEnter}
               />
             ))
           )}
@@ -125,15 +135,16 @@ async function commitPaint(doc: Project, pattern: Pattern, paint: Paint) {
 
 //==============================================================================
 /** A step drawn as a pad: lit from above, with a darker lip below and a thin edge, in the
-    channel's colour when on (softer at lower velocities) and in greys when off. */
-function stepStyle(on: boolean, color: string, velocity: number | undefined, beatGroup: boolean, playing: boolean): React.CSSProperties {
+    channel's colour when on (softer at lower velocities) and in greys when off. (The step
+    playing is marked by the rack with data-playing, styled in index.css.) */
+function stepStyle(on: boolean, color: string, velocity: number | undefined, beatGroup: boolean): React.CSSProperties {
   const off = beatGroup ? "#2e2e35" : "#25252b";
 
   if (!on) {
     return {
       background: `linear-gradient(to bottom, color-mix(in srgb, ${off} 82%, white), ${off} 55%, color-mix(in srgb, ${off} 85%, black))`,
       border: "1px solid rgb(0 0 0 / 0.45)",
-      boxShadow: `inset 0 1px 0 rgb(255 255 255 / 0.07), inset 0 -2px 0 rgb(0 0 0 / 0.28), 0 1px 1px rgb(0 0 0 / 0.35)${playing ? ", 0 0 0 1px rgb(255 255 255 / 0.55)" : ""}`,
+      boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.07), inset 0 -2px 0 rgb(0 0 0 / 0.28), 0 1px 1px rgb(0 0 0 / 0.35)",
     };
   }
 
@@ -143,7 +154,7 @@ function stepStyle(on: boolean, color: string, velocity: number | undefined, bea
   return {
     background: `linear-gradient(to bottom, color-mix(in srgb, ${base} 72%, white), ${base} 50%, color-mix(in srgb, ${base} 82%, black))`,
     border: `1px solid color-mix(in srgb, ${base} 55%, black)`,
-    boxShadow: `inset 0 1px 0 rgb(255 255 255 / 0.38), inset 0 -2px 0 rgb(0 0 0 / 0.22), 0 1px 2px rgb(0 0 0 / 0.45), 0 0 8px -2px color-mix(in srgb, ${color} 55%, transparent)${playing ? ", 0 0 0 1px rgb(255 255 255 / 0.7)" : ""}`,
+    boxShadow: `inset 0 1px 0 rgb(255 255 255 / 0.38), inset 0 -2px 0 rgb(0 0 0 / 0.22), 0 1px 2px rgb(0 0 0 / 0.45), 0 0 8px -2px color-mix(in srgb, ${color} 55%, transparent)`,
   };
 }
 
@@ -266,35 +277,54 @@ function RackViewPicker({ doc }: { doc: Project }) {
 }
 
 //==============================================================================
-function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint, onPaintStart, onPaintEnter }: {
-  doc: Project; channel: Channel; pattern: Pattern | undefined; steps: number; playingStep: number; selected: boolean;
-  paint: Paint | null; onPaintStart: (step: number, on: boolean) => void; onPaintEnter: (step: number) => void;
-}) {
-  const level = useEngine((s) => s.levels.channels[channel.id] ?? 0);
-  const touched = useEngine((s) => s.touchedAt[channel.id]);
-  const color = colorFor(channel.id, channel.color);
-  const notes = useMemo(() => pattern?.notes.filter((n) => n.channel === channel.id) ?? [], [pattern, channel.id]);
-  const melodic = new Set(notes.map((n) => n.key ?? 60)).size > 1 || notes.some((n) => n.length > STEP * 1.5);
-  const insertIndex = doc.mixer.inserts.findIndex((i) => i.id === (channel.insert ?? "master"));
-  const arrangement = channel.group === "arrangement";
-  const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateChannel", channel: channel.id, changes }, { label });
+/** The channel's activity light, on its own so the levels (thirty times a second) redraw only it. */
+function ChannelLed({ channel }: { channel: string }) {
+  const level = useEngine((s) => s.levels.channels[channel] ?? 0);
+  return <ActivityLed level={level} />;
+}
+
+/** The channel's pan and volume knobs, turning with their automation as the song plays. */
+function ChannelKnobs({ channel }: { channel: Channel }) {
   const volume = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { volumeDb: Math.round(v * 10) / 10 } }), "Channel volume");
   const pan = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan channel");
   const volumeShown = useAutomated({ scope: "channel", channel: channel.id, param: "volume" }, channel.volumeDb ?? 0);
   const panShown = useAutomated({ scope: "channel", channel: channel.id, param: "pan" }, channel.pan ?? 0);
 
-  const previewPath = channel.instrument.type === "sampler" ? channel.instrument.layers[0]?.sample : undefined;
-  const preview = () => previewPath && void call("preview.play", { path: previewPath });
-
   return (
-    <div className={cn("relative flex h-[30px] items-center gap-2 px-2", selected && "bg-raised")}>
-      <ActivityLed level={level} />
+    <>
       <Automatable target={{ scope: "channel", channel: channel.id, param: "pan" }} value={channel.pan ?? 0}>
         <Knob size={20} value={panShown} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan} onChange={pan.onChange} onCommit={pan.onCommit} />
       </Automatable>
       <Automatable target={{ scope: "channel", channel: channel.id, param: "volume" }} value={channel.volumeDb ?? 0}>
         <Knob size={20} value={volumeShown} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`} onChange={volume.onChange} onCommit={volume.onCommit} />
       </Automatable>
+    </>
+  );
+}
+
+/** Drawn again only when its own props change: its channel, the pattern, the selection or the
+    steps being painted on it. What it needs of the rest of the song it reads itself. */
+const ChannelRow = memo(function ChannelRow({ channel, pattern, steps, selected, paint, onPaintStart, onPaintEnter }: {
+  channel: Channel; pattern: Pattern | undefined; steps: number; selected: boolean;
+  paint: Paint | null; onPaintStart: (channel: string, step: number, on: boolean) => void; onPaintEnter: (channel: string, step: number) => void;
+}) {
+  const touched = useEngine((s) => s.touchedAt[channel.id]);
+  const color = colorFor(channel.id, channel.color);
+  const notes = useMemo(() => pattern?.notes.filter((n) => n.channel === channel.id) ?? [], [pattern, channel.id]);
+  const melodic = new Set(notes.map((n) => n.key ?? 60)).size > 1 || notes.some((n) => n.length > STEP * 1.5);
+  const insertIndex = useEngine((s) => s.doc?.mixer.inserts.findIndex((i) => i.id === (channel.insert ?? "master")) ?? -1);
+  const bar = useEngine((s) => ticksPerBar(s.doc));
+  const arrangement = channel.group === "arrangement";
+  const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateChannel", channel: channel.id, changes }, { label });
+  const song = () => useEngine.getState().doc!;
+
+  const previewPath = channel.instrument.type === "sampler" ? channel.instrument.layers[0]?.sample : undefined;
+  const preview = () => previewPath && void call("preview.play", { path: previewPath });
+
+  return (
+    <div className={cn("relative flex h-[30px] items-center gap-2 px-2", selected && "bg-raised")}>
+      <ChannelLed channel={channel.id} />
+      <ChannelKnobs channel={channel} />
 
       <Dropdown>
         <DropdownTrigger asChild>
@@ -303,7 +333,7 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
           </button>
         </DropdownTrigger>
         <DropdownContent>
-          <InsertItems doc={doc} channel={channel} />
+          <InsertItems channel={channel} />
         </DropdownContent>
       </Dropdown>
 
@@ -338,7 +368,7 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
             {channel.instrument.type === "plugin" ? "Open the plugin's window" : "Open the sampler"}
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
-          <ContextMenuItem onSelect={() => void routeToNewInsert(doc, channel)}>Route to a new insert</ContextMenuItem>
+          <ContextMenuItem onSelect={() => void routeToNewInsert(song(), channel)}>Route to a new insert</ContextMenuItem>
           {channel.instrument.type === "sampler" && (
             <ContextMenuItem onSelect={() => update({ group: arrangement ? null : "arrangement" }, arrangement ? "Move to the rack" : "Move to the arrangement list")}>
               {arrangement ? "Move to the rack (steps)" : "Move to the arrangement list"}
@@ -351,8 +381,8 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
               ))}
             </div>
           </ContextMenuSub>
-          <ContextMenuItem onSelect={() => void duplicateChannel(doc, channel, false)}>Duplicate</ContextMenuItem>
-          <ContextMenuItem onSelect={() => void duplicateChannel(doc, channel, true)}>Duplicate with notes</ContextMenuItem>
+          <ContextMenuItem onSelect={() => void duplicateChannel(song(), channel, false)}>Duplicate</ContextMenuItem>
+          <ContextMenuItem onSelect={() => void duplicateChannel(song(), channel, true)}>Duplicate with notes</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem danger onSelect={() => void execute({ type: "removeChannel", channel: channel.id }, { label: `Delete ${channel.name ?? channel.id}` })}>Delete channel</ContextMenuItem>
         </ContextMenuContent>
@@ -368,9 +398,9 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
       )}
 
       {arrangement ? (
-        <ArrangementRowInfo doc={doc} channel={channel} color={color} width={steps * 22} />
+        <ArrangementRowInfo channel={channel} color={color} width={steps * 22} />
       ) : pattern && (melodic ? (
-        <MiniRoll notes={notes} length={patternLength(pattern, doc)} color={color} width={steps * 22}
+        <MiniRoll notes={notes} length={patternLoop(pattern, bar)} color={color} width={steps * 22}
           onOpen={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })} />
       ) : (
         <div className="flex gap-[3px]">
@@ -384,18 +414,18 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
               <button
                 key={step}
                 type="button"
+                data-step={step}
                 className={cn(
-                  "h-[22px] w-[19px] rounded-[4px] transition-[filter,transform] duration-75 hover:brightness-125 active:translate-y-px",
+                  "step-pad h-[22px] w-[19px] rounded-[4px] transition-[filter,transform] duration-75 hover:brightness-125 active:translate-y-px",
                   step % 4 === 0 && step > 0 && "ml-1.5",
-                  step === playingStep && "brightness-150",
                 )}
-                style={stepStyle(on, color, velocity, beatGroup, step === playingStep)}
+                style={stepStyle(on, color, velocity, beatGroup)}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
                   (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
-                  onPaintStart(step, !note);
+                  onPaintStart(channel.id, step, !note);
                 }}
-                onPointerEnter={(e) => e.buttons & 1 && onPaintEnter(step)}
+                onPointerEnter={(e) => e.buttons & 1 && onPaintEnter(channel.id, step)}
               />
             );
           })}
@@ -407,12 +437,12 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
       )}
     </div>
   );
-}
+});
 
 /** A sample dropped onto the playlist has no steps (a loop would make no sense as 16 hits):
     its row shows the sample and how many clips play it. "Move to the rack" gives it steps. */
-function ArrangementRowInfo({ doc, channel, color, width }: { doc: Project; channel: Channel; color: string; width: number }) {
-  const clips = doc.playlist.clips.filter((c) => c.type === "audio" && c.channel === channel.id).length;
+function ArrangementRowInfo({ channel, color, width }: { channel: Channel; color: string; width: number }) {
+  const clips = useEngine((s) => s.doc?.playlist.clips.filter((c) => c.type === "audio" && c.channel === channel.id).length ?? 0);
   const layer = channel.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
   const peaks = usePeaks(layer?.sample);
   const canvas = useRef<HTMLCanvasElement>(null);

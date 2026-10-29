@@ -1,6 +1,7 @@
 import type { Note, Pattern, Project } from "@groovekit/schema/project";
 import { ChevronDown, Minus, Plus } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Button, Empty, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { newPattern } from "@/features/playlist/Playlist";
@@ -22,7 +23,7 @@ let noteClipboard: Note[] = [];
 
 export function PianoRoll() {
   const doc = useEngine((s) => s.doc)!;
-  const { selectedPattern, selectedChannel } = useUi();
+  const { selectedPattern, selectedChannel } = useUi(useShallow((s) => ({ selectedPattern: s.selectedPattern, selectedChannel: s.selectedChannel })));
   const pattern = doc.patterns.find((p) => p.id === selectedPattern);
   const channel = doc.channels.find((c) => c.id === selectedChannel);
 
@@ -56,7 +57,7 @@ const GRIDS = [
 const FREE_MIN = 30;
 
 function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; channelId: string }) {
-  const { pianoZoom, pianoKeyHeight: keyH, pianoSnap } = useUi();
+  const { pianoZoom, pianoKeyHeight: keyH, pianoSnap } = useUi(useShallow((s) => ({ pianoZoom: s.pianoZoom, pianoKeyHeight: s.pianoKeyHeight, pianoSnap: s.pianoSnap })));
   const channel = doc.channels.find((c) => c.id === channelId)!;
   const color = colorFor(channel.id, channel.color);
   const px = pianoZoom / 960;
@@ -424,7 +425,7 @@ function VelocityLane({ notes, px, width, color, selected, onChange, onPreview }
 }
 
 function PianoToolbar({ doc, pattern, channelId, onQuantize, selection }: { doc: Project; pattern: Pattern; channelId: string; onQuantize: () => void; selection: number }) {
-  const { pianoZoom, pianoKeyHeight, pianoSnap } = useUi();
+  const { pianoZoom, pianoKeyHeight, pianoSnap } = useUi(useShallow((s) => ({ pianoZoom: s.pianoZoom, pianoKeyHeight: s.pianoKeyHeight, pianoSnap: s.pianoSnap })));
   const grid = GRIDS.find((g) => g.ticks === pianoSnap) ?? GRIDS[3];
   const channel = doc.channels.find((c) => c.id === channelId)!;
 

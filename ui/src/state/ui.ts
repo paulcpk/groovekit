@@ -88,12 +88,31 @@ const persisted: (keyof UiState)[] = [
   "rackView", "playlistZoom", "rowHeight", "snap", "pianoZoom", "pianoKeyHeight", "pianoSnap", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize", "loopDrop",
 ];
 
-useUi.subscribe((state) => {
+function save(state: UiState) {
   try {
     localStorage.setItem("groovekit.ui", JSON.stringify(Object.fromEntries(persisted.map((k) => [k, state[k]]))));
   } catch {
     // Storage can be unavailable; the UI works without it.
   }
+}
+
+// Saved a moment after the last change to a persisted setting (a drag changes one many times
+// a second), and on leaving; selection and other passing state never touch storage.
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+useUi.subscribe((state, previous) => {
+  if (persisted.every((k) => state[k] === previous[k])) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => save(state), 250);
 });
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    if (saveTimer === undefined) return;
+    clearTimeout(saveTimer);
+    saveTimer = undefined;
+    save(useUi.getState());
+  });
+}
 
 export const setUi = useUi.setState;

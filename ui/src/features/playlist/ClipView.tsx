@@ -1,19 +1,18 @@
 import type { Clip, Project } from "@groovekit/schema/project";
 import { AudioLines, Spline, VolumeX } from "lucide-react";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger } from "@/components/menu";
+import { memo } from "react";
+import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub } from "@/components/menu";
 import { targetLabel } from "@/lib/automation";
 import { cn } from "@/lib/cn";
+import { snapTo } from "@/lib/drag";
 import { barRange, barsAt, fitCommands, fitMode, formatBars, suggestedBars, tempoFor, type FitMode } from "@/lib/fit";
 import { audioSource, colorFor, uniqueId } from "@/lib/model";
 import { usePeaks } from "@/lib/peaks";
-import { openWindow } from "@/state/windows";
-import { makeAudioUnique } from "./clipOps";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
-import { useState } from "react";
-import { snapTo } from "@/lib/drag";
+import { openWindow } from "@/state/windows";
 import { AudioContent, AutomationContent, PatternContent } from "./ClipContent";
-import { splitAtPlayhead, splitClips } from "./clipOps";
+import { makeAudioUnique, splitAtPlayhead, splitClips } from "./clipOps";
 import { CLIP_HEADER_H } from "./geometry";
 
 export function clipColor(clip: Clip, doc: Project) {
@@ -39,7 +38,8 @@ export function clipName(clip: Clip, doc: Project) {
 
 export interface ClipViewProps {
   clip: Clip;
-  doc: Project;
+  color: string;
+  name: string;
   left: number;
   width: number;
   height: number;
@@ -48,6 +48,8 @@ export interface ClipViewProps {
   pxPerTick: number;
   snap: number;
   onPointerDown: (e: React.PointerEvent, clip: Clip, edge: "left" | "right" | "body") => void;
+  /** A right-click on the clip, with the tick under the pointer: the playlist shows the menu. */
+  onMenu: (clip: Clip, tick: number) => void;
 }
 
 /** The clip's body, like coloured glass: a soft gradient of its colour over the dark, a thin rim
@@ -79,16 +81,17 @@ function glassHeader(color: string): React.CSSProperties {
   };
 }
 
-/** One clip in a lane: coloured title bar, content preview below. */
-export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPerTick, snap, onPointerDown }: ClipViewProps) {
-  const color = clipColor(clip, doc);
+/** One clip in a lane: coloured title bar, content preview below. Drawn again only when its own
+    props change, so a drag or a selection redraws just the clips it touches. The playlist owns the
+    one context menu for all clips (ClipMenu). */
+export const ClipView = memo(function ClipView({ clip, color, name, left, width, height, selected, ghost, pxPerTick, snap, onPointerDown, onMenu }: ClipViewProps) {
   const touched = useEngine((s) => s.touchedAt[clip.id]);
   const bodyH = height - CLIP_HEADER_H;
   const muted = clip.mute;
-  const [menuTick, setMenuTick] = useState(clip.start);
 
-  const body = (
+  return (
     <div
+      data-clip={ghost ? undefined : ""}
       className={cn(
         "group/clip absolute top-px overflow-hidden rounded-[4px]",
         selected && "z-[5]",
@@ -105,8 +108,9 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
         onPointerDown(e, clip, edge);
       }}
       onContextMenu={(e) => {
+        if (ghost) return;
         const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-        setMenuTick(Math.round(clip.start + snapTo(x / pxPerTick, snap)));
+        onMenu(clip, Math.round(clip.start + snapTo(x / pxPerTick, snap)));
       }}
       onDoubleClick={() => {
         if (clip.type === "audio") openWindow({ kind: "channel", channel: clip.channel });
@@ -118,12 +122,12 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
         {muted && <VolumeX size={9} />}
         {clip.type === "audio" && <AudioLines size={9} />}
         {clip.type === "automation" && <Spline size={9} />}
-        <span className="truncate">{clipName(clip, doc)}</span>
+        <span className="truncate">{name}</span>
       </div>
       <div className="relative" style={{ height: bodyH }}>
-        {clip.type === "pattern" && <PatternContent clip={clip} doc={doc} width={width} height={bodyH - 4} color={color} />}
-        {clip.type === "audio" && <AudioContent clip={clip} doc={doc} width={width} height={bodyH} color={color} />}
-        {clip.type === "automation" && <AutomationContent clip={clip} doc={doc} width={width} height={bodyH} color={color} pxPerTick={pxPerTick} snap={snap} />}
+        {clip.type === "pattern" && <PatternContent clip={clip} width={width} height={bodyH - 4} color={color} />}
+        {clip.type === "audio" && <AudioContent clip={clip} width={width} height={bodyH} color={color} />}
+        {clip.type === "automation" && <AutomationContent clip={clip} width={width} height={bodyH} color={color} pxPerTick={pxPerTick} snap={snap} />}
       </div>
       <div className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize" />
       <div className="absolute top-0 bottom-0 left-0 w-1 cursor-ew-resize" />
@@ -132,19 +136,15 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
       )}
     </div>
   );
+});
 
-  if (ghost) return body;
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>{body}</ContextMenuTrigger>
-      <ClipMenu clip={clip} doc={doc} at={menuTick} />
-    </ContextMenu>
-  );
-}
-
-function ClipMenu({ clip, doc, at }: { clip: Clip; doc: Project; at: number }) {
+/** The menu for the clip last right-clicked (by id, so it follows the song's changes), with the
+    tick that was under the pointer. The playlist renders it inside its one ContextMenu. */
+export function ClipMenu({ clipId, at }: { clipId: string; at: number }) {
+  const doc = useEngine((s) => s.doc);
+  const clip = doc?.playlist.clips.find((c) => c.id === clipId);
   const selection = useUi((s) => s.selectedClips);
+  if (!doc || !clip) return null;
   const targets = selection.includes(clip.id) ? doc.playlist.clips.filter((c) => selection.includes(c.id)) : [clip];
   const plural = targets.length > 1 ? ` ${targets.length} clips` : "";
 

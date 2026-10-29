@@ -1,5 +1,5 @@
-import type { PlaylistRow, Project } from "@groovekit/schema/project";
-import { useState } from "react";
+import type { PlaylistRow } from "@groovekit/schema/project";
+import { memo, useState } from "react";
 import { ToggleChip } from "@/components/controls";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger } from "@/components/menu";
 import { cn } from "@/lib/cn";
@@ -9,14 +9,14 @@ import { HEADER_W } from "./geometry";
 
 /** An arrangement row's name, mute and solo. Rows only arrange: where clips play and how loud is
     set by their channels, so a row with nothing in it is just empty. Pressing the header selects
-    the row (Shift adds the rows in between) and dragging it moves the selected rows. */
-export function RowHeader({ row, index, doc, height, selected, onPress }: {
-  row: PlaylistRow; index: number; doc: Project; height: number; selected: boolean;
+    the row (Shift adds the rows in between) and dragging it moves the selected rows. Drawn again
+    only when its own props change. */
+export const RowHeader = memo(function RowHeader({ row, index, clips, height, selected, onPress }: {
+  row: PlaylistRow; index: number; clips: number; height: number; selected: boolean;
   onPress: (e: React.PointerEvent, index: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const touched = useEngine((s) => s.touchedAt[`row:${index}`]);
-  const clips = doc.playlist.clips.filter((c) => c.row === index).length;
   const name = row.name || `Row ${index + 1}`;
   const update = (changes: Partial<PlaylistRow>, label: string) => void execute({ type: "updateRow", row: index, changes }, { label });
 
@@ -91,4 +91,4 @@ export function RowHeader({ row, index, doc, height, selected, onPress }: {
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+});

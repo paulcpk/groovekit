@@ -1,63 +1,87 @@
 import type { AudioClip, AutomationClip, AutomationPoint, PatternClip, Project } from "@groovekit/schema/project";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { rangePosition, rangeValue, targetRange } from "@/lib/automation";
+import { automatedEffect, rangePosition, rangeValue, targetRangeOf } from "@/lib/automation";
 import { useCatalogue } from "@/lib/catalogue";
 import { snapTo, startDrag } from "@/lib/drag";
-import { audioSource, patternLength } from "@/lib/model";
+import { fitSpeed } from "@/lib/fit";
+import { patternLoop, ticksPerBar } from "@/lib/model";
 import { drawPeaks, usePeaks } from "@/lib/peaks";
 import { execute, useEngine } from "@/state/engine";
 
-/** The pattern's notes, repeated over the clip: one row per channel and key, like a drum grid. */
-export const PatternContent = memo(function PatternContent({ clip, doc, width, height, color }: {
-  clip: PatternClip; doc: Project; width: number; height: number; color: string;
+// Each kind of content reads just what it needs from the song, so a clip is drawn again only
+// when its pattern, sample or curve changes, not on every change to the song.
+
+/** The pattern's notes, repeated over the clip: one row per channel and key, like a drum grid,
+    all in one path. */
+export const PatternContent = memo(function PatternContent({ clip, width, height, color }: {
+  clip: PatternClip; width: number; height: number; color: string;
 }) {
-  const pattern = doc.patterns.find((p) => p.id === clip.pattern);
+  const pattern = useEngine((s) => s.doc?.patterns.find((p) => p.id === clip.pattern));
+  // The channels' order, as a string so it only changes when the order does.
+  const channelOrder = useEngine((s) => s.doc?.channels.map((c) => c.id).join("\n") ?? "");
+  const bar = useEngine((s) => ticksPerBar(s.doc));
 
   const rows = useMemo(() => {
     if (!pattern) return [];
-    const order = new Map(doc.channels.map((c, i) => [c.id, i]));
+    const order = new Map(channelOrder.split("\n").map((id, i) => [id, i]));
     const keys = [...new Set(pattern.notes.map((n) => `${n.channel}:${n.key ?? 60}`))];
     keys.sort((a, b) => {
       const [ca, ka] = a.split(":"), [cb, kb] = b.split(":");
       return (order.get(ca) ?? 0) - (order.get(cb) ?? 0) || Number(kb) - Number(ka);
     });
     return keys;
-  }, [pattern, doc.channels]);
+  }, [pattern, channelOrder]);
 
-  if (!pattern || pattern.notes.length === 0 || height < 6) return null;
+  const path = useMemo(() => {
+    if (!pattern || pattern.notes.length === 0 || height < 6) return "";
+    const loop = patternLoop(pattern, bar);
+    const offset = clip.offset ?? 0;
+    const rowH = Math.min(6, height / Math.max(1, rows.length));
+    const top = (height - rowH * rows.length) / 2;
+    const index = new Map(rows.map((r, i) => [r, i]));
+    const h = Math.max(1, rowH - 1);
+    const parts: string[] = [];
+    let count = 0;
 
-  const loop = patternLength(pattern, doc);
-  const offset = clip.offset ?? 0;
-  const rowH = Math.min(6, height / Math.max(1, rows.length));
-  const top = (height - rowH * rows.length) / 2;
-  const index = new Map(rows.map((r, i) => [r, i]));
-  const rects = [];
-
-  for (let rep = Math.floor(offset / loop) * loop - offset; rep < clip.length; rep += loop) {
-    for (const n of pattern.notes) {
-      const start = rep + n.start;
-      if (start + n.length <= 0 || start >= clip.length) continue;
-      const row = index.get(`${n.channel}:${n.key ?? 60}`) ?? 0;
-      rects.push(
-        <rect key={`${rep}-${rects.length}`} x={(Math.max(0, start) / clip.length) * width} y={top + row * rowH}
-          width={Math.max(1.5, (Math.min(n.length, clip.length - start) / clip.length) * width - 0.5)} height={Math.max(1, rowH - 1)} rx={1} />,
-      );
-      if (rects.length > 4000) break;
+    for (let rep = Math.floor(offset / loop) * loop - offset; rep < clip.length; rep += loop) {
+      for (const n of pattern.notes) {
+        const start = rep + n.start;
+        if (start + n.length <= 0 || start >= clip.length) continue;
+        const row = index.get(`${n.channel}:${n.key ?? 60}`) ?? 0;
+        const x = (Math.max(0, start) / clip.length) * width;
+        const y = top + row * rowH;
+        const w = Math.max(1.5, (Math.min(n.length, clip.length - start) / clip.length) * width - 0.5);
+        // A rectangle with corners rounded by r.
+        const r = Math.min(1, w / 2, h / 2);
+        parts.push(`M${(x + r).toFixed(2)} ${y.toFixed(2)}h${(w - 2 * r).toFixed(2)}a${r} ${r} 0 0 1 ${r} ${r}v${(h - 2 * r).toFixed(2)}a${r} ${r} 0 0 1 -${r} ${r}h-${(w - 2 * r).toFixed(2)}a${r} ${r} 0 0 1 -${r} -${r}v-${(h - 2 * r).toFixed(2)}a${r} ${r} 0 0 1 ${r} -${r}z`);
+        if (++count > 4000) return parts.join("");
+      }
     }
-  }
+    return parts.join("");
+  }, [pattern, rows, bar, clip.offset, clip.length, width, height]);
+
+  if (!path) return null;
 
   return (
     <svg width={width} height={height} className="absolute left-0" style={{ fill: `color-mix(in srgb, ${color} 88%, white)` }}>
-      {rects}
+      <path d={path} />
     </svg>
   );
 });
 
 /** The part of the file the clip plays, with handles at its top corners that drag its fades. */
-export function AudioContent({ clip, doc, width, height, color }: {
-  clip: AudioClip; doc: Project; width: number; height: number; color: string;
+export const AudioContent = memo(function AudioContent({ clip, width, height, color }: {
+  clip: AudioClip; width: number; height: number; color: string;
 }) {
-  const { sample, reverse, sourceTempo, start: partStart, end: partEnd } = audioSource(doc, clip);
+  // The channel's first layer, which the clip plays; the same object until it changes.
+  const layer = useEngine((s) => {
+    const channel = s.doc?.channels.find((c) => c.id === clip.channel);
+    return channel?.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
+  });
+  const tempo = useEngine((s) => s.doc?.tempo ?? 120);
+  const sample = layer?.sample, reverse = !!layer?.reverse, partStart = layer?.start ?? 0, partEnd = layer?.end;
+  // The tempo the file plays at in the song when it's fitted to it (within the speed limit).
+  const sourceTempo = layer?.sourceTempo ? tempo / fitSpeed({ tempo }, layer.sourceTempo) : undefined;
   const peaks = usePeaks(sample);
   const canvas = useRef<HTMLCanvasElement>(null);
   // Drawn at the screen's own resolution, so it's sharp on a Retina display.
@@ -68,7 +92,7 @@ export function AudioContent({ clip, doc, width, height, color }: {
   useEffect(() => {
     if (!peaks || !canvas.current) return;
     // Stretched clips play a beat of the file per beat of the song.
-    const fileSecondsPerTick = 60 / ((sourceTempo ?? doc.tempo) * 960);
+    const fileSecondsPerTick = 60 / ((sourceTempo ?? tempo) * 960);
     const from = clip.offset ?? 0;
     const to = from + clip.length * fileSecondsPerTick;
     // The clip plays the layer's part of the file; reversed, its offset counts from the part's
@@ -76,10 +100,10 @@ export function AudioContent({ clip, doc, width, height, color }: {
     const end = partEnd ?? peaks.durationSeconds;
     if (reverse) drawPeaks(canvas.current, peaks, end - to, end - from, color);
     else drawPeaks(canvas.current, peaks, partStart + from, partStart + to, color);
-  }, [peaks, clip.offset, clip.length, sourceTempo, reverse, partStart, partEnd, doc.tempo, color, pixels, height, dpr]);
+  }, [peaks, clip.offset, clip.length, sourceTempo, reverse, partStart, partEnd, tempo, color, pixels, height, dpr]);
 
   if (height < 4) return null;
-  const ticksPerSecond = (doc.tempo * 960) / 60;
+  const ticksPerSecond = (tempo * 960) / 60;
   const pxPerSecond = (ticksPerSecond * width) / clip.length;
   const seconds = clip.length / ticksPerSecond;
   const fadeIn = (fades?.fadeIn ?? clip.fadeIn ?? 0) * pxPerSecond;
@@ -121,14 +145,15 @@ export function AudioContent({ clip, doc, width, height, color }: {
       )}
     </>
   );
-}
+});
 
 /** The automation curve, editable: drag points, double-click to add, Alt-click to remove. */
-export function AutomationContent({ clip, doc, width, height, color, pxPerTick, snap }: {
-  clip: AutomationClip; doc: Project; width: number; height: number; color: string; pxPerTick: number; snap: number;
+export const AutomationContent = memo(function AutomationContent({ clip, width, height, color, pxPerTick, snap }: {
+  clip: AutomationClip; width: number; height: number; color: string; pxPerTick: number; snap: number;
 }) {
   const catalogue = useCatalogue();
-  const range = targetRange(clip.target, doc, catalogue);
+  const effect = useEngine((s) => automatedEffect(clip.target, s.doc));
+  const range = useMemo(() => targetRangeOf(clip.target, effect, catalogue), [clip.target, effect, catalogue]);
   const pad = 4;
   const usable = Math.max(1, height - pad * 2);
   const toY = (v: number) => pad + (1 - rangePosition(range, v)) * usable;
@@ -181,7 +206,7 @@ export function AutomationContent({ clip, doc, width, height, color, pxPerTick, 
       ))}
     </svg>
   );
-}
+});
 
 /** A local preview of moved points while dragging; the engine's patch replaces it on release. */
 function patchPoints(doc: Project, clipId: string, points: AutomationPoint[]): Project {

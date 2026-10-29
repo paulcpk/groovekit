@@ -1,15 +1,17 @@
 import type { AudioClip, Channel, Clip, PatternClip, Project } from "@groovekit/schema/project";
 import { ChevronDown, Minus, Plus, ScrollText } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Button, IconButton } from "@/components/controls";
-import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
+import { ContextMenu, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
 import { fitSpeed } from "@/lib/fit";
 import { audioSource, baseName, colorFor, rowCount, patternLength, snapTicks, songEnd, ticksPerBar, ticksPerBeat, uniqueId } from "@/lib/model";
 import { getPeaks } from "@/lib/peaks";
+import { useStable } from "@/lib/useStable";
 import { execute, reportError, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
-import { ClipView } from "./ClipView";
+import { ClipMenu, ClipView, clipColor, clipName } from "./ClipView";
 import { HEADER_W, RULER_H, droppedSample, isSampleDrag, type DraggedSample, type Geometry } from "./geometry";
 import { GridLines } from "./GridLines";
 import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
@@ -34,9 +36,13 @@ interface RowRange {
   to: number;
 }
 
+/** A row the song hasn't set up yet. */
+const EMPTY_ROW = {};
+
 export function Playlist() {
   const doc = useEngine((s) => s.doc)!;
-  const { playlistZoom, rowHeight, snap, selectedClips } = useUi();
+  const { playlistZoom, rowHeight, snap, selectedClips } = useUi(useShallow((s) =>
+    ({ playlistZoom: s.playlistZoom, rowHeight: s.rowHeight, snap: s.snap, selectedClips: s.selectedClips })));
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [viewWidth, setViewWidth] = useState(1200);
@@ -44,16 +50,14 @@ export function Playlist() {
   const [rubber, setRubber] = useState<Rubber | null>(null);
   const [rows, setRows] = useState<RowRange | null>(null);
   const [rowDrag, setRowDrag] = useState<number | null>(null);
+  // The clip last right-clicked, for the one context menu all the clips share.
+  const [menu, setMenu] = useState<{ clipId: string; at: number } | null>(null);
   const rowAnchor = useRef(0);
   const clipAnchor = useRef<string | null>(null);
 
-  const g: Geometry = {
-    pxPerTick: playlistZoom / 960,
-    rowHeight,
-    snap: snapTicks(snap, doc),
-    bar: ticksPerBar(doc),
-    beat: ticksPerBeat(doc),
-  };
+  // The same object while nothing in it changes, so what takes it isn't drawn again.
+  const bar = ticksPerBar(doc), beat = ticksPerBeat(doc), snapStep = snapTicks(snap, doc);
+  const g: Geometry = useMemo(() => ({ pxPerTick: playlistZoom / 960, rowHeight, snap: snapStep, bar, beat }), [playlistZoom, rowHeight, snapStep, bar, beat]);
 
   // The timeline also grows with the playhead, in steps of 8 bars so it doesn't redraw while playing.
   const playedTo = useEngine((s) => Math.floor(s.transport.position / (8 * g.bar)) + 1) * 8 * g.bar;
@@ -97,7 +101,9 @@ export function Playlist() {
 
   // Pressing a row's header selects it (Shift: the rows from the last one pressed); dragging moves
   // the selected rows, with their clips, names, mute and solo, so nothing sounds different.
-  const beginRowDrag = (e: React.PointerEvent, index: number) => {
+  // (The handlers are stable, so the rows and clips, which take them, are drawn again only when
+  // they change themselves.)
+  const beginRowDrag = useStable((e: React.PointerEvent, index: number) => {
     let range: RowRange;
     if (e.shiftKey && rows) range = { from: Math.min(rowAnchor.current, index), to: Math.max(rowAnchor.current, index) };
     else if (rows && index >= rows.from && index <= rows.to) range = rows;
@@ -121,9 +127,9 @@ export function Playlist() {
       setRows({ from: range.from + dRows, to: range.to + dRows });
       rowAnchor.current += dRows;
     }, "grabbing");
-  };
+  });
 
-  const beginClipDrag = (e: React.PointerEvent, clip: Clip, edge: "left" | "right" | "body") => {
+  const beginClipDrag = useStable((e: React.PointerEvent, clip: Clip, edge: "left" | "right" | "body") => {
     e.stopPropagation();
     setRows(null);
     const current = useUi.getState().selectedClips;
@@ -167,7 +173,9 @@ export function Playlist() {
       setDrag(null);
       if (moved) void commitDrag(state, doc);
     }, mode === "resize" || mode === "trim" ? "ew-resize" : mode === "copy" ? "copy" : "grabbing");
-  };
+  });
+
+  const openClipMenu = useStable((clip: Clip, at: number) => setMenu({ clipId: clip.id, at }));
 
   const beginEmptyDrag = (e: React.PointerEvent, laneIndex: number) => {
     // Only presses on the lane itself, not ones bubbling up from a menu or dialog it owns.
@@ -200,12 +208,24 @@ export function Playlist() {
   };
 
   const gridStyle: React.CSSProperties = { width, height: g.rowHeight };
+  const clipsInRow = useMemo(() => {
+    const counts: number[] = [];
+    for (const clip of doc.playlist.clips) counts[clip.row] = (counts[clip.row] ?? 0) + 1;
+    return counts;
+  }, [doc.playlist.clips]);
 
   return (
     <div className="flex h-full flex-col bg-bg">
       <PlaylistToolbar doc={doc} />
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-auto">
-        <div ref={content} className="relative" style={{ width: HEADER_W + width, minHeight: "100%" }}>
+        {/* One context menu serves every clip: a right-click on a clip names it (openClipMenu)
+            and the menu opens; anywhere else, nothing opens. */}
+        <ContextMenu>
+        <ContextMenuTrigger asChild>
+        <div ref={content} className="relative" style={{ width: HEADER_W + width, minHeight: "100%" }}
+          onContextMenu={(e) => {
+            if (!(e.target as Element).closest("[data-clip]")) e.preventDefault();
+          }}>
           <div className="sticky top-0 z-20 flex" style={{ height: RULER_H }}>
             <div className="sticky left-0 z-10 flex shrink-0 items-end border-r border-b border-line bg-panel px-2 pb-1 text-2xs text-faint" style={{ width: HEADER_W }}>
               Playlist
@@ -216,7 +236,7 @@ export function Playlist() {
           <GridLines g={g} width={width} height={lanes.length * g.rowHeight} left={HEADER_W} top={RULER_H} />
           {lanes.map((laneClips, i) => (
             <div key={i} className="flex">
-              <RowHeader row={doc.playlist.rows[i] ?? {}} index={i} doc={doc} height={g.rowHeight}
+              <RowHeader row={doc.playlist.rows[i] ?? EMPTY_ROW} index={i} clips={clipsInRow[i] ?? 0} height={g.rowHeight}
                 selected={!!rows && i >= rows.from && i <= rows.to} onPress={beginRowDrag} />
               <div
                 className="relative border-b border-grid-strong"
@@ -249,11 +269,11 @@ export function Playlist() {
                 {laneClips.map(({ clip, start, length, ghost }) => (
                   <ClipView
                     key={clip.id + (ghost ? "-ghost" : "")}
-                    clip={clip} doc={doc} ghost={ghost}
+                    clip={clip} color={clipColor(clip, doc)} name={clipName(clip, doc)} ghost={ghost}
                     left={start * g.pxPerTick} width={length * g.pxPerTick} height={g.rowHeight - 2}
                     selected={selectedClips.includes(clip.id)}
                     pxPerTick={g.pxPerTick} snap={g.snap}
-                    onPointerDown={beginClipDrag}
+                    onPointerDown={beginClipDrag} onMenu={openClipMenu}
                   />
                 ))}
               </div>
@@ -283,6 +303,9 @@ export function Playlist() {
           )}
           <Playhead pxPerTick={g.pxPerTick} scroller={scroller} />
         </div>
+        </ContextMenuTrigger>
+        {menu && <ClipMenu clipId={menu.clipId} at={menu.at} />}
+        </ContextMenu>
       </div>
     </div>
   );
@@ -290,7 +313,8 @@ export function Playlist() {
 
 //==============================================================================
 function PlaylistToolbar({ doc }: { doc: Project }) {
-  const { selectedPattern, playlistZoom, rowHeight, followPlayhead } = useUi();
+  const { selectedPattern, playlistZoom, rowHeight, followPlayhead } = useUi(useShallow((s) =>
+    ({ selectedPattern: s.selectedPattern, playlistZoom: s.playlistZoom, rowHeight: s.rowHeight, followPlayhead: s.followPlayhead })));
   const pattern = doc.patterns.find((p) => p.id === selectedPattern);
 
   return (
@@ -329,7 +353,8 @@ function PlaylistToolbar({ doc }: { doc: Project }) {
   );
 }
 
-/** ⌘/Ctrl + wheel zooms around the pointer. */
+/** ⌘/Ctrl + wheel zooms around the pointer. A trackpad sends many wheel events a frame; they're
+    added up and applied once per frame, since each zoom step redraws every clip. */
 function useZoomWheel(scroller: React.RefObject<HTMLDivElement | null>, pxPerTick: number) {
   const current = useRef(pxPerTick);
   current.current = pxPerTick;
@@ -337,14 +362,26 @@ function useZoomWheel(scroller: React.RefObject<HTMLDivElement | null>, pxPerTic
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
+    let pending: { deltaY: number; clientX: number } | undefined;
+
+    const apply = () => {
+      const { deltaY, clientX } = pending!;
+      pending = undefined;
+      const x = clientX - el.getBoundingClientRect().left - HEADER_W + el.scrollLeft;
+      const tick = x / current.current;
+      const zoom = Math.min(400, Math.max(2, useUi.getState().playlistZoom * Math.exp(-deltaY * 0.004)));
+      setUi({ playlistZoom: zoom });
+      requestAnimationFrame(() => (el.scrollLeft = tick * (zoom / 960) - (x - el.scrollLeft)));
+    };
+
     const onWheel = (e: WheelEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
       e.preventDefault();
-      const x = e.clientX - el.getBoundingClientRect().left - HEADER_W + el.scrollLeft;
-      const tick = x / current.current;
-      const zoom = Math.min(400, Math.max(2, useUi.getState().playlistZoom * Math.exp(-e.deltaY * 0.004)));
-      setUi({ playlistZoom: zoom });
-      requestAnimationFrame(() => (el.scrollLeft = tick * (zoom / 960) - (x - el.scrollLeft)));
+      if (pending) pending = { deltaY: pending.deltaY + e.deltaY, clientX: e.clientX };
+      else {
+        pending = { deltaY: e.deltaY, clientX: e.clientX };
+        requestAnimationFrame(apply);
+      }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);

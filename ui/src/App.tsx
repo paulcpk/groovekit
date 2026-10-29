@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { BottomDock } from "@/features/dock/BottomDock";
 import { Playlist } from "@/features/playlist/Playlist";
 import { Sidebar } from "@/features/sidebar/Sidebar";
@@ -24,18 +25,14 @@ export function App() {
   const status = useEngine((s) => s.status);
   const error = useEngine((s) => s.error);
   const hasDoc = useEngine((s) => s.doc !== undefined);
-  const { sidebarOpen, sidebarWidth, bottomOpen, bottomHeight: chosenHeight, bottomPanel } = useUi();
+  const { sidebarOpen, sidebarWidth, bottomOpen, bottomHeight: chosenHeight, bottomPanel } = useUi(useShallow((s) =>
+    ({ sidebarOpen: s.sidebarOpen, sidebarWidth: s.sidebarWidth, bottomOpen: s.bottomOpen, bottomHeight: s.bottomHeight, bottomPanel: s.bottomPanel })));
   // The mixer needs room for its faders.
   const bottomHeight = bottomPanel === "mixer" ? Math.max(chosenHeight, 420) : chosenHeight;
-  useShortcuts();
-  useDefaultSelection();
-  useLiveChannel();
-  useAgentConversation();
-  useTypingKeyboard();
-  useQuitGuard();
 
   return (
     <div className="flex h-full flex-col">
+      <AppHooks />
       <TopBar />
       <EngineVersionBanner />
       <div className="flex min-h-0 flex-1 border-t border-line">
@@ -88,14 +85,36 @@ export function App() {
   );
 }
 
-/** Keeps a pattern and channel selected while the song has any. */
-function useDefaultSelection() {
-  const doc = useEngine((s) => s.doc);
-  const { selectedPattern, selectedChannel } = useUi();
+/** The app's behaviour that isn't drawn: shortcuts, the keyboards, the agent's conversation. In
+    a component of its own, so what these watch (the selected channel, say) re-renders nothing
+    but it, not the whole app. */
+function AppHooks() {
+  useShortcuts();
+  useDefaultSelection();
+  useLiveChannel();
+  useAgentConversation();
+  useTypingKeyboard();
+  useQuitGuard();
+  return null;
+}
 
+/** Keeps a pattern and channel selected while the song has any. Watches the stores directly, so
+    a change to the song doesn't render the whole app. */
+function useDefaultSelection() {
   useEffect(() => {
-    if (!doc) return;
-    if (!doc.patterns.some((p) => p.id === selectedPattern)) setUi({ selectedPattern: doc.patterns[0]?.id });
-    if (!doc.channels.some((c) => c.id === selectedChannel)) setUi({ selectedChannel: doc.channels[0]?.id });
-  }, [doc, selectedPattern, selectedChannel]);
+    const check = () => {
+      const doc = useEngine.getState().doc;
+      if (!doc) return;
+      const { selectedPattern, selectedChannel } = useUi.getState();
+      if (!doc.patterns.some((p) => p.id === selectedPattern)) setUi({ selectedPattern: doc.patterns[0]?.id });
+      if (!doc.channels.some((c) => c.id === selectedChannel)) setUi({ selectedChannel: doc.channels[0]?.id });
+    };
+    check();
+    const unsubscribeEngine = useEngine.subscribe((s, previous) => s.doc !== previous.doc && check());
+    const unsubscribeUi = useUi.subscribe((s, previous) => (s.selectedPattern !== previous.selectedPattern || s.selectedChannel !== previous.selectedChannel) && check());
+    return () => {
+      unsubscribeEngine();
+      unsubscribeUi();
+    };
+  }, []);
 }

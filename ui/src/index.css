@@ -100,3 +100,15 @@ input, textarea {
 }
 
 .tabular { font-variant-numeric: tabular-nums; }
+
+/* The channel rack's step playing now, marked by the rack itself as the pattern plays. */
+.step-pad { position: relative; }
+.step-pad[data-playing] { filter: brightness(1.5); }
+.step-pad[data-playing]::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.6);
+  pointer-events: none;
+}

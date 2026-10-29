@@ -14,7 +14,7 @@ export function fitMode(layer: SamplerLayer | undefined): FitMode {
 }
 
 /** How much faster than recorded a layer plays in the song. */
-export function fitSpeed(doc: Project, sourceTempo: number | undefined) {
+export function fitSpeed(doc: Pick<Project, "tempo">, sourceTempo: number | undefined) {
   return sourceTempo ? Math.min(MAX_SPEED, Math.max(1 / MAX_SPEED, doc.tempo / sourceTempo)) : 1;
 }
 

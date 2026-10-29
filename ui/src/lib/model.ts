@@ -31,8 +31,12 @@ export function formatTime(seconds: number) {
 
 /** The loop length the engine uses: the pattern's own, or its last note's end rounded up to a bar. */
 export function patternLength(pattern: Pattern, doc: Project | undefined) {
+  return patternLoop(pattern, ticksPerBar(doc));
+}
+
+/** The same, given the bar length in ticks. */
+export function patternLoop(pattern: Pattern, bar: number) {
   if (pattern.length) return pattern.length;
-  const bar = ticksPerBar(doc);
   const end = pattern.notes.reduce((m, n) => Math.max(m, n.start + n.length), 0);
   return Math.max(bar, Math.ceil(end / bar) * bar);
 }

@@ -6,12 +6,14 @@ import { Automatable } from "@/features/playlist/Automatable";
 import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { formatDb, formatPan, insertName } from "@/lib/model";
-import { execute } from "@/state/engine";
+import { execute, useEngine } from "@/state/engine";
 import { routeToNewInsert } from "./channels";
 
 /** The inserts a channel can play into, as dropdown items. */
-export function InsertItems({ doc, channel }: { doc: Project; channel: Channel }) {
+export function InsertItems({ channel }: { channel: Channel }) {
+  const doc = useEngine((s) => s.doc);
   const current = channel.insert ?? "master";
+  if (!doc) return null;
   return (
     <>
       <DropdownLabel>Plays into mixer insert</DropdownLabel>
@@ -51,7 +53,7 @@ export function ChannelBar({ doc, channel }: { doc: Project; channel: Channel })
             </button>
           </DropdownTrigger>
           <DropdownContent>
-            <InsertItems doc={doc} channel={channel} />
+            <InsertItems channel={channel} />
           </DropdownContent>
         </Dropdown>
       </div>

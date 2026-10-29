@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { ChevronDown, Circle, Ellipsis, KeyboardMusic, Layers, ListMusic, Metronome, Pause, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
 import { Button, DragNumber, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownSub, DropdownTrigger } from "@/components/menu";
@@ -64,8 +65,11 @@ function PlayMode() {
 }
 
 function TransportButtons() {
-  const { playing, recording, mode, metronome, countInBars = 0 } = useEngine((s) => s.transport);
-  const { looping, typingKeyboard, keyboardOctave, recordQuantize } = useUi();
+  // Only what the buttons show: the transport reports its position thirty times a second.
+  const { playing, recording, mode, metronome, countInBars = 0 } = useEngine(useShallow((s) =>
+    ({ playing: s.transport.playing, recording: s.transport.recording, mode: s.transport.mode, metronome: s.transport.metronome, countInBars: s.transport.countInBars })));
+  const { looping, typingKeyboard, keyboardOctave, recordQuantize } = useUi(useShallow((s) =>
+    ({ looping: s.looping, typingKeyboard: s.typingKeyboard, keyboardOctave: s.keyboardOctave, recordQuantize: s.recordQuantize })));
 
   return (
     <div className="flex items-center gap-0.5">
@@ -198,7 +202,7 @@ function SnapMenu() {
 }
 
 function PanelToggles() {
-  const { bottomPanel, bottomOpen, sidebarOpen } = useUi();
+  const { bottomPanel, bottomOpen, sidebarOpen } = useUi(useShallow((s) => ({ bottomPanel: s.bottomPanel, bottomOpen: s.bottomOpen, sidebarOpen: s.sidebarOpen })));
   const show = (panel: BottomPanel) => setUi(bottomOpen && bottomPanel === panel ? { bottomOpen: false } : { bottomOpen: true, bottomPanel: panel });
 
   return (

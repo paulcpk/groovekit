@@ -27,6 +27,17 @@ export function rangeValue(r: Range, t: number) {
 
 /** The value range of what an automation clip drives, in the parameter's own units. */
 export function targetRange(target: AutomationTarget, doc: Project | undefined, catalogue: Catalogue | undefined): Range {
+  return targetRangeOf(target, automatedEffect(target, doc), catalogue);
+}
+
+/** The effect an automation target drives, if it drives one. */
+export function automatedEffect(target: AutomationTarget, doc: Project | undefined) {
+  if (target.scope !== "effect") return undefined;
+  return doc?.mixer.inserts.find((i) => i.id === target.insert)?.effects?.find((e) => e.id === target.effect);
+}
+
+/** The range, given the effect the target drives (automatedEffect). */
+export function targetRangeOf(target: AutomationTarget, effect: ReturnType<typeof automatedEffect>, catalogue: Catalogue | undefined): Range {
   if (target.param === "pan") return { min: -1, max: 1, unit: "", default: 0 };
   if (target.scope === "channel" && channelParams[target.param]) return channelParams[target.param].range;
   if (target.scope === "channel" && target.param !== "volume") return { min: 0, max: 1, unit: "", default: 0.5 };
@@ -35,8 +46,6 @@ export function targetRange(target: AutomationTarget, doc: Project | undefined, 
 
   if (target.param === "mix") return { min: 0, max: 1, unit: "", default: 1 };
 
-  const insert = doc?.mixer.inserts.find((i) => i.id === target.insert);
-  const effect = insert?.effects?.find((e) => e.id === target.effect);
   if (effect?.type === "builtin") {
     const p = catalogue?.[effect.kind]?.params[target.param];
     if (p) return { min: p.min, max: p.max, unit: p.unit, default: p.default, log: p.unit === "Hz" && p.min > 0 };
@@ -76,8 +85,56 @@ export function targetLabel(target: AutomationTarget, doc: Project | undefined) 
 //==============================================================================
 // What automation sets a parameter to at a moment, so controls turn with it as the song plays.
 
-function sameTarget(a: AutomationTarget, b: AutomationTarget) {
-  return a.scope === b.scope && a.param === b.param && a.channel === b.channel && a.insert === b.insert && a.effect === b.effect && a.send === b.send;
+interface Point {
+  at: number;
+  value: number;
+  curve: number;
+  /** Which clip of the target's the point is from, in order of time. */
+  clip: number;
+}
+
+/** Every automated target in a song with its points in order, as the engine plays them: the
+    points of all its clips (muted clips and rows aside, a solo leaving only soloed rows). Built
+    once per document, since many controls ask thirty times a second as the song plays. */
+interface Index {
+  points: Map<string, Point[]>;
+  targets: AutomationTarget[];
+}
+
+const indexes = new WeakMap<Project, Index>();
+
+function keyOf(t: AutomationTarget) {
+  return `${t.scope}|${t.param}|${t.channel ?? ""}|${t.insert ?? ""}|${t.effect ?? ""}|${t.send ?? ""}`;
+}
+
+function automationIndex(doc: Project): Index {
+  const cached = indexes.get(doc);
+  if (cached) return cached;
+
+  const rows = doc.playlist.rows ?? [];
+  const anySolo = rows.some((r) => r?.solo);
+  const heard = (row: number) => !(rows[row]?.mute || (anySolo && !rows[row]?.solo));
+  const clips = new Map<string, { start: number; points: { time: number; value: number; curve?: number }[] }[]>();
+  const targets = new Map<string, AutomationTarget>();
+
+  for (const c of doc.playlist.clips) {
+    if (c.type !== "automation" || c.mute || !heard(c.row)) continue;
+    const points = c.points.filter((p) => p.time < c.length).sort((a, b) => a.time - b.time);
+    if (points.length === 0) continue;
+    const key = keyOf(c.target);
+    const list = clips.get(key) ?? [];
+    list.push({ start: c.start, points });
+    clips.set(key, list);
+    targets.set(key, c.target);
+  }
+
+  const index: Index = { points: new Map(), targets: [...targets.values()] };
+  for (const [key, list] of clips) {
+    list.sort((a, b) => a.start + a.points[0].time - (b.start + b.points[0].time));
+    index.points.set(key, list.flatMap(({ start, points }, i) => points.map((p) => ({ at: start + p.time, value: p.value, curve: p.curve ?? 0, clip: i }))));
+  }
+  indexes.set(doc, index);
+  return index;
 }
 
 /** A segment shaped like the engine's: straight, or a quadratic bezier through a control point
@@ -100,23 +157,12 @@ function segment(x1: number, y1: number, x2: number, y2: number, curve: number, 
 }
 
 /** The value automation gives a target at a tick, or undefined when no automation clip that's
-    heard drives it. As in the engine: the points of all its clips (muted clips and rows aside, a
-    solo leaving only soloed rows), the first value before the first point, a clip's last value
-    held until the next clip's first point, the last value after the end. */
+    heard drives it: the first value before the first point, a clip's last value held until the
+    next clip's first point, the last value after the end. */
 export function automationValueAt(doc: Project | undefined, target: AutomationTarget, tick: number): number | undefined {
   if (!doc) return undefined;
-  const rows = doc.playlist.rows ?? [];
-  const anySolo = rows.some((r) => r?.solo);
-  const heard = (row: number) => !(rows[row]?.mute || (anySolo && !rows[row]?.solo));
-
-  const clips = doc.playlist.clips
-    .flatMap((c) => (c.type === "automation" && !c.mute && heard(c.row) && sameTarget(c.target, target) ? [c] : []))
-    .map((c) => ({ c, points: [...c.points].filter((p) => p.time < c.length).sort((a, b) => a.time - b.time) }))
-    .filter((x) => x.points.length > 0)
-    .sort((a, b) => a.c.start + a.points[0].time - (b.c.start + b.points[0].time));
-
-  const points = clips.flatMap(({ c, points }, i) => points.map((p) => ({ at: c.start + p.time, value: p.value, curve: p.curve ?? 0, clip: i })));
-  if (points.length === 0) return undefined;
+  const points = automationIndex(doc).points.get(keyOf(target));
+  if (!points) return undefined;
   if (tick <= points[0].at) return points[0].value;
 
   for (let i = 0; i + 1 < points.length; i++) {
@@ -141,13 +187,11 @@ export function useAutomatedEffect<E extends { id: string; mix?: number; params?
   const values = useEngine((s) => {
     const doc = s.doc;
     if (!doc) return "";
-    const params = new Set<string>();
-    for (const c of doc.playlist.clips)
-      if (c.type === "automation" && c.target.scope === "effect" && c.target.insert === insert && c.target.effect === effect.id) params.add(c.target.param);
     const out: Record<string, number> = {};
-    for (const param of params) {
-      const v = automationValueAt(doc, { scope: "effect", insert, effect: effect.id, param }, s.transport.position);
-      if (v !== undefined) out[param] = v;
+    for (const target of automationIndex(doc).targets) {
+      if (target.scope !== "effect" || target.insert !== insert || target.effect !== effect.id) continue;
+      const v = automationValueAt(doc, target, s.transport.position);
+      if (v !== undefined) out[target.param] = v;
     }
     return JSON.stringify(out);
   });

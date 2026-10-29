@@ -1,6 +1,6 @@
-import type { Effect, Insert, Project } from "@groovekit/schema/project";
+import type { Effect, Insert } from "@groovekit/schema/project";
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Knob, ToggleChip } from "@/components/controls";
 import { Fader, Meter } from "@/components/fader";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownTrigger } from "@/components/menu";
@@ -20,27 +20,24 @@ export function effectName(effect: Effect) {
   return effect.type === "builtin" ? effectNames[effect.kind] ?? effect.kind : effect.plugin.name;
 }
 
-export function Strip({ doc, insert, index, selected, onSelect }: {
-  doc: Project; insert: Insert; index: number; selected: boolean; onSelect: () => void;
+/** A strip is drawn again only when its insert, place or selection changes; its meter, pan and
+    fader follow the levels and automation on their own. */
+export const Strip = memo(function Strip({ insert, index, selected, onSelect }: {
+  insert: Insert; index: number; selected: boolean; onSelect: (insert: string) => void;
 }) {
-  const levels = useEngine((s) => s.levels.inserts[insert.id]) ?? [0, 0];
   const touched = useEngine((s) => s.touchedAt[insert.id]);
-  const [liveDb, setLiveDb] = useState<number | null>(null);
   const master = insert.id === "master";
   const color = master ? "#d6d6db" : colorFor(insert.id, insert.color);
   const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateInsert", insert: insert.id, changes }, { label });
-  const automatedDb = useAutomated({ scope: "insert", insert: insert.id, param: "volume" }, insert.volumeDb ?? 0);
-  const automatedPan = useAutomated({ scope: "insert", insert: insert.id, param: "pan" }, insert.pan ?? 0);
-  const db = liveDb ?? automatedDb;
-  const feeders = doc.channels.filter((c) => (c.insert ?? "master") === insert.id).length;
+  const feeders = useEngine((s) => s.doc?.channels.filter((c) => (c.insert ?? "master") === insert.id).length ?? 0);
   const [faderArea, faderAreaHeight] = useHeight<HTMLDivElement>();
-  const volume = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { volumeDb: v } }), `${insertName(insert, index)} volume`);
-  const pan = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan insert");
   const faderH = Math.max(20, faderAreaHeight - 4);
+  // The fader's value while it's dragged, for the reading below.
+  const [liveDb, setLiveDb] = useState<number | null>(null);
 
   return (
     <div className={cn("relative flex h-full w-[92px] shrink-0 flex-col bg-panel", selected && "bg-raised", insert.mute && "opacity-70")}
-      onPointerDownCapture={onSelect}>
+      onPointerDownCapture={() => onSelect(insert.id)}>
       {selected && <span className="pointer-events-none absolute inset-0 z-10 ring-1 ring-accent/70 ring-inset" />}
       <StripName insert={insert} index={index} color={color} />
 
@@ -57,45 +54,16 @@ export function Strip({ doc, insert, index, selected, onSelect }: {
           <div className="truncate text-[9px] text-[#58b7d6]">→ {insert.sends!.length} send{insert.sends!.length === 1 ? "" : "s"}</div>
         )}
       </div>
-      {master ? <div className="h-[20px] shrink-0" /> : <OutputPicker doc={doc} insert={insert} />}
+      {master ? <div className="h-[20px] shrink-0" /> : <OutputPicker insert={insert} />}
 
-      <div className="flex shrink-0 justify-center py-1.5">
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <div>
-              <Knob size={26} value={automatedPan} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan}
-                onChange={pan.onChange} onCommit={pan.onCommit} />
-            </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent>
-            <ContextMenuItem onSelect={() => void createAutomation(doc, { scope: "insert", insert: insert.id, param: "pan" }, insert.pan ?? 0)}>Create automation clip</ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
+      <StripPan insert={insert} />
+
+      <div ref={faderArea} className="flex min-h-0 flex-1">
+        <StripFader insert={insert} index={index} height={faderH} onLive={setLiveDb} />
       </div>
 
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div ref={faderArea} className="flex min-h-0 flex-1 items-end justify-center gap-1.5 px-2">
-            <Fader db={automatedDb} height={faderH}
-              onChange={(v) => {
-                setLiveDb(v);
-                volume.onChange(v);
-              }}
-              onCommit={(v) => {
-                setLiveDb(null);
-                volume.onCommit(v);
-              }} />
-            <Meter left={levels[0]} right={levels[1]} height={faderH - 6} />
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onSelect={() => update({ volumeDb: 0 }, "Reset volume")}>Reset to 0 dB</ContextMenuItem>
-          <ContextMenuItem onSelect={() => void createAutomation(doc, { scope: "insert", insert: insert.id, param: "volume" }, insert.volumeDb ?? 0)}>Create automation clip</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-
       <div className="flex shrink-0 items-center justify-between px-2 py-1.5">
-        <span className="font-mono text-2xs text-dim tabular">{formatDb(db)}</span>
+        <StripReading insert={insert} liveDb={liveDb} />
         <div className="flex gap-0.5">
           {!master && (
             <ToggleChip on={!!insert.solo} label="S" title={insert.solo ? "Unsolo" : "Solo: hear only this insert, with what feeds it and what it feeds"}
@@ -112,6 +80,77 @@ export function Strip({ doc, insert, index, selected, onSelect }: {
       )}
     </div>
   );
+});
+
+/** The insert's meter, on its own so the levels (thirty times a second) redraw only it. */
+function StripMeter({ insert, height }: { insert: string; height: number }) {
+  const levels = useEngine((s) => s.levels.inserts[insert]) ?? [0, 0];
+  return <Meter left={levels[0]} right={levels[1]} height={height} />;
+}
+
+/** The pan knob, turning with its automation as the song plays. */
+function StripPan({ insert }: { insert: Insert }) {
+  const automatedPan = useAutomated({ scope: "insert", insert: insert.id, param: "pan" }, insert.pan ?? 0);
+  const pan = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan insert");
+
+  return (
+    <div className="flex shrink-0 justify-center py-1.5">
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <Knob size={26} value={automatedPan} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan}
+              onChange={pan.onChange} onCommit={pan.onCommit} />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => {
+            const doc = useEngine.getState().doc;
+            if (doc) void createAutomation(doc, { scope: "insert", insert: insert.id, param: "pan" }, insert.pan ?? 0);
+          }}>Create automation clip</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    </div>
+  );
+}
+
+/** The fader with its meter, moving with its automation as the song plays; onLive gets the
+    value while it's dragged, null on release. */
+function StripFader({ insert, index, height, onLive }: { insert: Insert; index: number; height: number; onLive: (db: number | null) => void }) {
+  const automatedDb = useAutomated({ scope: "insert", insert: insert.id, param: "volume" }, insert.volumeDb ?? 0);
+  const volume = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { volumeDb: v } }), `${insertName(insert, index)} volume`);
+  const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateInsert", insert: insert.id, changes }, { label });
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="flex min-h-0 flex-1 items-end justify-center gap-1.5 px-2">
+          <Fader db={automatedDb} height={height}
+            onChange={(v) => {
+              onLive(v);
+              volume.onChange(v);
+            }}
+            onCommit={(v) => {
+              onLive(null);
+              volume.onCommit(v);
+            }} />
+          <StripMeter insert={insert.id} height={height - 6} />
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => update({ volumeDb: 0 }, "Reset volume")}>Reset to 0 dB</ContextMenuItem>
+        <ContextMenuItem onSelect={() => {
+          const doc = useEngine.getState().doc;
+          if (doc) void createAutomation(doc, { scope: "insert", insert: insert.id, param: "volume" }, insert.volumeDb ?? 0);
+        }}>Create automation clip</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+/** The fader's reading: the value being dragged, else the automated or set one. */
+function StripReading({ insert, liveDb }: { insert: Insert; liveDb: number | null }) {
+  const automatedDb = useAutomated({ scope: "insert", insert: insert.id, param: "volume" }, insert.volumeDb ?? 0);
+  return <span className="font-mono text-2xs text-dim tabular">{formatDb(liveDb ?? automatedDb)}</span>;
 }
 
 function StripName({ insert, index, color }: { insert: Insert; index: number; color: string }) {
@@ -173,20 +212,21 @@ function StripName({ insert, index, color }: { insert: Insert; index: number; co
   );
 }
 
-function OutputPicker({ doc, insert }: { doc: Project; insert: Insert }) {
+function OutputPicker({ insert }: { insert: Insert }) {
+  const inserts = useEngine((s) => s.doc?.mixer.inserts ?? []);
   const output = insert.output ?? "master";
-  const index = doc.mixer.inserts.findIndex((i) => i.id === output);
+  const index = inserts.findIndex((i) => i.id === output);
   return (
     <Dropdown>
       <DropdownTrigger asChild>
         <button type="button" className="mx-1.5 flex h-[20px] shrink-0 items-center gap-1 rounded-[3px] bg-control px-1 text-2xs text-dim hover:text-fg" title="Output">
-          <span className="flex-1 truncate text-left">→ {insertName(doc.mixer.inserts[index], index)}</span><ChevronDown size={9} />
+          <span className="flex-1 truncate text-left">→ {insertName(inserts[index], index)}</span><ChevronDown size={9} />
         </button>
       </DropdownTrigger>
       <DropdownContent>
         <DropdownLabel>Output to</DropdownLabel>
-        {doc.mixer.inserts.filter((i) => i.id !== insert.id).map((t) => {
-          const i = doc.mixer.inserts.indexOf(t);
+        {inserts.filter((i) => i.id !== insert.id).map((t) => {
+          const i = inserts.indexOf(t);
           return (
             <DropdownItem key={t.id} checked={t.id === output}
               onSelect={() => void execute({ type: "updateInsert", insert: insert.id, changes: { output: t.id === "master" ? null : t.id } }, { label: `Route to ${insertName(t, i)}` })}>
