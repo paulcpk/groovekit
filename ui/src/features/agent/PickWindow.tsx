@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { call, listen, useEngine } from "@/state/engine";
 import { closeWindow, openWindow, type OpenWindow } from "@/state/windows";
 
-/** A choice the agent puts to the user: two to four sounds to pick from by ear. */
+/** A choice the agent puts to the user: two to ten sounds to pick from by ear. */
 export interface Offer {
   id: number;
   title: string;
@@ -28,7 +28,7 @@ listen("picks", (params: Offer | { id: number; choice: number }) => {
   }
 });
 
-const LETTERS = ["A", "B", "C", "D"];
+const LETTERS = "ABCDEFGHIJ".split("");
 const name = (path: string) => path.replace(/^.*\//, "").replace(/\.[^.]+$/, "");
 
 /** Plays a file (from a time in it), or stops it when it's the one playing. */
@@ -45,6 +45,8 @@ function usePlayer() {
 export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }) {
   const [offer, setOffer] = useState<Offer | undefined>(() => offers.get(id));
   const { previewing, play } = usePlayer();
+  const [other, setOther] = useState(false);
+  const [note, setNote] = useState("");
   useStopPreviewsOnClose();
 
   // Opened again after a reload: ask the engine.
@@ -52,10 +54,12 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
     if (!offer) void call<{ offer: Offer; status: string }>("picks.get", { id }).then((r) => (r.status === "waiting" ? setOffer(r.offer) : closeWindow(w.key)), () => closeWindow(w.key));
   }, [id, offer, w.key]);
 
-  const choose = (choice: number) => {
+  // "Other" goes back to the agent with what the user wants instead.
+  const choose = (choice: number, text?: string) => {
     void stopPreview();
-    void call("picks.choose", { id, choice }).then(() => closeWindow(w.key), () => {});
+    void call("picks.choose", { id, choice, ...(text ? { note: text } : {}) }).then(() => closeWindow(w.key), () => {});
   };
+  const sendOther = () => note.trim() && choose(-1, note.trim());
 
   return (
     <FloatingWindow window={w} width={420} accent="var(--color-agent)"
@@ -71,6 +75,7 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
               <span className="min-w-0 flex-1 truncate text-xs text-fg">{offer.reference.title ?? name(offer.reference.file)}</span>
             </button>
           )}
+          <div className="-mx-1 flex max-h-[52vh] flex-col gap-2 overflow-y-auto px-1 py-0.5">
           {offer.candidates.map((c, i) => {
             const file = c.audition ?? c.path;
             const playing = previewing === file;
@@ -88,10 +93,34 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
               </div>
             );
           })}
-          <div className="flex items-center gap-2 pt-1">
-            <span className="flex-1 text-2xs text-faint">Your pick counts as fitting {offer.style ?? "the style"} from now on.</span>
-            <button type="button" onClick={() => choose(-1)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">None of these</button>
           </div>
+          {other ? (
+            <div className="flex flex-col gap-1.5 pt-1">
+              <textarea autoFocus rows={3} value={note} onChange={(e) => setNote(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendOther();
+                  }
+                  if (e.key === "Escape") setOther(false);
+                }}
+                placeholder="What should it look for instead? e.g. only hat loops, not whole drum loops"
+                className="w-full resize-none rounded-[6px] bg-bg px-2 py-1.5 text-xs text-fg outline-none ring-1 ring-line placeholder:text-faint focus:ring-agent" />
+              <div className="flex items-center gap-2">
+                <span className="flex-1 text-2xs text-faint">The agent searches again with this. Nothing counts against these sounds.</span>
+                <button type="button" onClick={() => setOther(false)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Cancel</button>
+                <button type="button" disabled={!note.trim()} onClick={sendOther}
+                  className="h-6 rounded-[4px] bg-agent px-2.5 text-xs text-black hover:brightness-110 disabled:opacity-40">Send to agent</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 pt-1">
+              <span className="flex-1 text-2xs text-faint">Your pick counts as fitting {offer.style ?? "the style"} from now on.</span>
+              <button type="button" onClick={() => setOther(true)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Other…</button>
+              <button type="button" onClick={() => choose(-1)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">None of these</button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="p-3 text-xs text-faint">…</div>

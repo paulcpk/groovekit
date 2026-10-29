@@ -90,6 +90,7 @@ private:
     {
         model::Json offer;
         std::optional<int> choice;
+        std::string note;               // "Other": what the user wants instead, in their words
     };
 
     std::map<int, Offer> offers;

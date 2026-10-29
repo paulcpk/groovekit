@@ -12,6 +12,7 @@ import { createTools, instructions, type AgentTool } from "./tools";
 
 const MODEL = "claude-opus-5-5";
 const KEY_STORAGE = "groovekit.anthropicApiKey";
+const CHOICES_STORAGE = "groovekit.agentChoices";
 
 const SYSTEM = `${instructions}
 
@@ -64,6 +65,29 @@ export function setApiKey(key: string) {
 }
 
 export const useApiKey = create<{ key: string }>(() => ({ key: getApiKey() }));
+
+/** How many sounds the agent puts to the user when they pick by ear: 5 unless set (2 to 10). */
+export const DEFAULT_CHOICES = 5;
+
+function loadChoices() {
+  try {
+    const n = Number(localStorage.getItem(CHOICES_STORAGE));
+    return n >= 2 && n <= 10 ? n : DEFAULT_CHOICES;
+  } catch {
+    return DEFAULT_CHOICES;
+  }
+}
+
+export const useAgentChoices = create<{ choices: number }>(() => ({ choices: loadChoices() }));
+
+export function setAgentChoices(choices: number) {
+  try {
+    localStorage.setItem(CHOICES_STORAGE, String(choices));
+  } catch {
+    // Kept until the app closes.
+  }
+  useAgentChoices.setState({ choices });
+}
 
 //==============================================================================
 // Conversations, kept by the engine.
@@ -270,7 +294,8 @@ export async function send(text: string, resume = false) {
 
   try {
     const [notes, guide] = await Promise.all([notesForAgent(), guideForAgent()]);
-    const system = [SYSTEM, guide, notes].filter(Boolean).join("\n\n");
+    const choices = `When the user picks sounds by ear (offer_choice), offer ${useAgentChoices.getState().choices} candidates, as they've set in GrooveKit's settings; fewer only when there aren't that many good ones.`;
+    const system = [SYSTEM, choices, guide, notes].filter(Boolean).join("\n\n");
 
     while (!controller.signal.aborted) {
       const stream = client.beta.messages.stream(

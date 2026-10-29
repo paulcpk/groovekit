@@ -2732,8 +2732,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
         {
             const auto candidates = params.value ("candidates", Json::array());
 
-            if (candidates.empty() || candidates.size() > 4)
-                throw RpcError (invalidParams, "candidates: one to four");
+            if (candidates.empty() || candidates.size() > 10)
+                throw RpcError (invalidParams, "candidates: one to ten");
 
             const auto id = ++offerCount;
             auto offer = params;
@@ -2767,6 +2767,9 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             if (it->second.choice)
                 j["choice"] = *it->second.choice;
 
+            if (! it->second.note.empty())
+                j["note"] = it->second.note;
+
             return j;
         }
 
@@ -2774,14 +2777,20 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
         {
             const auto choice = static_cast<int> (optionalNumber (params, "choice").value_or (-1));
             const auto& candidates = it->second.offer["candidates"];
+            const auto note = juce::String (params.value ("note", std::string())).trim().substring (0, 2000).toStdString();
 
             if (choice >= static_cast<int> (candidates.size()))
                 throw RpcError (invalidParams, "choice: an index into the candidates, or -1 for none of them");
 
-            it->second.choice = choice;
+            if (! note.empty() && choice >= 0)
+                throw RpcError (invalidParams, "note: only with choice -1 (Other)");
 
-            // The pick fits the style; with none picked, none of them does. Passed over isn't a verdict.
-            if (listening != nullptr)
+            it->second.choice = choice;
+            it->second.note = note;
+
+            // The pick fits the style; with none picked, none of them does. Passed over isn't a verdict, and
+            // neither is "Other": the user wants another kind of sound, which says nothing about these.
+            if (listening != nullptr && note.empty())
             {
                 const auto style = it->second.offer.value ("style", std::string());
 
@@ -2797,8 +2806,13 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
                 }
             }
 
-            broadcast (notification ("picks", { { "id", id }, { "choice", choice } }).dump());
-            return { { "id", id }, { "choice", choice } };
+            Json chosen { { "id", id }, { "choice", choice } };
+
+            if (! note.empty())
+                chosen["note"] = note;
+
+            broadcast (notification ("picks", chosen).dump());
+            return chosen;
         }
 
         throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
@@ -2947,8 +2961,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             const auto bars = std::clamp (static_cast<int> (optionalNumber (params, "bars").value_or (4)), 1, 16);
             constexpr double rate = 44100;
 
-            if (paths.empty() || paths.size() > 8)
-                throw RpcError (invalidParams, "paths: one to eight samples");
+            if (paths.empty() || paths.size() > 10)
+                throw RpcError (invalidParams, "paths: one to ten samples");
 
             listening::KickTiming timing;
             timing.beat = 60 / tempo;
@@ -3310,8 +3324,8 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
             if (! std::holds_alternative<model::SamplerInstrument> (channel.instrument) || std::get<model::SamplerInstrument> (channel.instrument).layers.empty())
                 throw RpcError (invalidParams, "\"" + channel.id + "\" isn't a sampler channel with a sample");
 
-            if (paths.empty() || paths.size() > 4)
-                throw RpcError (invalidParams, "paths: one to four samples");
+            if (paths.empty() || paths.size() > 10)
+                throw RpcError (invalidParams, "paths: one to ten samples");
 
             const auto bar = model::ticksPerBar (project.timeSignature);
             RenderOptions render;

@@ -4,7 +4,8 @@ import { Dialog } from "@/components/dialog";
 import { Dropdown, DropdownContent, DropdownItem, DropdownTrigger } from "@/components/menu";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
-import { setApiKey, useApiKey } from "@/features/agent/agent";
+import { setAgentChoices, setApiKey, useAgentChoices, useApiKey } from "@/features/agent/agent";
+import { cn } from "@/lib/cn";
 import { call, engine, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { ChevronDown } from "lucide-react";
@@ -253,6 +254,7 @@ function LibrarySettings() {
 
 function AgentSettings() {
   const key = useApiKey((s) => s.key);
+  const choices = useAgentChoices((s) => s.choices);
   const [draft, setDraft] = useState("");
 
   return (
@@ -274,8 +276,19 @@ function AgentSettings() {
             <Button size="sm" type="submit" disabled={!draft.trim()}>Save</Button>
           </form>
         )}
+        <div className="flex items-center gap-2 pt-1">
+          <span className="flex-1 text-dim">Sounds to choose from when the agent asks you to pick</span>
+          <div className="flex gap-1">
+            {[3, 5, 7, 10].map((n) => (
+              <button key={n} type="button" onClick={() => setAgentChoices(n)}
+                className={cn("h-6 min-w-7 rounded-[4px] px-2 text-xs", choices === n ? "bg-agent text-black" : "bg-control text-dim hover:text-fg")}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="text-2xs text-faint">
-          The agent in the sidebar uses Claude with this key; use is billed to your Anthropic account. What you ask, and what the agent
+          More choices find the right sound sooner; fewer are quicker to listen through. The agent in the sidebar uses Claude with this key; use is billed to your Anthropic account. What you ask, and what the agent
           reads of the song to do it (names, notes, mix settings, sample file paths), is sent to Anthropic.
         </div>
       </div>

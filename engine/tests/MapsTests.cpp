@@ -568,6 +568,18 @@ TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and 
     REQUIRE (ratings.size() == 1);
     CHECK (ratings[0].fits);
 
+    // "Other": the user says what they want instead; no verdict on these.
+    const auto again = call ("picks.offer", { { "title", "Which hats?" }, { "style", "Hard Techno" },
+                                              { "candidates", { { { "path", deep } }, { { "path", shortKick } } } } });
+    handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", "picks.choose" },
+                                  { "params", { { "id", again["id"] }, { "choice", 0 }, { "note", "hats only" } } } }.dump(), client);
+    CHECK (response.contains ("error"));        // a note goes with "Other" only
+    call ("picks.choose", { { "id", again["id"] }, { "choice", -1 }, { "note", "  Only hat loops, not whole drum loops " } });
+    const auto other = call ("picks.get", { { "id", again["id"] } });
+    CHECK (other["choice"] == -1);
+    CHECK (other["note"] == "Only hat loops, not whole drum loops");
+    CHECK (listening.getTaste().forStyle ("Hard Techno").size() == 1);
+
     // The song's own kick, the deep one on every beat, measured against the reference.
     model::Reader r;
     std::vector<model::Command> commands;
