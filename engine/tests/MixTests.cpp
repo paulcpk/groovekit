@@ -89,7 +89,8 @@ TEST_CASE ("Parts are guessed from names and samples")
     CHECK (mixer::guessPart ("Kick", "", false, 0) == ChannelPart::kick);
     CHECK (mixer::guessPart ("Open hat", "", false, 0) == ChannelPart::hats);
     CHECK (mixer::guessPart ("Dusty chord stab", "", false, 0) == ChannelPart::synth);
-    CHECK (mixer::guessPart ("Sample 3", "clap", false, 0) == ChannelPart::percussion);
+    CHECK (mixer::guessPart ("Sample 3", "clap", false, 0) == ChannelPart::clap);
+    CHECK (mixer::guessPart ("Metal loop", "", true, 0) == ChannelPart::percussion);
     CHECK (mixer::guessPart ("Sample 4", "drums", true, 0.6f) == ChannelPart::drums);
     CHECK (mixer::guessPart ("Sample 5", "drums", true, 0.1f) == ChannelPart::percussion);
     CHECK (mixer::guessPart ("Sample 6", "", false, 0) == ChannelPart::synth);
@@ -104,7 +105,7 @@ TEST_CASE ("Slots fitted to a style's stems stay within the part's range")
     auto slot = mixer::fitToReferences (mixer::defaultSlot (ChannelPart::synth), ChannelPart::synth, stem);
     CHECK (slot.from == "references");
     CHECK (slot.lowCutHz == 250);
-    CHECK (slot.highCutHz == 5000);         // 4 kHz, raised to the synth's least
+    CHECK (slot.highCutHz == 4000);
 
     // Kicks keep their own slot.
     CHECK (mixer::fitToReferences (mixer::defaultSlot (ChannelPart::kick), ChannelPart::kick, stem) == mixer::defaultSlot (ChannelPart::kick));
@@ -137,20 +138,21 @@ TEST_CASE ("Each channel gets its own insert with a slot EQ for its part, in one
     CHECK (h.channel ("hat").part == model::ChannelPart::hats);
     CHECK (h.channel ("chords").part == model::ChannelPart::synth);
 
-    // Kick: low-passed steeply. Hats: high-passed, the top tamed. Synths: band-passed.
+    // Kick: lows, low-passed with its top eased off. Hats: high-passed, the top tamed. Synths: band-passed to the mids.
     CHECK (param (p, "kick", "band7Type") == static_cast<double> (Type::highCut));
-    CHECK (param (p, "kick", "band6Type") == static_cast<double> (Type::highCut));
-    CHECK (param (p, "kick", "band7Freq") == 5000);
+    CHECK (param (p, "kick", "band7Freq") == 4000);
+    CHECK (param (p, "kick", "band6Type") == static_cast<double> (Type::highShelf));
+    CHECK (param (p, "kick", "band6GainDb") == -4);
     CHECK (param (p, "hat", "band1Type") == static_cast<double> (Type::lowCut));
     CHECK (param (p, "hat", "band6Type") == static_cast<double> (Type::highShelf));
     CHECK (param (p, "hat", "band6GainDb") < 0);
-    CHECK (param (p, "chords", "band1Freq") == 180);
-    CHECK (param (p, "chords", "band7Freq") == 9000);
+    CHECK (param (p, "chords", "band1Freq") == 280);
+    CHECK (param (p, "chords", "band7Freq") == 6000);
     CHECK (model::getEffectId (model::findInsert (p, "chords")->effects.front()) == "slot");
 
     auto slot = mixer::readSlot (p, h.channel ("hat"));
     REQUIRE (slot);
-    CHECK (slot->lowCutHz == 450);
+    CHECK (slot->lowCutHz == 1800);
     CHECK (slot->topShelfDb == -3);
 
     // Applied again to channels that have one, nothing changes.
@@ -183,7 +185,7 @@ TEST_CASE ("A slot can be set by hand")
     h.call ("mix.setSlot", { { "channel", "bass" }, { "part", "synth" } });
     CHECK (h.session.getProject().mixer.inserts.size() == inserts);
     CHECK (h.channel ("bass").part == model::ChannelPart::synth);
-    CHECK (mixer::readSlot (h.session.getProject(), h.channel ("bass"))->lowCutHz == 180);
+    CHECK (mixer::readSlot (h.session.getProject(), h.channel ("bass"))->lowCutHz == 280);
 
     CHECK (h.call ("mix.setSlot", { { "channel", "bass" }, { "lowCutHz", 5 } }).contains ("error"));
     CHECK (h.call ("mix.setSlot", { { "channel", "bass" }, { "part", "guitar" } }).contains ("error"));
@@ -460,4 +462,45 @@ TEST_CASE ("One-shots and instruments are offered playing notes in the song")
     CHECK (h.call ("picks.choose", { { "id", offered["result"]["id"] }, { "choice", 1 } }).contains ("result"));
     CHECK (h.session.getProject().channels.size() == 1);
     CHECK (h.call ("picks.offer", { { "title", "?" }, { "candidates", { { { "label", "nothing" } } } } }).contains ("error"));
+}
+
+TEST_CASE ("The arrangement check counts parts per bar and new parts coming in together")
+{
+    Harness h;
+    auto commands = Json::array();
+
+    for (auto id : { "kick", "perc", "hats", "metal", "sub", "stab", "clap", "atmo" })
+        commands.push_back (addChannel (id, id, "beep.wav"));
+
+    // One pattern per part, each a note a beat; clips (start bar, bars).
+    const std::vector<std::tuple<std::string, int, int>> clips {
+        { "kick", 0, 16 }, { "perc", 0, 16 }, { "hats", 4, 12 }, { "metal", 4, 12 },       // two new at bar 5
+        { "sub", 8, 8 }, { "stab", 8, 8 }, { "clap", 12, 4 }, { "atmo", 0, 16 },            // seven at once from bar 13
+    };
+
+    for (auto& [id, from, bars] : clips)
+    {
+        commands.push_back ({ { "type", "addPattern" }, { "pattern", { { "id", "p-" + id }, { "notes", { { { "channel", id }, { "start", 0 }, { "length", 240 } } } } } } });
+        commands.push_back ({ { "type", "addClip" }, { "clip", { { "type", "pattern" }, { "id", "c-" + id }, { "row", 0 }, { "start", from * 3840 },
+                                                                 { "length", bars * 3840 }, { "pattern", "p-" + id } } } });
+    }
+
+    commands.push_back ({ { "type", "updateChannel" }, { "channel", "atmo" }, { "changes", { { "part", "fx" } } } });
+    h.call ("execute", { { "commands", commands } });
+
+    auto result = h.call ("mix.check", { { "listen", false } })["result"];
+    INFO (result.dump (1));
+
+    // The atmo bed under the whole song doesn't count.
+    CHECK (result["partsPerBar"][0] == 2);
+    CHECK (result["partsPerBar"][12] == 7);
+    CHECK (hasProblem (result, "entersTogether", "hats"));
+    CHECK (hasProblem (result, "entersTogether", "sub"));
+    CHECK (hasProblem (result, "tooManyParts", "clap"));
+    CHECK_FALSE (hasProblem (result, "entersTogether", "kick"));    // the song's first bar
+    CHECK_FALSE (hasProblem (result, "tooManyParts", "atmo"));
+
+    // With room for seven, bars 13-16 are fine.
+    result = h.call ("mix.check", { { "listen", false }, { "maxParts", 7 } })["result"];
+    CHECK_FALSE (hasProblem (result, "tooManyParts", "clap"));
 }

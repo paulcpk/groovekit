@@ -1416,10 +1416,11 @@ Json ApiHandler::callVoice (const std::string& method, const Json& params)
                 result["text"] = transcriber.transcribe (samples, language);
 
                 // A melody hummed or sung in it ("for the lead: da da da") is noted, to be placed
-                // with melody.voice.
+                // with melody.voice, when what was said says one is there: the rise and fall of
+                // speech alone can sound like a few notes.
                 const auto frames = music::trackPitch (samples.data(), static_cast<int> (samples.size()), voice::Transcriber::sampleRate);
 
-                if (auto sung = music::findSungPart (frames))
+                if (auto sung = music::mentionsMelody (result["text"].get<std::string>()) ? music::findSungPart (frames) : std::nullopt)
                 {
                     int count = 0;
 
@@ -3235,7 +3236,7 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
     {
         const auto part = partOf (c);
         const auto current = mixer::readSlot (session.getProject(), c);
-        return Json { { "channel", c.id }, { "name", c.name }, { "part", model::toString (part) }, { "guessed", ! c.part.has_value() },
+        return Json { { "channel", c.id }, { "name", c.name }, { "part", model::toString (part) }, { "range", mixer::rangeOf (part) }, { "guessed", ! c.part.has_value() },
                       { "insert", c.insert }, { "slot", current ? current->toJson() : Json() }, { "proposed", proposed (part).toJson() } };
     };
 
@@ -3303,7 +3304,7 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
                 const auto p = mixer::partFromName (name);
 
                 if (! p)
-                    throw RpcError (invalidParams, "part: one of kick, rumble, drums, bass, percussion, hats, synth, vocal, fx");
+                    throw RpcError (invalidParams, "part: one of kick, rumble, drums, bass, percussion, clap, hats, synth, vocal, fx");
 
                 part = *p;
             }
@@ -3379,11 +3380,21 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
             if (profile != nullptr)
                 checks.referenceBalance = profile->measurements().value ("balance", std::vector<float>());
 
-            auto result = analysis::checkMix (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering }, render,
-                                              projectDir / "renders" / "analysis", checks);
+            // listen false: only what the song shows without rendering (quick).
+            auto result = params.value ("listen", true)
+                ? analysis::checkMix (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering }, render, projectDir / "renders" / "analysis", checks)
+                : Json { { "problems", Json::array() } };
 
-            // Problems the song shows without listening: parts with no slot, loops out of key.
+            // Problems the song shows without listening: too many parts at once or coming in together,
+            // parts with no slot, loops out of key.
             auto problems = result["problems"];
+            const auto maxParts = static_cast<int> (optionalNumber (params, "maxParts").value_or (6));
+            const auto arrangement = analysis::checkArrangement (project, checks.parts, maxParts);
+
+            for (auto& p : arrangement["problems"])
+                problems.push_back (p);
+
+            result["partsPerBar"] = arrangement["bars"];
             const auto key = project.key ? music::parseKey (*project.key) : std::nullopt;
 
             for (auto& c : project.channels)
@@ -3455,7 +3466,7 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
                 if (auto p = mixer::partFromName (readParam<std::string> (j, "part")))
                     return p;
 
-                throw RpcError (invalidParams, "part: one of kick, rumble, drums, bass, percussion, hats, synth, vocal, fx");
+                throw RpcError (invalidParams, "part: one of kick, rumble, drums, bass, percussion, clap, hats, synth, vocal, fx");
             };
 
             std::vector<Candidate> candidates;

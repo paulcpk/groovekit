@@ -59,6 +59,7 @@ enum class ChannelPart
     drums,
     bass,
     percussion,
+    clap,
     hats,
     synth,
     vocal,
@@ -74,6 +75,7 @@ inline const char* toString (ChannelPart v)
         case ChannelPart::drums: return "drums";
         case ChannelPart::bass: return "bass";
         case ChannelPart::percussion: return "percussion";
+        case ChannelPart::clap: return "clap";
         case ChannelPart::hats: return "hats";
         case ChannelPart::synth: return "synth";
         case ChannelPart::vocal: return "vocal";
@@ -95,6 +97,7 @@ inline void readValue (Reader& r, const Json& j, ChannelPart& out)
     if (s == "drums") { out = ChannelPart::drums; return; }
     if (s == "bass") { out = ChannelPart::bass; return; }
     if (s == "percussion") { out = ChannelPart::percussion; return; }
+    if (s == "clap") { out = ChannelPart::clap; return; }
     if (s == "hats") { out = ChannelPart::hats; return; }
     if (s == "synth") { out = ChannelPart::synth; return; }
     if (s == "vocal") { out = ChannelPart::vocal; return; }
@@ -1172,7 +1175,7 @@ struct Channel
     Id insert = "master";
     /** Which list of the channel rack shows the channel: rack for sounds played by patterns, arrangement for samples dropped onto the playlist. Only the view depends on it. */
     ChannelGroup group = ChannelGroup::rack;
-    /** What the channel plays in the mix. Its insert's slot EQ (the effect with id "slot") keeps it to that part's frequency range: kick and rumble low-passed, synths band-passed to the mids, percussion and hats high-passed with their top tamed. */
+    /** What the channel plays in the mix. Its insert's slot EQ (the effect with id "slot") keeps it to that part's range: kick, rumble and bass the lows, percussion loops the low mids, synths the low and upper mids, claps and effects the upper mids, hats the upper mids and highs. */
     std::optional<ChannelPart> part;
     Instrument instrument;
 

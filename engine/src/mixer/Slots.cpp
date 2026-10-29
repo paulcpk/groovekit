@@ -14,7 +14,7 @@ namespace
 {
     constexpr const char* slotId = "slot";
     constexpr ChannelPart allParts[] = { ChannelPart::kick, ChannelPart::rumble, ChannelPart::drums, ChannelPart::bass, ChannelPart::percussion,
-                                         ChannelPart::hats, ChannelPart::synth, ChannelPart::vocal, ChannelPart::fx };
+                                         ChannelPart::clap, ChannelPart::hats, ChannelPart::synth, ChannelPart::vocal, ChannelPart::fx };
 
     double typeIndex (effects::EqPlugin::BandType t)    { return static_cast<double> (t); }
 
@@ -30,8 +30,8 @@ namespace
     {
         switch (part)
         {
-            case ChannelPart::bass:     return Range { 25, 60, 800, 5000 };
-            case ChannelPart::synth:    return Range { 100, 350, 5000, 14000 };
+            case ChannelPart::bass:     return Range { 25, 60, 200, 1200 };
+            case ChannelPart::synth:    return Range { 150, 400, 4000, 12000 };
             case ChannelPart::vocal:    return Range { 90, 250, 8000, 16000 };
             default:                    return std::nullopt;
         }
@@ -65,20 +65,42 @@ Json Slot::toJson() const
 
 Slot defaultSlot (ChannelPart part)
 {
+    // The user's ranges: lows (kick, rumble, sub bass), low mids (percussion loops), low and upper
+    // mids (synths and stabs), upper mids (claps, effects), upper mids and highs (hats).
     switch (part)
     {
-        case ChannelPart::kick:         return { 30, 5000, true };
+        case ChannelPart::kick:         return { 32, 4000, false, -4, 2500 };       // smooth: the top eased off
         case ChannelPart::rumble:       return { 30, 250, true };
         case ChannelPart::drums:        return { 30, 0, false, -1.5, 10000 };
-        case ChannelPart::bass:         return { 35, 2500 };
-        case ChannelPart::percussion:   return { 250, 16000, false, -2, 9000 };
-        case ChannelPart::hats:         return { 450, 0, false, -3, 11000 };
-        case ChannelPart::synth:        return { 180, 9000 };
+        case ChannelPart::bass:         return { 30, 320 };                         // a sub: nothing above the low end
+        case ChannelPart::percussion:   return { 180, 0, false, -2, 10000 };        // the top open, for air
+        case ChannelPart::clap:         return { 900, 7000, false, -2, 5000 };      // subtle: lows and highs dampened
+        case ChannelPart::hats:         return { 1800, 0, false, -3, 11000 };
+        case ChannelPart::synth:        return { 280, 6000 };
         case ChannelPart::vocal:        return { 140, 14000, false, -1, 10000 };
-        case ChannelPart::fx:           return { 200, 12000 };
+        case ChannelPart::fx:           return { 400, 9000, false, -2, 7000 };      // in the background
     }
 
     return {};
+}
+
+const char* rangeOf (ChannelPart part)
+{
+    switch (part)
+    {
+        case ChannelPart::kick:
+        case ChannelPart::rumble:
+        case ChannelPart::drums:
+        case ChannelPart::bass:         return "lows";
+        case ChannelPart::percussion:   return "low mids";
+        case ChannelPart::synth:
+        case ChannelPart::vocal:        return "low and upper mids";
+        case ChannelPart::clap:
+        case ChannelPart::fx:           return "upper mids";
+        case ChannelPart::hats:         return "upper mids and highs";
+    }
+
+    return "";
 }
 
 Slot fitToReferences (Slot slot, ChannelPart part, const std::vector<float>& stem)
@@ -122,7 +144,8 @@ ChannelPart guessPart (const std::string& name, const std::string& category, boo
     if (hasWord (words, { "kick", "bd" }))                                      return ChannelPart::kick;
     if (hasWord (words, { "bass", "sub", "808", "reese" }))                     return ChannelPart::bass;
     if (hasWord (words, { "hat", "hihat", "hh", "cymbal", "ride", "crash" }))   return ChannelPart::hats;
-    if (hasWord (words, { "perc", "clap", "snare", "rim", "tom", "conga", "bongo", "shaker", "tamb", "cowbell", "top" }))
+    if (hasWord (words, { "clap", "snare", "rim", "snap" }))                  return ChannelPart::clap;
+    if (hasWord (words, { "perc", "tom", "conga", "bongo", "shaker", "tamb", "cowbell", "top", "metal" }))
         return ChannelPart::percussion;
     if (hasWord (words, { "vocal", "vox", "voice", "chant" }))                  return ChannelPart::vocal;
     if (hasWord (words, { "fx", "riser", "sweep", "impact", "noise", "atmo", "texture" }))
@@ -132,8 +155,8 @@ ChannelPart guessPart (const std::string& name, const std::string& category, boo
 
     if (category == "kick")                                                     return ChannelPart::kick;
     if (category == "hat" || category == "cymbal")                              return ChannelPart::hats;
-    if (category == "snare" || category == "clap" || category == "tom" || category == "perc")
-        return ChannelPart::percussion;
+    if (category == "snare" || category == "clap")                              return ChannelPart::clap;
+    if (category == "tom" || category == "perc")                                return ChannelPart::percussion;
     if (category == "drums")                                                    return loop && lowShare > 0.35f ? ChannelPart::drums : ChannelPart::percussion;
     if (category == "bass")                                                     return ChannelPart::bass;
     if (category == "vocal")                                                    return ChannelPart::vocal;
@@ -156,15 +179,23 @@ BuiltinEffect slotEffect (const Slot& slot)
     p["band1Freq"] = slot.lowCutHz > 0 ? slot.lowCutHz : defaults[0].freq;
     p["band1Q"] = 0.71;
 
-    // Band 6 doubles a steep high cut, or tames the top; band 7 is the high cut.
+    // Band 5 doubles a steep high cut, band 6 tames the top, band 7 is the high cut.
     if (slot.steep && slot.highCutHz > 0)
     {
-        p["band6Type"] = typeIndex (Type::highCut);
-        p["band6Freq"] = slot.highCutHz;
-        p["band6GainDb"] = 0;
-        p["band6Q"] = 0.71;
+        p["band5Type"] = typeIndex (Type::highCut);
+        p["band5Freq"] = slot.highCutHz;
+        p["band5GainDb"] = 0;
+        p["band5Q"] = 0.71;
     }
-    else if (slot.topShelfDb != 0)
+    else
+    {
+        p["band5Type"] = typeIndex (defaults[4].type);
+        p["band5Freq"] = defaults[4].freq;
+        p["band5GainDb"] = 0;
+        p["band5Q"] = defaults[4].q;
+    }
+
+    if (slot.topShelfDb != 0)
     {
         p["band6Type"] = typeIndex (Type::highShelf);
         p["band6Freq"] = slot.topShelfHz;
@@ -218,9 +249,11 @@ std::optional<Slot> readSlot (const Project& project, const Channel& channel)
         if (type (7) == Type::highCut)
             slot.highCutHz = param ("band7Freq", defaults[6].freq);
 
-        if (type (6) == Type::highCut)
+        // A steep cut doubles the high cut in band 5 (in band 6 in older songs).
+        if (type (5) == Type::highCut || type (6) == Type::highCut)
             slot.steep = true;
-        else if (type (6) == Type::highShelf && param ("band6GainDb", 0) != 0)
+
+        if (type (6) == Type::highShelf && param ("band6GainDb", 0) != 0)
         {
             slot.topShelfDb = param ("band6GainDb", 0);
             slot.topShelfHz = param ("band6Freq", defaults[5].freq);

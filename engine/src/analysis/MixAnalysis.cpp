@@ -461,6 +461,134 @@ Json checkMix (tracktion::Engine& engine, const Project& project, const CompileO
     };
 }
 
+Json checkArrangement (const Project& project, const std::map<std::string, ChannelPart>& parts, int maxParts)
+{
+    const auto bar = ticksPerBar (project.timeSignature);
+    const auto bars = static_cast<int> ((getSongEnd (project) + bar - 1) / bar);
+    std::vector<std::set<std::string>> playing (static_cast<size_t> (std::max (0, bars)));
+
+    auto mark = [&] (const std::string& channel, Ticks from, Ticks to)
+    {
+        if (auto* c = findChannel (project, channel); c == nullptr || c->mute)
+            return;
+
+        for (auto b = from / bar; b * bar < to && b < bars; ++b)
+            playing[static_cast<size_t> (b)].insert (channel);
+    };
+
+    for (auto& clip : project.playlist.clips)
+    {
+        if (isClipMuted (clip))
+            continue;
+
+        if (auto* row = findRow (project, getClipRow (clip)); row != nullptr && row->mute)
+            continue;
+
+        const auto start = getClipStart (clip), end = start + getClipLength (clip);
+
+        if (auto* audio = std::get_if<AudioClip> (&clip))
+            mark (audio->channel, start, end);
+        else if (auto* pc = std::get_if<PatternClip> (&clip))
+        {
+            const auto* pattern = findPattern (project, pc->pattern);
+
+            if (pattern == nullptr)
+                continue;
+
+            // The pattern repeats from the clip's start (less its offset) until the clip ends.
+            const auto length = getPatternLength (*pattern, project.timeSignature);
+
+            for (auto round = start - pc->offset; round < end; round += length)
+                for (auto& note : pattern->notes)
+                {
+                    const auto at = round + note.start;
+
+                    if (at >= start && at < end)
+                        mark (note.channel, at, at + 1);
+                }
+        }
+    }
+
+    // Beds: effects under most of the song, felt more than heard.
+    std::set<std::string> beds;
+
+    for (auto& [channel, part] : parts)
+        if (part == ChannelPart::fx && bars > 0)
+        {
+            const auto heard = std::count_if (playing.begin(), playing.end(), [&] (auto& set) { return set.contains (channel); });
+
+            if (heard >= 0.8 * bars)
+                beds.insert (channel);
+        }
+
+    std::vector<std::vector<std::string>> counted (playing.size());
+
+    for (size_t b = 0; b < playing.size(); ++b)
+        for (auto& c : playing[b])
+            if (! beds.contains (c))
+                counted[b].push_back (c);
+
+    auto problems = Json::array();
+    auto barsJson = Json::array();
+
+    for (auto& c : counted)
+        barsJson.push_back (c.size());
+
+    // Runs of bars with too many parts at once.
+    for (size_t b = 0; b < counted.size();)
+    {
+        if (counted[b].size() <= static_cast<size_t> (maxParts))
+        {
+            ++b;
+            continue;
+        }
+
+        auto e = b;
+        size_t most = 0;
+
+        while (e < counted.size() && counted[e].size() > static_cast<size_t> (maxParts))
+            most = std::max (most, counted[e++].size());
+
+        problems.push_back ({ { "severity", std::min (9.0, 5.0 + static_cast<double> (most - static_cast<size_t> (maxParts))) }, { "kind", "tooManyParts" },
+                              { "channels", counted[b] },
+                              { "what", "bars " + std::to_string (b + 1) + "-" + std::to_string (e) + " have " + std::to_string (most) + " parts at once (at most "
+                                        + std::to_string (maxParts) + "): too much at once, nothing stands out" },
+                              { "fix", "when a part comes in, take one out: let one of them rest in these bars (mute its clips there), or move its entrance to the next section" } });
+        b = e;
+    }
+
+    // Parts coming in together that weren't heard in the 16 bars before (the song's first bar aside).
+    for (size_t b = 1; b < counted.size(); ++b)
+    {
+        std::vector<std::string> fresh;
+
+        for (auto& c : counted[b])
+        {
+            bool before = false;
+
+            for (size_t k = b >= 16 ? b - 16 : 0; k < b && ! before; ++k)
+                before = std::find (counted[k].begin(), counted[k].end(), c) != counted[k].end();
+
+            if (! before)
+                fresh.push_back (c);
+        }
+
+        if (fresh.size() >= 2)
+        {
+            std::string names;
+
+            for (size_t i = 0; i < fresh.size(); ++i)
+                names += (i == 0 ? "" : i + 1 == fresh.size() ? " and " : ", ") + fresh[i];
+
+            problems.push_back ({ { "severity", 4.0 + static_cast<double> (fresh.size()) }, { "kind", "entersTogether" }, { "channels", fresh },
+                                  { "what", "at bar " + std::to_string (b + 1) + " " + names + " come in together: each new part should get its own entrance" },
+                                  { "fix", "bring them in one at a time, a section (8 or 16 bars) apart" } });
+        }
+    }
+
+    return { { "problems", problems }, { "bars", barsJson }, { "beds", beds } };
+}
+
 Json placeInMix (tracktion::Engine& engine, const Project& project, const Id& channel, const CompileOptions& compileOptions,
                  const RenderOptions& renderOptions, const std::filesystem::path& file)
 {

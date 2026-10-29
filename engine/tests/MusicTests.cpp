@@ -217,3 +217,16 @@ TEST_CASE ("The top line of chords is the melody, the bottom one the bass")
     CHECK (bottom[0].pitch == 48);
     CHECK (bottom[0].end == 1.0);
 }
+
+TEST_CASE ("A melody is taken from a voice message only when it says there's one")
+{
+    CHECK (mentionsMelody ("This is the melody for the stab"));
+    CHECK (mentionsMelody ("the bassline goes like da da da"));
+    CHECK (mentionsMelody ("I'll hum it"));
+    CHECK (mentionsMelody ("Humming: the lead"));
+    CHECK (mentionsMelody ("Die Melodie ist so"));
+
+    // What the user said to the agent in a long voice message, with no melody in it.
+    CHECK_FALSE (mentionsMelody ("Let's reduce the volume on the hats and metal by 25%. And the human touch, you know, the stab needs reverb."));
+    CHECK_FALSE (mentionsMelody ("Kick, low-pass, kick, high-pass, and smooth it out by reducing the high-end."));
+}

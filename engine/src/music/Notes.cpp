@@ -543,4 +543,35 @@ Melody fitMelody (const std::vector<HeardNote>& heard, const FitOptions& options
     return melody;
 }
 
+bool mentionsMelody (const std::string& transcript)
+{
+    std::string text;
+
+    for (auto ch : transcript)
+        text += static_cast<char> (std::tolower (static_cast<unsigned char> (ch)));
+
+    // Words that say a melody follows or was just sung (English and German).
+    static const char* const words[] = {
+        "melody", "melodie", "hum", "hums", "humming", "hummed", "sing", "singing", "sung", "summe", "summen", "gesummt",
+        "da da", "dada", "la la", "na na", "dum dum", "tune", "riff", "hook", "bassline", "bass line",
+        "goes like", "like this", "this line", "so geht", "die linie",
+    };
+
+    return std::any_of (std::begin (words), std::end (words), [&] (const char* w)
+    {
+        // Whole words, so "hum" isn't found in "human".
+        for (auto at = text.find (w); at != std::string::npos; at = text.find (w, at + 1))
+        {
+            const auto end = at + std::char_traits<char>::length (w);
+            const auto startsWord = at == 0 || ! std::isalpha (static_cast<unsigned char> (text[at - 1]));
+            const auto endsWord = end >= text.size() || ! std::isalpha (static_cast<unsigned char> (text[end]));
+
+            if (startsWord && endsWord)
+                return true;
+        }
+
+        return false;
+    });
+}
+
 } // namespace gk::music

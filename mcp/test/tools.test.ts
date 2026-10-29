@@ -120,7 +120,10 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     expect(engine.document?.channels.map((c) => c.id)).toEqual(["beep"]);
 
     const render = await call("render", { endBar: 2 });
-    expect(render.value.analysis.onsets).toEqual([0, 0.5, 1, 1.5]);
+    // On the beat (the slot's filters shift it by a fraction of a millisecond).
+    const onsets = render.value.analysis.onsets as number[];
+    expect(onsets).toHaveLength(4);
+    onsets.forEach((t, i) => expect(Math.abs(t - i * 0.5)).toBeLessThan(0.002));
     expect(Math.abs(render.value.analysis.peakDb + 6)).toBeLessThan(1.5);  // the beep, through its slot
 
     const undo = await call("undo");

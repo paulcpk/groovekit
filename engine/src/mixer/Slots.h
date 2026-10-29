@@ -7,9 +7,11 @@ namespace gk::mixer
 {
 
 /** Where a part sits in the mix: what its insert's slot EQ (the effect "slot", first on the
-    insert) cuts away so the parts don't cover each other. Kick and rumble are low-passed
-    steeply, synths band-passed to the mids, percussion and hats high-passed with their top
-    tamed. Cuts are 24 dB/octave, a steep high cut 48. */
+    insert) cuts away so the parts don't cover each other. Each part has a range: lows (kick,
+    rumble, sub bass), low mids (percussion loops), low and upper mids (synths), upper mids
+    (claps, effects), upper mids and highs (hats). Cuts are 24 dB/octave, a steep high cut 48.
+    In the EQ: band 1 the low cut, band 5 the second stage of a steep high cut, band 6 the top
+    shelf, band 7 the high cut; bands 2 to 4 are free for notches and peaks. */
 struct Slot
 {
     double lowCutHz = 0;            // 0: none
@@ -25,6 +27,9 @@ struct Slot
 
 /** Each part's slot for techno and house, before any style's references. */
 Slot defaultSlot (model::ChannelPart);
+
+/** The part's range, in words: "lows", "low mids", "low and upper mids", "upper mids", "upper mids and highs". */
+const char* rangeOf (model::ChannelPart);
 
 /** The slot moved to where a style's references keep that part: stem is the median spectral
     balance (analysis::bandEdges) of their bass stem for bass, their music stem for synths and

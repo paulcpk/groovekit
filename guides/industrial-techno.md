@@ -31,13 +31,13 @@ Machines in a concrete room: relentless, physical, a little hostile. Where Bergh
 ## The parts
 
 - **Kick**: hard, dry and punchy, shorter than a Berghain kick, often overdriven or from a drum machine pushed into the red. Little rumble; the weight comes from the hit. Words: "hard dry techno kick", "overdriven 909 kick", "industrial punchy kick".
-- **Bass**: a short, distorted, mechanical bassline or a pulsing EBM-style synth bass between the kicks; sometimes none. Words: "distorted ebm bass", "mechanical pulsing bass", "gritty analog bassline".
-- **Hats**: tight and metallic, often distorted; 16ths that tick like machinery. Can be more present than in Berghain techno. Words: "metallic distorted hat", "tight industrial hi hat", "mechanical 16th hats".
-- **Clap or snare**: a dry, harsh clap or a distorted snare, or none; in electro, a snappy snare on the backbeat. Words: "harsh industrial clap", "distorted snare", "snappy electro snare".
-- **Percussion**: the engine of the track: looping metal hits, toms, clangs and found sounds in a tight, repeating pattern; up to two layers that interlock. Words: "industrial metal percussion loop", "clanging metallic hits", "tribal industrial toms".
-- **Music**: one stark element: a distorted stab, a cold synth riff, a noise tone, a dark Detroit chord. Repetitive, often modulated or filtered rather than melodic. Words: "distorted industrial stab", "cold detroit synth", "harsh noise tone", "dark electro arpeggio".
+- **Bass**: a sub-bass loop, deep (around A1 rather than an octave up), ducked under every kick and kept mono; or a short, distorted, mechanical bassline between the kicks; sometimes none. A loop from the library sounds better than a programmed one. Words: "deep sub bass loop", "distorted ebm bass", "mechanical pulsing bass".
+- **Hats**: an off-beat hat between the kicks carries it; 16ths that tick like machinery sit under it, short, crisp and quiet, a background shuffle rather than a lead. Words: "metallic distorted hat", "tight industrial hi hat", "mechanical 16th hats".
+- **Clap or snare**: a dry clap or a distorted snare, kept subtle: band-passed (lows and highs dampened) and well under the kick; or none; in electro, a snappy snare on the backbeat. Words: "dry industrial clap", "distorted snare", "snappy electro snare".
+- **Percussion**: the engine of the track: looping metal hits, toms, clangs and found sounds in a tight, repeating pattern; up to two layers that interlock. Loops with no melody in them: noisy, mechanical FX percussion, not pitched metal that plays a tune. Words: "industrial metal percussion loop", "noisy mechanical fx loop", "tribal industrial toms".
+- **Music**: one stark element: a distorted stab, a cold synth riff, a noise tone, a dark Detroit chord. Repetitive, filtered rather than melodic: a band-pass with the low-pass mostly closed (open for about a third of the time), opening and closing on slow curves over 4 to 16 bars, and a little reverb and delay (around 20% wet) for air. Words: "distorted industrial stab", "cold detroit synth", "harsh noise tone", "dark electro arpeggio".
 - **Vocal**: rare: a processed spoken word, a vocoder line or a sample of a machine voice. Words: "processed spoken vocal", "vocoder robotic voice".
-- **Atmosphere (fx)**: noise, hiss, feedback and machine textures, used as part of the sound rather than hidden. Words: "industrial noise texture", "machine drone", "feedback noise".
+- **Atmosphere (fx)**: one neutral texture with no key (noise, air, machine hiss) under the whole track at a low level (around 15%), felt more than heard; more noise only where a section needs pressure. Words: "industrial noise texture", "airy noise atmosphere", "machine drone".
 
 ## Build it in this order
 
@@ -52,12 +52,14 @@ For the electro side: a broken 808-style beat (kick off the grid, snare on the b
 
 - The kick is the loudest thing, but the percussion sits close behind it; the groove is in the interplay.
 - Distortion and grit are part of the sound, but keep the very top under control: harsh mids, not fizz. Leave space between parts rather than layering noise everywhere.
+- Every part in its own range: kick, sub and rumble the lows; percussion loops the low mids; the stab the low and upper mids; claps and FX percussion the upper mids; hats the upper mids and highs. The kick round rather than clicky: its top eased off above 2.5 kHz.
 - The low end is tighter and drier than in Berghain techno: no long rumble tail, sub mono, the bass short.
 - Loud and dense: around −8 to −5 LUFS.
 
 ## Arrangement
 
 - 5 to 7 minutes, changes every 16 or 32 bars by muting, adding or reshaping one loop; filters and distortion that open over time.
+- One part comes in at a time: kick and percussion, then the hats, then the sub, then the stab. Five or six parts at most: once it's full, when something comes in, something goes (the stab comes, the hat loop rests).
 - Few breakdowns, and short: the pressure stays on. Intros and outros of kick and percussion for mixing.
 
 ## Don't

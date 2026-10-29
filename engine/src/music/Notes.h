@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace gk::music
@@ -41,6 +42,11 @@ std::vector<HeardNote> segmentNotes (const std::vector<PitchFrame>&);
     at least three notes. */
 struct Span { double start = 0, end = 0; };
 std::optional<Span> findSungPart (const std::vector<PitchFrame>&);
+
+/** Whether what someone said in a voice message says a melody is in it ("this is the melody",
+    "it goes like da da da", "hum the bassline"): only then is a sung part taken for one, since the
+    rise and fall of speech can sound like a few notes. */
+bool mentionsMelody (const std::string& transcript);
 
 /** The highest note sounding at each moment (a melody out of chords), or the lowest (a bassline). */
 std::vector<HeardNote> topLine (std::vector<HeardNote>);

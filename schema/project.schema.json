@@ -67,9 +67,9 @@
           "default": "rack"
         },
         "part": {
-          "description": "What the channel plays in the mix. Its insert's slot EQ (the effect with id \"slot\") keeps it to that part's frequency range: kick and rumble low-passed, synths band-passed to the mids, percussion and hats high-passed with their top tamed.",
+          "description": "What the channel plays in the mix. Its insert's slot EQ (the effect with id \"slot\") keeps it to that part's range: kick, rumble and bass the lows, percussion loops the low mids, synths the low and upper mids, claps and effects the upper mids, hats the upper mids and highs.",
           "type": "string",
-          "enum": ["kick", "rumble", "drums", "bass", "percussion", "hats", "synth", "vocal", "fx"]
+          "enum": ["kick", "rumble", "drums", "bass", "percussion", "clap", "hats", "synth", "vocal", "fx"]
         },
         "instrument": { "$ref": "#/$defs/Instrument" }
       }

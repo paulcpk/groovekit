@@ -38,6 +38,14 @@ struct MixCheckContext
 model::Json checkMix (tracktion::Engine&, const model::Project&, const CompileOptions&, const RenderOptions&,
                       const std::filesystem::path& workDir, const MixCheckContext&);
 
+/** Reads the arrangement from the song itself (no rendering): which parts play in each bar, and
+    where too many play at once or come in together. A part is a channel heard in a bar (its
+    notes or its audio clips); beds don't count (fx parts playing through most of the song).
+    Problems, as in checkMix: "tooManyParts" (more than maxParts at once: when something comes,
+    something has to go) and "entersTogether" (two or more parts that weren't playing in the 16
+    bars before come in on the same bar: one at a time). Also "bars": the parts per bar. */
+model::Json checkArrangement (const model::Project&, const std::map<std::string, model::ChannelPart>& parts, int maxParts = 6);
+
 /** Renders the channel alone and the rest of the song without it (the range in options), kept
     beside file as "-alone" and "-rest" so they can play in sync with the rest faded under the
     channel, and the two together to file. Says how the channel sits with the rest: "fit" 0-100 (100 when the bands it lives in are its own), the
