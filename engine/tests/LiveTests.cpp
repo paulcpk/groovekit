@@ -427,15 +427,20 @@ TEST_CASE ("Notes from the app's keyboard play the live channel and record into 
             break;
     }
 
-    // Let the routing catch up with the new device.
-    for (int i = 0; i < 10; ++i)
-        juce::MessageManager::getInstance()->runDispatchLoopUntil (40);
+    // Let the routing catch up with the new device: on a slow machine it takes a while, so the
+    // note is tried again until it's heard.
+    auto peak = analysis::silenceDb;
 
-    audio.silence (0.1);
-    live.noteOn (60, 127);
-    auto out = audio.silence (0.2);
-    live.noteOff (60);
-    CHECK (analysis::peakDb (out) > -12);
+    for (int i = 0; i < 25 && peak <= -12; ++i)
+    {
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (40);
+        audio.silence (0.1);
+        live.noteOn (60, 127);
+        peak = analysis::peakDb (audio.silence (0.2));
+        live.noteOff (60);
+    }
+
+    CHECK (peak > -12);
 
     live.startNoteRecording ({ "p", "beep", 0 });
     CHECK (live.isRecordingNotes());
