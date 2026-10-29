@@ -5,6 +5,7 @@ import { Button, IconButton } from "@/components/controls";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { call, engine, useEngine } from "@/state/engine";
+import { StarterSamples } from "./StarterSamples";
 
 export function LibraryFolders() {
   const connected = useEngine((s) => s.status === "connected");
@@ -33,6 +34,8 @@ export function LibraryFolders() {
           });
         }}><FolderPlus size={12} /></IconButton>
       </div>
+      {/* With no folders at all, the empty library's message makes the offer instead. */}
+      {folders.length > 0 && <StarterSamples />}
       {folders.map((f) => (
         <div key={f} className="group flex items-center gap-1" title={f}>
           <span className="min-w-0 flex-1 truncate">{f.replace(/^\/Users\/[^/]+/, "~")}</span>

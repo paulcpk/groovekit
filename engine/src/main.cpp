@@ -4,6 +4,7 @@
 #include "compiler/EditCompiler.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
+#include "library/StarterPack.h"
 #include "listening/Listening.h"
 #include "listening/Maps.h"
 #include "live/LiveEngine.h"
@@ -195,6 +196,11 @@ Add --verbose to see engine log messages.
         if (library.getAutoScan())
             library.startScan();
 
+        // The starter samples, downloaded on request (library.downloadStarter). With their own
+        // library index (tests), the pack goes beside it rather than into ~/Music/Samples.
+        gk::library::StarterPack starter (library, args.get ("--library")
+            ? std::filesystem::path (*args.get ("--library")).replace_extension (".starter") / "GrooveKit Starter" : std::filesystem::path());
+
         // Hearing what the samples sound like, once the listening models are downloaded. With
         // their own library index (tests), the sound index, styles, maps and verdicts go beside it.
         gk::listening::Listening::Files listeningFiles;
@@ -248,7 +254,7 @@ Add --verbose to see engine log messages.
             if (audio)
                 w.live->openDefaultAudioDevice();
 
-            w.handler = std::make_unique<gk::ApiHandler> (*w.session, context, &library, w.live.get(), &plugins, &listening);
+            w.handler = std::make_unique<gk::ApiHandler> (*w.session, context, &library, w.live.get(), &plugins, &listening, &starter);
             w.handler->onOpenProject = openProject;
             return w;
         };

@@ -1,6 +1,6 @@
 import { ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Empty } from "@/components/controls";
+import { StarterSamples } from "./StarterSamples";
 
 import { cn } from "@/lib/cn";
 
@@ -136,7 +136,14 @@ export function FolderTree({ playing, preview, autoPlay }: { playing?: string; p
   };
 
   if (!root) return <div className="min-h-0 flex-1" />;
-  if (root.folders.length === 0) return <Empty>The library is empty. Add a folder below.</Empty>;
+  if (root.folders.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 p-4 text-center text-2xs text-dim">
+        <span>The library is empty. Download the starter samples, or add a folder below.</span>
+        <StarterSamples brief />
+      </div>
+    );
+  }
 
   // Only the rows in view are drawn; a folder can hold thousands of samples.
   const first = Math.max(0, Math.floor(scrollTop / ROW_H) - 10);

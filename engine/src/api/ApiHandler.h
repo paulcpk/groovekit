@@ -8,7 +8,7 @@ namespace gk
 class EngineContext;
 class LiveEngine;
 class PluginCatalog;
-namespace library { class SampleLibrary; }
+namespace library { class SampleLibrary; class StarterPack; }
 namespace listening { class Listening; }
 
 /** JSON-RPC 2.0 over any message transport. Lives on the message thread.
@@ -17,7 +17,8 @@ namespace listening { class Listening; }
     listEffects, hello, library.*, plugins.*, listening.*, styles.*, chats.*, and with a live engine
     transport.*, record.* and audio.*.
     Notifications to clients: "snapshot" on connect, "patch" after every change from any client,
-    "libraryProgress" and "pluginScanProgress" while scanning, "listening" while listening models
+    "libraryProgress" and "pluginScanProgress" while scanning, "starter" while the starter samples
+    download, "listening" while listening models
     download, the library is heard or a style is analysed, "transport" while playing, "levels"
     while there's signal.
     See docs/protocol.md.
@@ -34,7 +35,7 @@ public:
     };
 
     ApiHandler (Session&, EngineContext&, library::SampleLibrary* = nullptr, LiveEngine* = nullptr, PluginCatalog* = nullptr,
-                listening::Listening* = nullptr);
+                listening::Listening* = nullptr, library::StarterPack* = nullptr);
     ~ApiHandler();
 
     /** Opens another project folder in place of this session (see project.open and project.new).
@@ -76,6 +77,7 @@ private:
     LiveEngine* live;
     PluginCatalog* plugins;
     listening::Listening* listening;
+    library::StarterPack* starter;
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
     Send broadcast;
     int listenerId = 0;

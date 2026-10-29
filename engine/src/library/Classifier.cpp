@@ -155,8 +155,12 @@ Classification classify (const std::filesystem::path& path, const SampleFeatures
     std::vector<std::string> folderWords;
     int depth = 0;
 
+    // The app's own name in a folder ("GrooveKit Starter", ~/Music/GrooveKit) says nothing about
+    // the sounds, and would split into "groove", a loop word.
+    static const std::regex appName ("groovekit", std::regex::icase);
+
     for (auto dir = path.parent_path(); ! dir.empty() && dir != dir.root_path() && depth < 4; dir = dir.parent_path(), ++depth)
-        for (auto& w : tokenize (dir.filename().string()))
+        for (auto& w : tokenize (std::regex_replace (dir.filename().string(), appName, "")))
             folderWords.push_back (w);
 
     std::set<std::string> seen;

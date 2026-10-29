@@ -7,6 +7,7 @@
 #include "compiler/EditGraveyard.h"
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
+#include "library/StarterPack.h"
 #include "listening/Listening.h"
 #include "listening/KickSound.h"
 #include "listening/Maps.h"
@@ -68,6 +69,12 @@ namespace
         int code;
     };
 
+    Json starterJson (const library::StarterPack::Status& s)
+    {
+        return { { "installed", s.installed }, { "downloading", s.downloading }, { "progress", s.progress }, { "totalBytes", s.totalBytes },
+                 { "files", s.files }, { "folder", s.folder }, { "error", s.error.empty() ? Json() : Json (s.error) } };
+    }
+
     Json notification (const char* method, Json params)
     {
         return { { "jsonrpc", "2.0" }, { "method", method }, { "params", std::move (params) } };
@@ -120,9 +127,28 @@ namespace
     }
 }
 
-ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l, LiveEngine* le, PluginCatalog* p, listening::Listening* li)
-    : session (s), context (c), library (l), live (le), plugins (p), listening (li)
+ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l, LiveEngine* le, PluginCatalog* p, listening::Listening* li,
+                        library::StarterPack* sp)
+    : session (s), context (c), library (l), live (le), plugins (p), listening (li), starter (sp)
 {
+    // The starter samples' download reports from its thread: broadcast from the message thread,
+    // and once they're in, scan them into the library.
+    if (starter != nullptr)
+        starter->setObserver ([this, alive = alive] (const library::StarterPack::Status& status)
+        {
+            juce::MessageManager::callAsync ([this, alive, status]
+            {
+                if (! *alive)
+                    return;
+
+                if (broadcast)
+                    broadcast (notification ("starter", starterJson (status)).dump());
+
+                if (status.installed && ! status.downloading && library != nullptr)
+                    startLibraryScan();
+            });
+        });
+
     // Progress comes from download, indexing and analysis threads: broadcast from the message
     // thread. (A handler for another project replaces this observer.)
     if (listening != nullptr)
@@ -790,6 +816,17 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
 
     if (method == "folders" || method == "status")
         return status();
+
+    if (method == "starter" || method == "downloadStarter")
+    {
+        if (starter == nullptr)
+            throw RpcError (operationFailed, "the starter samples aren't available in this engine");
+
+        if (method == "downloadStarter")
+            starter->download();
+
+        return starterJson (starter->getStatus());
+    }
 
     if (method == "setAutoScan")
     {
