@@ -78,6 +78,7 @@ export function EffectWindow({ window: w, insert, effect: set }: { window: OpenW
             }} />
           <span className="ml-1.5">Mix</span>
           <Knob size={22} value={effect.mix ?? 1} min={0} max={1} defaultValue={1} format={(v) => `${Math.round(v * 100)}%`}
+            automation={{ scope: "effect", insert: insert.id, effect: effect.id, param: "mix" }} automationValue={set.mix ?? 1}
             onChange={mix.onChange} onCommit={mix.onCommit} />
           <span className="w-7 tabular">{Math.round((effect.mix ?? 1) * 100)}%</span>
         </div>

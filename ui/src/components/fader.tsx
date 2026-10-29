@@ -1,4 +1,6 @@
+import type { AutomationTarget } from "@groovekit/schema/project";
 import { useState } from "react";
+import { openControlMenu } from "./controlMenu";
 import { startDrag } from "@/lib/drag";
 import { formatDb, gainToDb } from "@/lib/model";
 
@@ -16,9 +18,10 @@ export function faderToDb(pos: number) {
   return Math.round((Math.pow(Math.min(1, pos), 1 / curve) * (maxDb - minDb) + minDb) * 10) / 10;
 }
 
-/** Vertical volume fader. Drag (Shift for fine), double-click or Alt-click for 0 dB. */
-export function Fader({ db, onChange, onCommit, height = 140 }: {
-  db: number; onChange?: (db: number) => void; onCommit: (db: number) => void; height?: number;
+/** Vertical volume fader. Drag (Shift for fine), double-click or Alt-click for 0 dB; right-click
+    to reset it or, with `automation`, to make an automation clip for what it sets. */
+export function Fader({ db, onChange, onCommit, height = 140, automation }: {
+  db: number; onChange?: (db: number) => void; onCommit: (db: number) => void; height?: number; automation?: AutomationTarget;
 }) {
   const [live, setLive] = useState<number | null>(null);
   const shown = live ?? db;
@@ -31,6 +34,7 @@ export function Fader({ db, onChange, onCommit, height = 140 }: {
       style={{ height }}
       title={`${formatDb(shown)} dB`}
       onDoubleClick={() => onCommit(0)}
+      onContextMenu={(e) => openControlMenu(e, { automation, value: db, defaultValue: 0, format: (v) => `${formatDb(v)} dB`, onCommit })}
       onPointerDown={(e) => {
         e.stopPropagation();
         if (e.altKey) {

@@ -2,7 +2,6 @@ import type { Channel, Project } from "@groovekit/schema/project";
 import { ChevronDown } from "lucide-react";
 import { Knob } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
-import { Automatable } from "@/features/playlist/Automatable";
 import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { formatDb, formatPan, insertName } from "@/lib/model";
@@ -57,14 +56,12 @@ export function ChannelBar({ doc, channel }: { doc: Project; channel: Channel })
           </DropdownContent>
         </Dropdown>
       </div>
-      <Automatable target={{ scope: "channel", channel: channel.id, param: "volume" }} value={channel.volumeDb ?? 0}>
-        <Knob size={28} label="Volume" value={volumeShown} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`}
-          onChange={volume.onChange} onCommit={volume.onCommit} />
-      </Automatable>
-      <Automatable target={{ scope: "channel", channel: channel.id, param: "pan" }} value={channel.pan ?? 0}>
-        <Knob size={28} label="Pan" value={panShown} min={-1} max={1} defaultValue={0} bipolar format={formatPan}
-          onChange={pan.onChange} onCommit={pan.onCommit} />
-      </Automatable>
+      <Knob size={28} label="Volume" value={volumeShown} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`}
+        onChange={volume.onChange} onCommit={volume.onCommit}
+        automation={{ scope: "channel", channel: channel.id, param: "volume" }} automationValue={channel.volumeDb ?? 0} />
+      <Knob size={28} label="Pan" value={panShown} min={-1} max={1} defaultValue={0} bipolar format={formatPan}
+        onChange={pan.onChange} onCommit={pan.onCommit}
+        automation={{ scope: "channel", channel: channel.id, param: "pan" }} automationValue={channel.pan ?? 0} />
     </div>
   );
 }

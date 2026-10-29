@@ -16,7 +16,6 @@ import { useLivePosition } from "@/lib/playhead";
 import { ColorSwatch } from "@/components/color";
 import { colorFor, formatDb, formatPan, palette, patternLength, patternLoop, STEP, ticksPerBar, uniqueId } from "@/lib/model";
 import { drawPeaks, usePeaks } from "@/lib/peaks";
-import { Automatable } from "@/features/playlist/Automatable";
 import { call, execute, useEngine } from "@/state/engine";
 import { setUi, useUi, type RackView } from "@/state/ui";
 import { openChannel } from "./channels";
@@ -69,6 +68,9 @@ export function ChannelRack() {
     if (step >= 0) for (const pad of root.current.querySelectorAll(`[data-step="${step}"]`)) pad.setAttribute("data-playing", "");
   }, [pattern?.id]);
 
+  // The channel last right-clicked, for the one context menu all the rows share.
+  const [menuChannel, setMenuChannel] = useState<string | null>(null);
+
   const onPaintStart = useCallback((channel: string, step: number, on: boolean) => setPaint({ channel, on, steps: new Set([step]) }), []);
   const onPaintEnter = useCallback((channel: string, step: number) =>
     setPaint((p) => (p && !p.committed && p.channel === channel && !p.steps.has(step) ? { ...p, steps: new Set([...p.steps, step]) } : p)), []);
@@ -93,7 +95,14 @@ export function ChannelRack() {
         }}
       >
         <RackToolbar doc={doc} pattern={pattern} />
-        <div className="min-h-0 flex-1 overflow-auto py-1">
+        <ContextMenu>
+        <ContextMenuTrigger asChild>
+        <div className="min-h-0 flex-1 overflow-auto py-1"
+          onContextMenu={(e) => {
+            const row = (e.target as Element).closest<HTMLElement>("[data-channel]");
+            if (row) setMenuChannel(row.dataset.channel!);
+            else e.preventDefault();
+          }}>
           {channels.length === 0 ? (
             <Empty>
               {rackView === "arrangement"
@@ -112,8 +121,51 @@ export function ChannelRack() {
             ))
           )}
         </div>
+        </ContextMenuTrigger>
+        {menuChannel && <ChannelMenu channelId={menuChannel} />}
+        </ContextMenu>
       </div>
     </div>
+  );
+}
+
+/** The menu for the channel last right-clicked (by id, so it follows the song's changes). */
+function ChannelMenu({ channelId }: { channelId: string }) {
+  const channel = useEngine((s) => s.doc?.channels.find((c) => c.id === channelId));
+  if (!channel) return null;
+  const arrangement = channel.group === "arrangement";
+  const song = () => useEngine.getState().doc!;
+  const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateChannel", channel: channel.id, changes }, { label });
+
+  return (
+    <ContextMenuContent>
+      <ContextMenuItem onSelect={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}>{channel.mute ? "Unmute" : "Mute"}</ContextMenuItem>
+      <ContextMenuItem onSelect={() => update({ solo: !channel.solo }, channel.solo ? "Unsolo channel" : "Solo channel")}>{channel.solo ? "Unsolo" : "Solo"}</ContextMenuItem>
+      <ContextMenuItem onSelect={() => openChannel(channel)}>
+        {channel.instrument.type === "plugin" ? "Open the plugin's window" : "Open the sampler"}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
+      <ContextMenuItem onSelect={() => void routeToNewInsert(song(), channel)}>Route to a new insert</ContextMenuItem>
+      {channel.instrument.type === "sampler" && (
+        <ContextMenuItem onSelect={() => update({ group: arrangement ? null : "arrangement" }, arrangement ? "Move to the rack" : "Move to the arrangement list")}>
+          {arrangement ? "Move to the rack (steps)" : "Move to the arrangement list"}
+        </ContextMenuItem>
+      )}
+      <ContextMenuSub label="Colour">
+        <div className="grid grid-cols-6 gap-1 p-1">
+          {palette.map((c) => (
+            <button key={c} type="button" className="h-5 w-5 rounded-[3px]" style={{ background: c }} onClick={() => update({ color: c }, "Colour channel")} />
+          ))}
+        </div>
+      </ContextMenuSub>
+      <ContextMenuItem onSelect={() => update({ volumeDb: null, pan: null }, "Reset channel volume and pan")} disabled={!channel.volumeDb && !channel.pan}>
+        Reset volume and pan
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void duplicateChannel(song(), channel, false)}>Duplicate</ContextMenuItem>
+      <ContextMenuItem onSelect={() => void duplicateChannel(song(), channel, true)}>Duplicate with notes</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem danger onSelect={() => void execute({ type: "removeChannel", channel: channel.id }, { label: `Delete ${channel.name ?? channel.id}` })}>Delete channel</ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 
@@ -292,12 +344,10 @@ function ChannelKnobs({ channel }: { channel: Channel }) {
 
   return (
     <>
-      <Automatable target={{ scope: "channel", channel: channel.id, param: "pan" }} value={channel.pan ?? 0}>
-        <Knob size={20} value={panShown} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan} onChange={pan.onChange} onCommit={pan.onCommit} />
-      </Automatable>
-      <Automatable target={{ scope: "channel", channel: channel.id, param: "volume" }} value={channel.volumeDb ?? 0}>
-        <Knob size={20} value={volumeShown} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`} onChange={volume.onChange} onCommit={volume.onCommit} />
-      </Automatable>
+      <Knob size={20} value={panShown} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan} onChange={pan.onChange} onCommit={pan.onCommit}
+        automation={{ scope: "channel", channel: channel.id, param: "pan" }} automationValue={channel.pan ?? 0} />
+      <Knob size={20} value={volumeShown} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`} onChange={volume.onChange} onCommit={volume.onCommit}
+        automation={{ scope: "channel", channel: channel.id, param: "volume" }} automationValue={channel.volumeDb ?? 0} />
     </>
   );
 }
@@ -316,13 +366,12 @@ const ChannelRow = memo(function ChannelRow({ channel, pattern, steps, selected,
   const bar = useEngine((s) => ticksPerBar(s.doc));
   const arrangement = channel.group === "arrangement";
   const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateChannel", channel: channel.id, changes }, { label });
-  const song = () => useEngine.getState().doc!;
 
   const previewPath = channel.instrument.type === "sampler" ? channel.instrument.layers[0]?.sample : undefined;
   const preview = () => previewPath && void call("preview.play", { path: previewPath });
 
   return (
-    <div className={cn("relative flex h-[30px] items-center gap-2 px-2", selected && "bg-raised")}>
+    <div className={cn("relative flex h-[30px] items-center gap-2 px-2", selected && "bg-raised")} data-channel={channel.id}>
       <ChannelLed channel={channel.id} />
       <ChannelKnobs channel={channel} />
 
@@ -337,9 +386,7 @@ const ChannelRow = memo(function ChannelRow({ channel, pattern, steps, selected,
         </DropdownContent>
       </Dropdown>
 
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <button
+      <button
             type="button"
             className={cn(
               "flex h-[22px] w-[150px] shrink-0 items-center gap-1.5 truncate rounded-[3px] px-2 text-left text-xs",
@@ -361,32 +408,6 @@ const ChannelRow = memo(function ChannelRow({ channel, pattern, steps, selected,
             <span className="h-3 w-1 shrink-0 rounded-sm" style={{ background: color }} />
             <span className="truncate">{channel.name ?? channel.id}</span>
           </button>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onSelect={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}>{channel.mute ? "Unmute" : "Mute"}</ContextMenuItem>
-          <ContextMenuItem onSelect={() => openChannel(channel)}>
-            {channel.instrument.type === "plugin" ? "Open the plugin's window" : "Open the sampler"}
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
-          <ContextMenuItem onSelect={() => void routeToNewInsert(song(), channel)}>Route to a new insert</ContextMenuItem>
-          {channel.instrument.type === "sampler" && (
-            <ContextMenuItem onSelect={() => update({ group: arrangement ? null : "arrangement" }, arrangement ? "Move to the rack" : "Move to the arrangement list")}>
-              {arrangement ? "Move to the rack (steps)" : "Move to the arrangement list"}
-            </ContextMenuItem>
-          )}
-          <ContextMenuSub label="Colour">
-            <div className="grid grid-cols-6 gap-1 p-1">
-              {palette.map((c) => (
-                <button key={c} type="button" className="h-5 w-5 rounded-[3px]" style={{ background: c }} onClick={() => update({ color: c }, "Colour channel")} />
-              ))}
-            </div>
-          </ContextMenuSub>
-          <ContextMenuItem onSelect={() => void duplicateChannel(song(), channel, false)}>Duplicate</ContextMenuItem>
-          <ContextMenuItem onSelect={() => void duplicateChannel(song(), channel, true)}>Duplicate with notes</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem danger onSelect={() => void execute({ type: "removeChannel", channel: channel.id }, { label: `Delete ${channel.name ?? channel.id}` })}>Delete channel</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
 
       <button type="button" title="Mute" onClick={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}
         className={cn("h-3 w-3 shrink-0 rounded-full border", channel.mute ? "border-faint bg-transparent" : "border-ok bg-ok/80")} />

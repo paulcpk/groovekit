@@ -7,7 +7,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { Activity } from "@/features/history/Activity";
 import { cn } from "@/lib/cn";
 import { toast, useEngine } from "@/state/engine";
-import { deleteChat, newChat, openChat, refreshChats, retry, send, setApiKey, stop, useAgent, useApiKey, useChats, type ChatItem, type ChatSummary } from "./agent";
+import { deleteChat, loadConversation, newChat, openChat, refreshChats, retry, send, setApiKey, stop, useAgent, useApiKey, useChats, type ChatItem, type ChatSummary } from "./agent";
 import { MARKDOWN } from "./markdown";
 import { NotesView } from "./NotesView";
 import { StylesView } from "./StylesView";
@@ -701,6 +701,6 @@ function KeySetup() {
 export function useAgentConversation() {
   const project = useEngine((s) => s.project);
   useEffect(() => {
-    void import("./agent").then((m) => m.loadConversation(project));
+    void loadConversation(project);
   }, [project]);
 }

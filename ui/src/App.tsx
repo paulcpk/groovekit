@@ -5,6 +5,7 @@ import { Playlist } from "@/features/playlist/Playlist";
 import { Sidebar } from "@/features/sidebar/Sidebar";
 import { StatusBar } from "@/features/shell/StatusBar";
 import { Toasts } from "@/features/shell/Toasts";
+import { ControlMenu } from "@/components/controlMenu";
 import { TopBar } from "@/features/shell/TopBar";
 import { Splitter } from "@/features/shell/Splitter";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
@@ -18,7 +19,8 @@ import { useShortcuts } from "@/features/shell/shortcuts";
 import { ReferencesPrompt } from "@/features/browser/ReferencesPrompt";
 import { EngineVersionBanner } from "@/features/shell/EngineVersionBanner";
 import { Windows } from "@/features/windows/Windows";
-import { useEngine } from "@/state/engine";
+import { createAutomation } from "@/features/playlist/automation";
+import { listen, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
 export function App() {
@@ -74,6 +76,7 @@ export function App() {
       </div>
       <StatusBar />
       <Windows />
+      <ControlMenu />
       <Toasts />
       <SettingsDialog />
       <RecordDialog />
@@ -95,6 +98,11 @@ function AppHooks() {
   useAgentConversation();
   useTypingKeyboard();
   useQuitGuard();
+  // "Automate" in the bar above a plugin's window asks the UI for an automation clip.
+  useEffect(() => listen("createAutomation", (params) => {
+    const doc = useEngine.getState().doc;
+    if (doc) void createAutomation(doc, params.target, params.value);
+  }), []);
   return null;
 }
 

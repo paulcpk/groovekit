@@ -108,6 +108,7 @@ function EffectSlot({ doc, insert, effect, index, count }: { doc: Project; inser
           </button>
           <span className="w-8 text-right text-2xs text-faint tabular">{Math.round(mixShown * 100)}%</span>
           <Knob size={22} value={mixShown} min={0} max={1} defaultValue={1} title="Mix" format={(v) => `${Math.round(v * 100)}%`}
+            automation={{ scope: "effect", insert: insert.id, effect: effect.id, param: "mix" }} automationValue={effect.mix ?? 1}
             onChange={mix.onChange} onCommit={mix.onCommit} />
         </div>
       </ContextMenuTrigger>
@@ -219,6 +220,7 @@ function SendKnob({ insertId, sendId, levelDb: set }: { insertId: string; sendId
   const level = useLiveControl((v) => ({ type: "updateSend", insert: insertId, send: sendId, changes: { levelDb: Math.round(v * 10) / 10 } }), "Send level");
   return (
     <Knob size={22} value={levelDb} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`} title="Send level"
+      automation={{ scope: "send", insert: insertId, send: sendId, param: "level" }} automationValue={set}
       color="#58b7d6" onChange={level.onChange} onCommit={level.onCommit} />
   );
 }

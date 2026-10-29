@@ -5,7 +5,6 @@ import { startDrag } from "@/lib/drag";
 import { useHeld } from "@/lib/held";
 import { formatHz, freqToX, svfGainDb, xToFreq, type SvfType } from "@/lib/filters";
 import { cn } from "@/lib/cn";
-import { Automatable } from "@/features/playlist/Automatable";
 
 type Filter = Required<Omit<SamplerFilter, "envelope">>;
 
@@ -58,6 +57,9 @@ export function FilterGraph({ filter, color, channel, onChange, onCommit }: {
     (commit ? onCommit : onChange)(change);
   };
 
+  // On a channel's filter, the knobs can be automated.
+  const target = (param: string): AutomationTarget | undefined => (channel ? { scope: "channel", channel, param } : undefined);
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-1">
@@ -98,21 +100,15 @@ export function FilterGraph({ filter, color, channel, onChange, onCommit }: {
         </svg>
       </div>
       <div className={cn("flex justify-around", off && "pointer-events-none opacity-40")}>
-        <Automated channel={channel} param="filterCutoff" value={f.cutoff}>
-          <Knob size={28} label="Cutoff" value={freqToX(f.cutoff)} min={0} max={1} defaultValue={1}
-            format={(v) => formatHz(xToFreq(v))}
-            onChange={(v) => set({ cutoff: Math.round(xToFreq(v)) }, false)} onCommit={(v) => set({ cutoff: Math.round(xToFreq(v)) }, true)} />
-        </Automated>
-        <Automated channel={channel} param="filterResonance" value={f.resonance}>
-          <Knob size={28} label="Resonance" value={f.resonance} min={0} max={1} defaultValue={0}
-            format={(v) => `${Math.round(v * 100)}%`}
-            onChange={(v) => set({ resonance: Math.round(v * 100) / 100 }, false)} onCommit={(v) => set({ resonance: Math.round(v * 100) / 100 }, true)} />
-        </Automated>
-        <Automated channel={channel} param="filterEnvelopeAmount" value={f.envelopeAmount}>
-          <Knob size={28} label="Env amount" value={f.envelopeAmount} min={-8} max={8} defaultValue={0} bipolar
-            format={(v) => `${v > 0 ? "+" : ""}${v.toFixed(1)} oct`}
-            onChange={(v) => set({ envelopeAmount: Math.round(v * 10) / 10 }, false)} onCommit={(v) => set({ envelopeAmount: Math.round(v * 10) / 10 }, true)} />
-        </Automated>
+        <Knob size={28} label="Cutoff" value={freqToX(f.cutoff)} min={0} max={1} defaultValue={1}
+          format={(v) => formatHz(xToFreq(v))} automation={target("filterCutoff")} automationValue={f.cutoff}
+          onChange={(v) => set({ cutoff: Math.round(xToFreq(v)) }, false)} onCommit={(v) => set({ cutoff: Math.round(xToFreq(v)) }, true)} />
+        <Knob size={28} label="Resonance" value={f.resonance} min={0} max={1} defaultValue={0}
+          format={(v) => `${Math.round(v * 100)}%`} automation={target("filterResonance")}
+          onChange={(v) => set({ resonance: Math.round(v * 100) / 100 }, false)} onCommit={(v) => set({ resonance: Math.round(v * 100) / 100 }, true)} />
+        <Knob size={28} label="Env amount" value={f.envelopeAmount} min={-8} max={8} defaultValue={0} bipolar
+          format={(v) => `${v > 0 ? "+" : ""}${v.toFixed(1)} oct`} automation={target("filterEnvelopeAmount")}
+          onChange={(v) => set({ envelopeAmount: Math.round(v * 10) / 10 }, false)} onCommit={(v) => set({ envelopeAmount: Math.round(v * 10) / 10 }, true)} />
       </div>
     </div>
   );
@@ -123,9 +119,4 @@ function withoutEnvelope(filter: SamplerFilter | undefined) {
   return rest;
 }
 
-/** A knob that, on a channel's filter, can be automated. */
-function Automated({ channel, param, value, children }: { channel?: string; param: string; value: number; children: React.ReactNode }) {
-  if (!channel) return <>{children}</>;
-  const target: AutomationTarget = { scope: "channel", channel, param };
-  return <Automatable target={target} value={value}>{children}</Automatable>;
-}
+

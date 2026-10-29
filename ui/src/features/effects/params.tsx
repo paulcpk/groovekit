@@ -29,7 +29,8 @@ export function useParamControl(insert: Insert, effect: BuiltinEffect, id: strin
   return { p, value, title, toKnob, fromKnob, live, set };
 }
 
-/** Right-click on a parameter's control: reset it, or automate it. */
+/** Right-click on a parameter's control that isn't a knob (choices, a graph): reset it, or
+    automate it. Knobs bring their own menu. */
 export function ParamMenu({ insert, effect, id, children }: { insert: Insert; effect: BuiltinEffect; id: string; children: React.ReactNode }) {
   const doc = useEngine((s) => s.doc)!;
   const { p, value, set } = useParamControl(insert, effect, id);
@@ -82,6 +83,7 @@ export function ParamKnob({ insert, effect, id, param: given, name, size = 32, c
         <div className="flex flex-col items-center" title={p.description}>
           <Knob size={size} value={toKnob(value)} min={toKnob(p.min)} max={toKnob(p.max)} defaultValue={toKnob(p.default)} color={color}
             bipolar={p.min === -p.max}
+            automation={p.automatable ? { scope: "effect", insert: insert.id, effect: effect.id, param: id } : undefined} automationValue={value}
             format={(k) => formatParam(fromKnob(k), p.unit)} onChange={live.onChange} onCommit={live.onCommit} />
           <div className="mt-0.5 max-w-[84px] truncate text-2xs text-dim">{title}</div>
           <div className="text-[9px] text-faint tabular">{formatParam(value, p.unit)}</div>

@@ -1,6 +1,8 @@
+import type { AutomationTarget } from "@groovekit/schema/project";
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { startDrag } from "@/lib/drag";
+import { openControlMenu } from "./controlMenu";
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   active?: boolean;
@@ -55,13 +57,16 @@ export function ToggleChip({ on, onClick, label, title, tone = "accent", classNa
 }
 
 //==============================================================================
-/** A rotary control. Drag up and down (Shift for fine steps), double-click for the default. */
+/** A rotary control. Drag up and down (Shift for fine steps), double-click for the default;
+    right-click to reset it or, with `automation`, to make an automation clip for what it sets
+    (`automationValue`: the value in the parameter's units when the knob's scale differs). */
 export function Knob({
-  value, min, max, defaultValue, onChange, onCommit, format, size = 28, bipolar, color = "var(--color-accent)", title, label,
+  value, min, max, defaultValue, onChange, onCommit, format, size = 28, bipolar, color = "var(--color-accent)", title, label, automation, automationValue,
 }: {
   value: number; min: number; max: number; defaultValue?: number;
   onChange?: (v: number) => void; onCommit: (v: number) => void;
   format?: (v: number) => string; size?: number; bipolar?: boolean; color?: string; title?: string; label?: string;
+  automation?: AutomationTarget; automationValue?: number;
 }) {
   const [live, setLive] = useState<number | null>(null);
   const shown = live ?? value;
@@ -82,7 +87,8 @@ export function Knob({
   const text = format ? format(shown) : shown.toFixed(2);
 
   return (
-    <div className="flex flex-col items-center gap-0.5" title={title ? `${title}: ${text}` : text}>
+    <div className="flex flex-col items-center gap-0.5" title={title ? `${title}: ${text}` : text}
+      onContextMenu={(e) => openControlMenu(e, { automation, value: automationValue ?? value, defaultValue, format, onCommit })}>
       <svg
         width={size} height={size}
         className="cursor-ns-resize"
@@ -120,14 +126,15 @@ export function Knob({
 }
 
 //==============================================================================
-/** A number you drag (up/down) or double-click to type. */
+/** A number you drag (up/down) or double-click to type; right-click to reset it. */
 export function DragNumber({
-  value, min, max, step = 1, pixelsPerStep = 3, format, parse, onCommit, className, title, defaultValue,
+  value, min, max, step = 1, pixelsPerStep = 3, format, parse, onCommit, className, title, defaultValue, automation,
 }: {
   value: number; min: number; max: number; step?: number; pixelsPerStep?: number;
   format?: (v: number) => string; parse?: (s: string) => number; onCommit: (v: number) => void; className?: string; title?: string;
-  /** What Alt-click goes back to. */
+  /** What Alt-click and the menu's reset go back to. */
   defaultValue?: number;
+  automation?: AutomationTarget;
 }) {
   const [live, setLive] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
@@ -164,6 +171,7 @@ export function DragNumber({
       title={title}
       className={cn("cursor-ns-resize tabular", className)}
       onDoubleClick={() => setEditing(true)}
+      onContextMenu={(e) => openControlMenu(e, { automation, value, defaultValue, format, onCommit })}
       onPointerDown={(e) => {
         if (e.altKey && defaultValue !== undefined) {
           if (defaultValue !== value) onCommit(defaultValue);

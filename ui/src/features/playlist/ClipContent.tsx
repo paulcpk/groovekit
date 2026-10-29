@@ -32,6 +32,8 @@ export const PatternContent = memo(function PatternContent({ clip, width, height
     return keys;
   }, [pattern, channelOrder]);
 
+  // The notes in the pattern's own ticks across and pixels down, scaled across to the clip's
+  // width when drawn: zooming changes the scale, not the path.
   const path = useMemo(() => {
     if (!pattern || pattern.notes.length === 0 || height < 6) return "";
     const loop = patternLoop(pattern, bar);
@@ -48,23 +50,27 @@ export const PatternContent = memo(function PatternContent({ clip, width, height
         const start = rep + n.start;
         if (start + n.length <= 0 || start >= clip.length) continue;
         const row = index.get(`${n.channel}:${n.key ?? 60}`) ?? 0;
-        const x = (Math.max(0, start) / clip.length) * width;
-        const y = top + row * rowH;
-        const w = Math.max(1.5, (Math.min(n.length, clip.length - start) / clip.length) * width - 0.5);
-        // A rectangle with corners rounded by r.
-        const r = Math.min(1, w / 2, h / 2);
-        parts.push(`M${(x + r).toFixed(2)} ${y.toFixed(2)}h${(w - 2 * r).toFixed(2)}a${r} ${r} 0 0 1 ${r} ${r}v${(h - 2 * r).toFixed(2)}a${r} ${r} 0 0 1 -${r} ${r}h-${(w - 2 * r).toFixed(2)}a${r} ${r} 0 0 1 -${r} -${r}v-${(h - 2 * r).toFixed(2)}a${r} ${r} 0 0 1 ${r} -${r}z`);
+        const x = Math.max(0, start);
+        // A small gap after each note, so notes in a row stay apart.
+        const w = Math.max(1, Math.min(n.length, clip.length - start) * 0.92);
+        parts.push(`M${x} ${(top + row * rowH).toFixed(2)}h${w}v${h.toFixed(2)}h-${w}z`);
         if (++count > 4000) return parts.join("");
       }
     }
     return parts.join("");
-  }, [pattern, rows, bar, clip.offset, clip.length, width, height]);
+  }, [pattern, rows, bar, clip.offset, clip.length, height]);
 
   if (!path) return null;
+  const scale = width / clip.length;
+  // Zoomed far out, notes thinner than a pixel get a one-pixel outline so they still show.
+  const thin = scale * 240 < 2;
+  const fill = `color-mix(in srgb, ${color} 88%, white)`;
 
   return (
-    <svg width={width} height={height} className="absolute left-0" style={{ fill: `color-mix(in srgb, ${color} 88%, white)` }}>
-      <path d={path} />
+    <svg width={width} height={height} className="absolute left-0" style={{ fill }}>
+      <g transform={`scale(${scale} 1)`}>
+        <path d={path} stroke={thin ? fill : undefined} strokeWidth={thin ? 1 : undefined} vectorEffect={thin ? "non-scaling-stroke" : undefined} />
+      </g>
     </svg>
   );
 });

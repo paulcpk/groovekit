@@ -135,13 +135,6 @@ function onNotification(method: string, params: any) {
       break;
     }
 
-    case "createAutomation": {
-      // "Automate" in the bar above a plugin's window.
-      const doc = get().doc;
-      if (doc) void import("@/features/playlist/automation").then((m) => m.createAutomation(doc, params.target, params.value));
-      break;
-    }
-
     case "hello":
       set({ project: params.project, protocol: params.protocol ?? 1 });
       break;
@@ -154,7 +147,9 @@ function onNotification(method: string, params: any) {
       const touched = touchedIds(before, doc, params.ops);
       const change: ChangeEvent = { entry: params.entry, kind: params.kind, origin: params.origin ?? "?", label: params.label ?? "", time: Date.now(), touched };
       const now = Date.now();
-      const touchedAt = change.origin === "ui" ? get().touchedAt : { ...get().touchedAt, ...Object.fromEntries(touched.map((id) => [id, now])) };
+      // The marks fade in two seconds; what's older is dropped so the map doesn't grow all session.
+      const recent = Object.fromEntries(Object.entries(get().touchedAt).filter(([, t]) => now - t < 5000));
+      const touchedAt = change.origin === "ui" ? recent : { ...recent, ...Object.fromEntries(touched.map((id) => [id, now])) };
 
       set({ doc, head: params.head ?? null, changes: [change, ...get().changes].slice(0, 200), touchedAt });
       break;

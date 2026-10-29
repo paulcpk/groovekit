@@ -1,14 +1,13 @@
 import type { Effect, Insert } from "@groovekit/schema/project";
 import { ChevronDown } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Knob, ToggleChip } from "@/components/controls";
 import { Fader, Meter } from "@/components/fader";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownTrigger } from "@/components/menu";
-import { createAutomation } from "@/features/playlist/automation";
+import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownTrigger } from "@/components/menu";
 import { effectNames } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
 import { ColorSwatch } from "@/components/color";
-import { colorFor, formatDb, formatPan, insertName, palette } from "@/lib/model";
+import { colorFor, formatDb, formatPan, insertName } from "@/lib/model";
 import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { useHeight } from "@/lib/useHeight";
@@ -22,8 +21,10 @@ export function effectName(effect: Effect) {
 
 /** A strip is drawn again only when its insert, place or selection changes; its meter, pan and
     fader follow the levels and automation on their own. */
-export const Strip = memo(function Strip({ insert, index, selected, onSelect }: {
+export const Strip = memo(function Strip({ insert, index, selected, onSelect, renaming, onRenamed }: {
   insert: Insert; index: number; selected: boolean; onSelect: (insert: string) => void;
+  /** The mixer's menu asked for a new name: show the field. */
+  renaming: boolean; onRenamed: () => void;
 }) {
   const touched = useEngine((s) => s.touchedAt[insert.id]);
   const master = insert.id === "master";
@@ -37,9 +38,9 @@ export const Strip = memo(function Strip({ insert, index, selected, onSelect }: 
 
   return (
     <div className={cn("relative flex h-full w-[92px] shrink-0 flex-col bg-panel", selected && "bg-raised", insert.mute && "opacity-70")}
-      onPointerDownCapture={() => onSelect(insert.id)}>
+      data-insert={insert.id} onPointerDownCapture={() => onSelect(insert.id)}>
       {selected && <span className="pointer-events-none absolute inset-0 z-10 ring-1 ring-accent/70 ring-inset" />}
-      <StripName insert={insert} index={index} color={color} />
+      <StripName insert={insert} index={index} color={color} renaming={renaming} onRenamed={onRenamed} />
 
       {/* What's in the insert, at a glance; the chain is edited in the panel beside the strips. */}
       <div className="flex h-[96px] shrink-0 flex-col gap-px overflow-hidden px-1.5 pt-1.5 pb-1">
@@ -95,20 +96,9 @@ function StripPan({ insert }: { insert: Insert }) {
 
   return (
     <div className="flex shrink-0 justify-center py-1.5">
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div>
-            <Knob size={26} value={automatedPan} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan}
-              onChange={pan.onChange} onCommit={pan.onCommit} />
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onSelect={() => {
-            const doc = useEngine.getState().doc;
-            if (doc) void createAutomation(doc, { scope: "insert", insert: insert.id, param: "pan" }, insert.pan ?? 0);
-          }}>Create automation clip</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+      <Knob size={26} value={automatedPan} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan}
+        automation={{ scope: "insert", insert: insert.id, param: "pan" }} automationValue={insert.pan ?? 0}
+        onChange={pan.onChange} onCommit={pan.onCommit} />
     </div>
   );
 }
@@ -118,32 +108,20 @@ function StripPan({ insert }: { insert: Insert }) {
 function StripFader({ insert, index, height, onLive }: { insert: Insert; index: number; height: number; onLive: (db: number | null) => void }) {
   const automatedDb = useAutomated({ scope: "insert", insert: insert.id, param: "volume" }, insert.volumeDb ?? 0);
   const volume = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { volumeDb: v } }), `${insertName(insert, index)} volume`);
-  const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateInsert", insert: insert.id, changes }, { label });
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div className="flex min-h-0 flex-1 items-end justify-center gap-1.5 px-2">
-          <Fader db={automatedDb} height={height}
-            onChange={(v) => {
-              onLive(v);
-              volume.onChange(v);
-            }}
-            onCommit={(v) => {
-              onLive(null);
-              volume.onCommit(v);
-            }} />
-          <StripMeter insert={insert.id} height={height - 6} />
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onSelect={() => update({ volumeDb: 0 }, "Reset volume")}>Reset to 0 dB</ContextMenuItem>
-        <ContextMenuItem onSelect={() => {
-          const doc = useEngine.getState().doc;
-          if (doc) void createAutomation(doc, { scope: "insert", insert: insert.id, param: "volume" }, insert.volumeDb ?? 0);
-        }}>Create automation clip</ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+    <div className="flex min-h-0 flex-1 items-end justify-center gap-1.5 px-2">
+      <Fader db={automatedDb} height={height} automation={{ scope: "insert", insert: insert.id, param: "volume" }}
+        onChange={(v) => {
+          onLive(v);
+          volume.onChange(v);
+        }}
+        onCommit={(v) => {
+          onLive(null);
+          volume.onCommit(v);
+        }} />
+      <StripMeter insert={insert.id} height={height - 6} />
+    </div>
   );
 }
 
@@ -153,9 +131,20 @@ function StripReading({ insert, liveDb }: { insert: Insert; liveDb: number | nul
   return <span className="font-mono text-2xs text-dim tabular">{formatDb(liveDb ?? automatedDb)}</span>;
 }
 
-function StripName({ insert, index, color }: { insert: Insert; index: number; color: string }) {
+/** The insert's name and colour; double-click (or the mixer's menu) to rename. The menu is the
+    mixer's, shared by all the strips. */
+function StripName({ insert, index, color, renaming, onRenamed }: { insert: Insert; index: number; color: string; renaming: boolean; onRenamed: () => void }) {
   const [editing, setEditing] = useState(false);
   const master = insert.id === "master";
+
+  useEffect(() => {
+    if (renaming && !master) setEditing(true);
+  }, [renaming, master]);
+
+  const done = () => {
+    setEditing(false);
+    onRenamed();
+  };
 
   if (editing) {
     return (
@@ -163,13 +152,13 @@ function StripName({ insert, index, color }: { insert: Insert; index: number; co
         autoFocus defaultValue={insert.name ?? ""}
         className="m-1 h-6 rounded-[3px] bg-bg px-1 text-xs outline-none ring-1 ring-accent"
         onBlur={(e) => {
-          setEditing(false);
+          done();
           const v = e.target.value.trim();
           if (v && v !== insert.name) void execute({ type: "updateInsert", insert: insert.id, changes: { name: v } }, { label: "Rename insert" });
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          if (e.key === "Escape") setEditing(false);
+          if (e.key === "Escape") done();
           e.stopPropagation();
         }}
       />
@@ -177,38 +166,17 @@ function StripName({ insert, index, color }: { insert: Insert; index: number; co
   }
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div className="flex h-12 shrink-0 flex-col justify-center gap-0.5 border-b border-line px-2 pt-1.5 pb-1" style={{ boxShadow: `inset 0 4px 0 ${color}` }}
-          onDoubleClick={() => !master && setEditing(true)}>
-          <div className="truncate text-xs font-medium text-fg">{insertName(insert, index)}</div>
-          <div className="flex items-center gap-1">
-            <span className="flex-1 text-[9px] text-faint">{master ? "Output" : `Insert ${index}`}</span>
-            {!master && (
-              <ColorSwatch color={color} chosen={!!insert.color} size={10} title="Colour"
-                onChange={(c) => void execute({ type: "updateInsert", insert: insert.id, changes: { color: c } }, { label: c ? "Colour insert" : "Reset insert colour" })} />
-            )}
-          </div>
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        {!master && <ContextMenuItem onSelect={() => setEditing(true)}>Rename</ContextMenuItem>}
+    <div className="flex h-12 shrink-0 flex-col justify-center gap-0.5 border-b border-line px-2 pt-1.5 pb-1" style={{ boxShadow: `inset 0 4px 0 ${color}` }}
+      onDoubleClick={() => !master && setEditing(true)}>
+      <div className="truncate text-xs font-medium text-fg">{insertName(insert, index)}</div>
+      <div className="flex items-center gap-1">
+        <span className="flex-1 text-[9px] text-faint">{master ? "Output" : `Insert ${index}`}</span>
         {!master && (
-          <ContextMenuSub label="Colour">
-            <div className="grid grid-cols-6 gap-1 p-1">
-              {palette.map((c) => (
-                <button key={c} type="button" className="h-5 w-5 rounded-[3px]" style={{ background: c }}
-                  onClick={() => void execute({ type: "updateInsert", insert: insert.id, changes: { color: c } }, { label: "Colour insert" })} />
-              ))}
-            </div>
-          </ContextMenuSub>
+          <ColorSwatch color={color} chosen={!!insert.color} size={10} title="Colour"
+            onChange={(c) => void execute({ type: "updateInsert", insert: insert.id, changes: { color: c } }, { label: c ? "Colour insert" : "Reset insert colour" })} />
         )}
-        {!master && <ContextMenuSeparator />}
-        <ContextMenuItem disabled={master} danger onSelect={() => void execute({ type: "removeInsert", insert: insert.id }, { label: `Remove ${insertName(insert, index)}` })}>
-          Remove insert
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+      </div>
+    </div>
   );
 }
 

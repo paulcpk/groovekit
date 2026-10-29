@@ -19,6 +19,12 @@ export interface ClientEvents {
 
 export const inDesktopApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/** How long calls may wait with nothing from the engine before it's probed, and how long the
+    probe may go unanswered. Long calls (a render, hearing a track) still get their answer, since
+    the engine answers the probe meanwhile. */
+const SILENCE_MS = 20000;
+const PROBE_MS = 10000;
+
 /** The engine protocol this UI needs (hello's protocol): 2 for song maps and sound matching. */
 export const ENGINE_PROTOCOL = 2;
 
@@ -52,6 +58,13 @@ export class EngineClient {
   private pending = new Map<number, Pending>();
   private retry: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
+  /** Watches for an engine that stopped answering: when calls wait and nothing arrives for a
+      while, a cheap call is tried; if that gets no answer either, the connection is dropped so
+      the calls fail and a new connection is tried. */
+  private watchdog: ReturnType<typeof setInterval> | undefined;
+  private lastMessage = 0;
+  private probing = false;
+  private silent = false;
 
   constructor(private readonly origin: string, private readonly events: ClientEvents) {}
 
@@ -63,7 +76,29 @@ export class EngineClient {
   stop() {
     this.stopped = true;
     clearTimeout(this.retry);
+    clearInterval(this.watchdog);
     this.socket?.close();
+  }
+
+  private watch(socket: WebSocket) {
+    clearInterval(this.watchdog);
+    this.lastMessage = Date.now();
+    this.probing = false;
+    this.silent = false;
+    this.watchdog = setInterval(() => {
+      if (this.socket !== socket || this.pending.size === 0) {
+        this.probing = false;
+        return;
+      }
+      const quiet = Date.now() - this.lastMessage;
+      if (quiet > SILENCE_MS + PROBE_MS && this.probing) {
+        this.silent = true;
+        socket.close();
+      } else if (quiet > SILENCE_MS && !this.probing) {
+        this.probing = true;
+        void this.call("transport.state").catch(() => {});
+      }
+    }, 5000);
   }
 
   get connected() {
@@ -94,6 +129,8 @@ export class EngineClient {
     let welcomed = false;
 
     socket.onmessage = (event) => {
+      this.lastMessage = Date.now();
+      this.probing = false;
       const message = JSON.parse(String(event.data));
 
       if (message.id !== undefined && !message.method) {
@@ -108,6 +145,7 @@ export class EngineClient {
       if (message.method === "snapshot" && !welcomed) {
         welcomed = true;
         this.socket = socket;
+        this.watch(socket);
         this.call("hello", { origin: this.origin })
           .then((hello) => {
             this.events.notification("hello", hello);
@@ -121,9 +159,10 @@ export class EngineClient {
 
     socket.onclose = () => {
       if (this.socket === socket) this.socket = undefined;
-      for (const p of this.pending.values()) p.reject(new Error("The engine connection closed"));
+      const why = this.silent ? "The engine stopped answering" : "The engine connection closed";
+      for (const p of this.pending.values()) p.reject(new Error(why));
       this.pending.clear();
-      this.scheduleRetry(welcomed ? "The engine stopped" : `Can't reach the engine at ${this.url}`);
+      this.scheduleRetry(welcomed ? (this.silent ? "The engine stopped answering" : "The engine stopped") : `Can't reach the engine at ${this.url}`);
     };
   }
 
