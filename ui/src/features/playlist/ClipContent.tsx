@@ -1,5 +1,5 @@
 import type { AudioClip, AutomationClip, AutomationPoint, PatternClip, Project } from "@groovekit/schema/project";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { automatedEffect, bezierControl, curveThrough, rangePosition, rangeValue, targetRangeOf } from "@/lib/automation";
 import { useCatalogue } from "@/lib/catalogue";
 import { snapTo, startDrag } from "@/lib/drag";
@@ -33,16 +33,17 @@ export const PatternContent = memo(function PatternContent({ clip, width, height
   }, [pattern, channelOrder]);
 
   // The notes in the pattern's own ticks across and pixels down, scaled across to the clip's
-  // width when drawn: zooming changes the scale, not the path.
-  const path = useMemo(() => {
-    if (!pattern || pattern.notes.length === 0 || height < 6) return "";
+  // width when drawn: zooming changes the scale, not the path. `ends` marks where each note
+  // ends, for the pixel of space that keeps notes in a row apart.
+  const { path, ends } = useMemo(() => {
+    if (!pattern || pattern.notes.length === 0 || height < 6) return { path: "", ends: "" };
     const loop = patternLoop(pattern, bar);
     const offset = clip.offset ?? 0;
     const rowH = Math.min(6, height / Math.max(1, rows.length));
     const top = (height - rowH * rows.length) / 2;
     const index = new Map(rows.map((r, i) => [r, i]));
-    const h = Math.max(1, rowH - 1);
-    const parts: string[] = [];
+    const h = Math.max(1, rowH - 1).toFixed(2);
+    const parts: string[] = [], endParts: string[] = [];
     let count = 0;
 
     for (let rep = Math.floor(offset / loop) * loop - offset; rep < clip.length; rep += loop) {
@@ -51,14 +52,17 @@ export const PatternContent = memo(function PatternContent({ clip, width, height
         if (start + n.length <= 0 || start >= clip.length) continue;
         const row = index.get(`${n.channel}:${n.key ?? 60}`) ?? 0;
         const x = Math.max(0, start);
-        // A small gap after each note, so notes in a row stay apart.
-        const w = Math.max(1, Math.min(n.length, clip.length - start) * 0.92);
-        parts.push(`M${x} ${(top + row * rowH).toFixed(2)}h${w}v${h.toFixed(2)}h-${w}z`);
-        if (++count > 4000) return parts.join("");
+        const w = Math.max(1, Math.min(n.length, clip.length - start));
+        const y = (top + row * rowH).toFixed(2);
+        parts.push(`M${x} ${y}h${w}v${h}h-${w}z`);
+        endParts.push(`M${x + w} ${y}v${h}`);
+        if (++count > 4000) break;
       }
+      if (count > 4000) break;
     }
-    return parts.join("");
+    return { path: parts.join(""), ends: endParts.join("") };
   }, [pattern, rows, bar, clip.offset, clip.length, height]);
+  const id = useId();
 
   if (!path) return null;
   const scale = width / clip.length;
@@ -69,7 +73,16 @@ export const PatternContent = memo(function PatternContent({ clip, width, height
   return (
     <svg width={width} height={height} className="absolute left-0" style={{ fill }}>
       <g transform={`scale(${scale} 1)`}>
-        <path d={path} stroke={thin ? fill : undefined} strokeWidth={thin ? 1 : undefined} vectorEffect={thin ? "non-scaling-stroke" : undefined} />
+        {/* Notes are drawn at their full length, then a pixel is taken off where each one ends,
+            so notes that follow each other stay apart at every zoom. */}
+        {!thin && (
+          <mask id={id} maskUnits="userSpaceOnUse" x={0} y={0} width={clip.length} height={height}>
+            <rect width={clip.length} height={height} fill="white" />
+            <path d={ends} fill="none" stroke="black" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          </mask>
+        )}
+        <path d={path} mask={thin ? undefined : `url(#${id})`}
+          stroke={thin ? fill : undefined} strokeWidth={thin ? 1 : undefined} vectorEffect={thin ? "non-scaling-stroke" : undefined} />
       </g>
     </svg>
   );

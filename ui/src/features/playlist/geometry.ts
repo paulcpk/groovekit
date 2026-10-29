@@ -1,5 +1,6 @@
 export const HEADER_W = 200;
-export const RULER_H = 30;
+// As tall as the sidebar's header rows, so the line under the ruler meets the line under them.
+export const RULER_H = 32;
 export const LOOP_STRIP_H = 11;
 export const CLIP_HEADER_H = 14;
 
