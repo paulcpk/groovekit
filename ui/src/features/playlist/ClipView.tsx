@@ -50,6 +50,35 @@ export interface ClipViewProps {
   onPointerDown: (e: React.PointerEvent, clip: Clip, edge: "left" | "right" | "body") => void;
 }
 
+/** The clip's body, like coloured glass: a soft gradient of its colour over the dark, a thin rim
+    of it inside, a faint light along the top and a shadow beneath; selected, a white edge and a
+    glow of its colour. */
+function glass(color: string, selected: boolean): React.CSSProperties {
+  return {
+    backgroundImage: [
+      "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0) 55%)",
+      `linear-gradient(180deg, color-mix(in srgb, ${color} 30%, #1d1d21), color-mix(in srgb, ${color} 15%, #131316))`,
+    ].join(", "),
+    boxShadow: [
+      `inset 0 0 0 1px color-mix(in srgb, ${color} 42%, transparent)`,
+      "inset 0 1px 0 rgba(255,255,255,0.10)",
+      selected ? `0 0 0 1.5px var(--color-fg), 0 0 12px color-mix(in srgb, ${color} 45%, transparent)` : "0 1px 3px rgba(0,0,0,0.5)",
+    ].join(", "),
+  };
+}
+
+/** The title bar: the colour with a gloss, lighter at the top. */
+function glassHeader(color: string): React.CSSProperties {
+  return {
+    background: [
+      "linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.06) 55%, rgba(0,0,0,0.08))",
+      color,
+    ].join(", "),
+    boxShadow: "inset 0 -1px 0 rgba(0,0,0,0.22)",
+    textShadow: "0 1px 0 rgba(255,255,255,0.25)",
+  };
+}
+
 /** One clip in a lane: coloured title bar, content preview below. */
 export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPerTick, snap, onPointerDown }: ClipViewProps) {
   const color = clipColor(clip, doc);
@@ -61,12 +90,12 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
   const body = (
     <div
       className={cn(
-        "group/clip absolute top-px overflow-hidden rounded-[3px]",
-        selected ? "z-[5] ring-2 ring-fg" : "ring-1 ring-black/40",
+        "group/clip absolute top-px overflow-hidden rounded-[4px]",
+        selected && "z-[5]",
         ghost && "opacity-50",
         muted && "opacity-45 saturate-0",
       )}
-      style={{ left, width: Math.max(3, width), height, background: `color-mix(in srgb, ${color} 22%, #18181b)` }}
+      style={{ left, width: Math.max(3, width), height, ...glass(color, selected) }}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         // The keyboards play the sample of the clip last touched.
@@ -84,7 +113,8 @@ export function ClipView({ clip, doc, left, width, height, selected, ghost, pxPe
         if (clip.type === "pattern") setUi({ selectedPattern: clip.pattern, bottomOpen: true, bottomPanel: "rack" });
       }}
     >
-      <div className="flex items-center gap-1 truncate px-1 text-2xs font-medium leading-none text-black/80" style={{ height: CLIP_HEADER_H, background: color }}>
+      <div className="flex items-center gap-1 truncate px-1 text-2xs font-medium leading-none text-black/80"
+        style={{ height: CLIP_HEADER_H, ...glassHeader(color) }}>
         {muted && <VolumeX size={9} />}
         {clip.type === "audio" && <AudioLines size={9} />}
         {clip.type === "automation" && <Spline size={9} />}

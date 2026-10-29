@@ -40,14 +40,14 @@ export const PatternContent = memo(function PatternContent({ clip, doc, width, h
       const row = index.get(`${n.channel}:${n.key ?? 60}`) ?? 0;
       rects.push(
         <rect key={`${rep}-${rects.length}`} x={(Math.max(0, start) / clip.length) * width} y={top + row * rowH}
-          width={Math.max(1.5, (Math.min(n.length, clip.length - start) / clip.length) * width - 0.5)} height={Math.max(1, rowH - 1)} rx={0.5} />,
+          width={Math.max(1.5, (Math.min(n.length, clip.length - start) / clip.length) * width - 0.5)} height={Math.max(1, rowH - 1)} rx={1} />,
       );
       if (rects.length > 4000) break;
     }
   }
 
   return (
-    <svg width={width} height={height} className="absolute left-0" style={{ fill: color }}>
+    <svg width={width} height={height} className="absolute left-0" style={{ fill: `color-mix(in srgb, ${color} 88%, white)` }}>
       {rects}
     </svg>
   );
@@ -60,7 +60,9 @@ export function AudioContent({ clip, doc, width, height, color }: {
   const { sample, reverse, sourceTempo, start: partStart, end: partEnd } = audioSource(doc, clip);
   const peaks = usePeaks(sample);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const pixels = Math.max(1, Math.min(4000, Math.round(width)));
+  // Drawn at the screen's own resolution, so it's sharp on a Retina display.
+  const dpr = typeof window === "undefined" ? 1 : Math.min(3, window.devicePixelRatio || 1);
+  const pixels = Math.max(1, Math.min(8000, Math.round(width * dpr)));
   const [fades, setFades] = useState<{ fadeIn?: number; fadeOut?: number } | null>(null);
 
   useEffect(() => {
@@ -74,7 +76,7 @@ export function AudioContent({ clip, doc, width, height, color }: {
     const end = partEnd ?? peaks.durationSeconds;
     if (reverse) drawPeaks(canvas.current, peaks, end - to, end - from, color);
     else drawPeaks(canvas.current, peaks, partStart + from, partStart + to, color);
-  }, [peaks, clip.offset, clip.length, sourceTempo, reverse, partStart, partEnd, doc.tempo, color, pixels, height]);
+  }, [peaks, clip.offset, clip.length, sourceTempo, reverse, partStart, partEnd, doc.tempo, color, pixels, height, dpr]);
 
   if (height < 4) return null;
   const ticksPerSecond = (doc.tempo * 960) / 60;
@@ -101,7 +103,7 @@ export function AudioContent({ clip, doc, width, height, color }: {
 
   return (
     <>
-      <canvas ref={canvas} width={pixels} height={Math.max(1, Math.round(height))} className="absolute left-0"
+      <canvas ref={canvas} width={pixels} height={Math.max(1, Math.round(height * dpr))} className="absolute left-0"
         style={{ width, height, transform: reverse ? "scaleX(-1)" : undefined }} />
       {(fadeIn > 0 || fadeOut > 0) && (
         <svg className="pointer-events-none absolute left-0 top-0" width={width} height={height}>

@@ -11,6 +11,7 @@ import { execute, reportError, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { ClipView } from "./ClipView";
 import { HEADER_W, RULER_H, droppedSample, isSampleDrag, type DraggedSample, type Geometry } from "./geometry";
+import { GridLines } from "./GridLines";
 import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
@@ -198,15 +199,7 @@ export function Playlist() {
     }, "crosshair");
   };
 
-  const gridStyle: React.CSSProperties = {
-    width,
-    height: g.rowHeight,
-    backgroundImage: [
-      "linear-gradient(to right, var(--color-grid-strong) 1px, transparent 1px)",
-      g.beat * g.pxPerTick >= 6 ? "linear-gradient(to right, var(--color-grid) 1px, transparent 1px)" : "",
-    ].filter(Boolean).join(", "),
-    backgroundSize: `${g.bar * g.pxPerTick}px 100%, ${g.beat * g.pxPerTick}px 100%`,
-  };
+  const gridStyle: React.CSSProperties = { width, height: g.rowHeight };
 
   return (
     <div className="flex h-full flex-col bg-bg">
@@ -220,6 +213,7 @@ export function Playlist() {
             <Ruler g={g} endTicks={endTicks} />
           </div>
 
+          <GridLines g={g} width={width} height={lanes.length * g.rowHeight} left={HEADER_W} top={RULER_H} />
           {lanes.map((laneClips, i) => (
             <div key={i} className="flex">
               <RowHeader row={doc.playlist.rows[i] ?? {}} index={i} doc={doc} height={g.rowHeight}

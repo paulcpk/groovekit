@@ -12,6 +12,12 @@ export interface Geometry {
   beat: number;
 }
 
+/** How many bars apart the ruler's numbers are at a zoom (1, 2, 4, 8...: at least 44 px apart):
+    the grid's strongest lines fall on the same bars. */
+export function labelEvery(barPx: number) {
+  return Math.max(1, Math.pow(2, Math.ceil(Math.log2(44 / barPx))));
+}
+
 /** The sample mime type the browser drags, with JSON describing the sample. */
 export const SAMPLE_MIME = "application/x-groovekit-sample";
 

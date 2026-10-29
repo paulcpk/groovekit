@@ -1,7 +1,7 @@
 import { setLoop, setPosition } from "@/features/shell/actions";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
 import { useUi } from "@/state/ui";
-import { LOOP_STRIP_H, RULER_H, type Geometry } from "./geometry";
+import { LOOP_STRIP_H, RULER_H, labelEvery, type Geometry } from "./geometry";
 
 /** Bar numbers and the loop region. Top strip: drag a loop of two bars or more, or click to clear it.
     Below: click or drag to move the playhead. */
@@ -9,7 +9,7 @@ export function Ruler({ g, endTicks }: { g: Geometry; endTicks: number }) {
   const loop = useUi((s) => s.loop);
   const looping = useUi((s) => s.looping);
   const barPx = g.bar * g.pxPerTick;
-  const every = Math.max(1, Math.pow(2, Math.ceil(Math.log2(44 / barPx))));
+  const every = labelEvery(barPx);
   const bars = Math.ceil(endTicks / g.bar);
   const labels = [];
 
