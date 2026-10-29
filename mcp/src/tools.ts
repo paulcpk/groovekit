@@ -26,6 +26,8 @@ Styles: a song can have a style (the setStyle command with a guide's id or name;
 
 Notes: the user keeps notes for you (the notes tool), standing wishes like "prefer loops over one-shots" or what a style should sound like. Read them (notes list) before you start on a song and follow the enabled ones that apply here (here: true), unless the user asks otherwise in the conversation. When the user asks you to remember something for later, add a note (scope song when it's about this song only); change or delete notes only when the user asks.
 
+Mixing: sounds that are good alone can be bad together, because each fills more of the spectrum than its part should; a clean, crisp mix gives every part its own room. Every channel has a part (kick, rumble, drums, bass, percussion, hats, synth, vocal, fx) and a slot: an EQ first on its own insert that keeps it to its range (kick and rumble low-passed steeply, synths band-passed to the mids, percussion and hats high-passed with the top tamed). New channels get theirs from edit_project; check the part it guessed and fix it with mix_slots set. Build part by part and, after each new sound: choose it in the song, not alone (audition_in_song the best candidates in the channel's place over the groove, offer_choice them with those files), then check_mix the busiest bars and fix the worst problem before adding the next part (raise a low cut, notch where two parts cover each other, duck the rumble or bass under the kick, tame the highs). Keep the low end for the kick and one low part ducked under it, the top sparing and moving (filter or level automation over 8-16 bars), and fewer parts that each own a band over many that fight.
+
 Sidechains and pumping: any built-in effect can be keyed by another channel or insert (sidechain: its id; a channel that plays audio clips keys from its insert): a compressor on the bass or pads keyed by the kick channel (thresholdDb -30, ratio 10, attackMs 0.5, releaseMs 150) makes them duck under every kick, the backbone of house and techno grooves. The duck effect pumps on a tempo grid without a key (sync, depth, release, curve). Keep it subtle unless the style wants the pump.
 
 Recording: the record tool captures hardware like the user's Digitakt II per track into clips, with GrooveKit as MIDI clock master. After a recording, each take is an audio clip with its own sampler channel; cut (updateClip offset/length), copy and arrange them like any other.
@@ -119,7 +121,24 @@ export function registerTools(server: McpServer, engine: EngineClient, reference
       },
     },
     ({ commands, label }) =>
-      attempt(() => engine.call("execute", { commands, group: groups.next(), ...(label ? { label } : {}) }))
+      attempt(async () => {
+        const group = groups.next();
+        const result = (await engine.call("execute", { commands, group, ...(label ? { label } : {}) })) as Record<string, unknown>;
+
+        // New channels get their part's frequency slot straight away, in the same undo step.
+        const added = commands.flatMap((c) => {
+          const channel = (c as { channel?: { id?: unknown } }).channel;
+          return c.type === "addChannel" && typeof channel?.id === "string" ? [channel.id] : [];
+        });
+        if (added.length === 0) return result;
+
+        try {
+          const slots = (await engine.call("mix.slots", { channels: added, apply: true, onlyNew: true, group })) as { channels: unknown[] };
+          return { ...result, slots: slots.channels, slotsNote: "Each new channel got its own insert with a slot EQ for its part, first on the insert. If a part is wrong, mix_slots set it." };
+        } catch {
+          return result;
+        }
+      })
   );
 
   server.registerTool(
@@ -349,6 +368,78 @@ Opening, creating or saving as switches the user's window too, so only do it whe
       attempt(async () => {
         await engine.connect();
         return engine.call("analyzeMix", {
+          ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
+          ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
+        });
+      })
+  );
+
+  server.registerTool(
+    "mix_slots",
+    {
+      description: "Frequency slots: each part keeps to its range so sounds that are good alone don't cover each other together. A channel's slot is an EQ first on its own insert (the effect \"slot\"): kick a steep low-pass (5 kHz), rumble a steep low-pass (250 Hz), drums the top tamed, bass 35 Hz to 2.5 kHz, synths band-passed to the mids (180 Hz to 9 kHz), percussion high-passed (250 Hz) with the top tamed, hats high-passed (450 Hz) with the top down 3 dB, vocals 140 Hz to 14 kHz, effects 200 Hz to 12 kHz. With the song's style heard, bass, synth and vocal slots follow where its references keep those parts. New channels get one automatically from edit_project. list: every channel's part (guessed from its name and sample when not set), its slot and the proposed one. apply: gives channels (default all) their part's proposed slot, making each its own insert when it shares one or plays into master. set: one channel's part or cuts by hand (lowCutHz, highCutHz in Hz, 0 for none; steep doubles the high cut to 48 dB/octave; topShelfDb tames the top above topShelfHz). Bands 2-5 of the slot EQ stay free for notches and peaks.",
+      inputSchema: {
+        action: z.enum(["list", "apply", "set"]),
+        channels: z.array(z.string()).optional().describe("list and apply: these channels (default all)"),
+        channel: z.string().optional().describe("set: the channel"),
+        part: z.enum(["kick", "rumble", "drums", "bass", "percussion", "hats", "synth", "vocal", "fx"]).optional().describe("set: what it plays (starts it from that part's slot)"),
+        lowCutHz: z.number().min(0).max(20000).optional(),
+        highCutHz: z.number().min(0).max(20000).optional(),
+        steep: z.boolean().optional(),
+        topShelfDb: z.number().min(-24).max(24).optional(),
+        topShelfHz: z.number().min(20).max(20000).optional(),
+      },
+    },
+    ({ action, channels, channel, part, lowCutHz, highCutHz, steep, topShelfDb, topShelfHz }) =>
+      attempt(async () => {
+        await engine.connect();
+        if (action === "list") return engine.call("mix.slots", channels ? { channels } : {});
+        if (action === "apply") return engine.call("mix.slots", { ...(channels ? { channels } : {}), apply: true, group: groups.next() });
+        return engine.call("mix.setSlot", {
+          channel, group: groups.next(),
+          ...Object.fromEntries(Object.entries({ part, lowCutHz, highCutHz, steep, topShelfDb, topShelfHz }).filter(([, v]) => v !== undefined)),
+        });
+      })
+  );
+
+  server.registerTool(
+    "check_mix",
+    {
+      description: "Hears how the parts combine and lists what goes wrong between them, worst first (severity 0-10), each with what and a fix: channels without a slot, parts outside the low end that carry it, kick and rumble or bass sharing the low end with nothing ducking, two parts covering each other in the same bands, the mix brighter, duller or heavier in a band than the style's references (the top above all: too many highs), highs that never move, loops out of the song's key. Also each channel's part, level and the bands it holds. Renders once per channel: give the busiest stretch (a drop, 8-16 bars) rather than the whole song. Fix the worst problem, then check again.",
+      inputSchema: {
+        startBar: z.number().min(1).optional(),
+        endBar: z.number().min(1).optional(),
+        style: z.string().optional().describe("Compare with this style's references instead of the song's"),
+      },
+    },
+    ({ startBar, endBar, style }) =>
+      attempt(async () => {
+        await engine.connect();
+        return engine.call("mix.check", {
+          ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
+          ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
+          ...(style ? { style } : {}),
+        });
+      })
+  );
+
+  server.registerTool(
+    "audition_in_song",
+    {
+      description: "Tries up to four candidate samples in a channel's place inside the song: renders the bars (default the first 8) with each candidate on the channel (loops at their own tempo, through the channel's slot and effects) and as it is now, and says how each sits with the rest: fit 0-100 (100 when the bands it lives in are its own, low when the rest covers it there), covers (the bands where the rest is as loud as it), holds and its level against the mix. Candidates play as loud as the sound they would replace, so the comparison is fair; for bass, synths and vocals, key says whether its notes go with the song's key and the transpose that puts it in. Each has a file to offer_choice as its audition, so the user chooses sounds with the groove around them, not alone. The song isn't changed: put the pick in with edit_project.",
+      inputSchema: {
+        channel: z.string().describe("A sampler channel already in the song (its first layer is swapped)"),
+        paths: z.array(z.string()).min(1).max(4).describe("The candidate samples"),
+        startBar: z.number().min(1).optional(),
+        endBar: z.number().min(1).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ channel, paths, startBar, endBar }) =>
+      attempt(async () => {
+        await engine.connect();
+        return engine.call("mix.audition", {
+          channel, paths,
           ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
           ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
         });

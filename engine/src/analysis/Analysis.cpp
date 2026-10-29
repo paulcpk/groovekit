@@ -283,10 +283,7 @@ namespace
     /** Band power summed over the whole file: absolute, or as a share of the total. */
     std::vector<SpectrumBand> measureBands (const Audio& audio, bool relative)
     {
-    static const std::vector<std::pair<double, double>> edges {
-        { 20, 60 }, { 60, 120 }, { 120, 250 }, { 250, 500 }, { 500, 1000 },
-        { 1000, 2000 }, { 2000, 4000 }, { 4000, 8000 }, { 8000, 12000 }, { 12000, 20000 },
-    };
+    const auto& edges = bandEdges();
 
     constexpr int order = 12, size = 1 << order, hop = size / 2;
     juce::dsp::FFT fft (order);
@@ -342,6 +339,16 @@ namespace
 
     return bands;
     }
+}
+
+const std::vector<std::pair<double, double>>& bandEdges()
+{
+    static const std::vector<std::pair<double, double>> edges {
+        { 20, 60 }, { 60, 120 }, { 120, 250 }, { 250, 500 }, { 500, 1000 },
+        { 1000, 2000 }, { 2000, 4000 }, { 4000, 8000 }, { 8000, 12000 }, { 12000, 20000 },
+    };
+
+    return edges;
 }
 
 std::vector<SpectrumBand> spectralBalance (const Audio& audio)

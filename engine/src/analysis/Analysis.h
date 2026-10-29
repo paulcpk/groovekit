@@ -62,6 +62,9 @@ struct SpectrumBand
     float db;       // share of the total energy, in dB (0 dB would be everything in this band)
 };
 
+/** The ten bands the balance is measured in, low to high (Hz). */
+const std::vector<std::pair<double, double>>& bandEdges();
+
 /** Energy in ten bands from 20 Hz to 20 kHz, of the mono mix, relative to the total. */
 std::vector<SpectrumBand> spectralBalance (const Audio&);
 

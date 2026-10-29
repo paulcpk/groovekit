@@ -3,6 +3,8 @@
 #include "compiler/EditCompiler.h"
 #include "render/Render.h"
 
+#include <set>
+
 namespace gk::analysis
 {
 
@@ -18,5 +20,29 @@ namespace gk::analysis
 */
 model::Json analyseMix (tracktion::Engine&, const model::Project&, const CompileOptions&,
                         const RenderOptions&, const std::filesystem::path& workDir);
+
+/** What a combination check knows about the song besides its sound. */
+struct MixCheckContext
+{
+    std::map<std::string, model::ChannelPart> parts;     // each channel's part
+    std::set<std::string> ducked;                        // channels something ducks (a keyed compressor or a duck)
+    std::vector<float> referenceBalance;                 // the style's spectral balance, if it has references
+    double barSeconds = 2;
+};
+
+/** Renders the mix and each channel, and finds what goes wrong between the parts, worst first:
+    parts outside the low end that carry it, low parts sharing it with nothing ducking, parts
+    covering each other in the same bands, the mix's balance against the references' (the top
+    above all), and highs that never move. Each problem has "severity" (0-10), "kind",
+    "channels", "what" and "fix". Also gives each channel's level and where its energy sits. */
+model::Json checkMix (tracktion::Engine&, const model::Project&, const CompileOptions&, const RenderOptions&,
+                      const std::filesystem::path& workDir, const MixCheckContext&);
+
+/** Renders the song (the range in options) to file as it is, and the channel alone, and says how
+    the channel sits with the rest: "fit" 0-100 (100 when the bands it lives in are its own), the
+    bands where it covers the rest ("covers"), its share of each band and its level against the
+    mix. For trying candidate sounds in place before choosing one. */
+model::Json placeInMix (tracktion::Engine&, const model::Project&, const model::Id& channel, const CompileOptions&,
+                        const RenderOptions&, const std::filesystem::path& file);
 
 } // namespace gk::analysis

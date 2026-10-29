@@ -50,6 +50,7 @@ struct StyleProfile
         float lufs = 0;
         std::vector<float> balance;                 // the mix's spectral balance (dB per band)
         std::map<Role, float> levels;               // each stem's level against the mix, dB
+        std::map<Role, std::vector<float>> spectra; // drums, bass and music stems' spectral balance (heard since the mix slots)
         std::map<Role, std::vector<Embedding>> sounds;
         std::optional<Arrangement> arrangement;     // heard from the whole track (analysis 6 on)
 
@@ -79,6 +80,10 @@ struct StyleProfile
     float fit (Role, const Embedding&, std::optional<size_t> leaveOut = {}) const;
 
     bool has (Role) const;
+
+    /** The median spectral balance of a stem (drums, bass or music) across the tracks heard
+        with one, dB per band of the analysis's ten; empty when none were. */
+    std::vector<float> spectrum (Role) const;
 
     model::Json toJson() const;     // everything, for the file
     static StyleProfile fromJson (const model::Json&);

@@ -45,6 +45,7 @@ target_sources(gk_engine PRIVATE
     src/mixer/EffectMix.cpp
     src/mixer/FaderPlugin.cpp
     src/mixer/LimiterPlugin.cpp
+    src/mixer/Slots.cpp
     src/model/Project.cpp
     src/plugins/PluginCatalog.cpp
     src/plugins/PluginWindows.cpp

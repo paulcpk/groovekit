@@ -14,6 +14,8 @@ import { useHeight } from "@/lib/useHeight";
 import { execute, useEngine } from "@/state/engine";
 
 export function effectName(effect: Effect) {
+  // The EQ that keeps a channel's part to its frequency range.
+  if (effect.type === "builtin" && effect.kind === "eq" && effect.id === "slot") return "Slot EQ";
   return effect.type === "builtin" ? effectNames[effect.kind] ?? effect.kind : effect.plugin.name;
 }
 

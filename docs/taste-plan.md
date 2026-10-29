@@ -160,6 +160,31 @@ library's kicks and drum loops are measured in the background into `kick-sounds.
 match_sound (find, audition, channel) and offer_choice tools, the A/B/C window, and "Find kicks
 like it" in a map's window. Hats, percussion and bass come next, the same way.
 
+### Mix slots (each part its own room)
+
+Sounds chosen one at a time can each be good and still clash: every sample fills more of the
+spectrum than its part should, and nothing carved out the room between them. A clean, crisp mix
+gives each part its own band, which is what producers do first:
+
+- **Parts and slots.** Every channel has a part (kick, rumble, drums, bass, percussion, hats, synth,
+  vocal, fx; `part` on the channel, guessed from its name and sample) and a slot: an EQ first on
+  its own insert (the effect `slot`) that keeps it to its range. Kick and rumble are low-passed
+  steeply (48 dB/octave), synths band-passed to the mids, percussion and hats high-passed with
+  their top tamed. When the song has a style whose references were heard with their stems'
+  spectra, the bass, synth and vocal slots follow where those references keep the parts.
+- **Automatic.** A channel the agent adds gets its slot in the same undo step; `mix_slots` lists,
+  applies and sets them. The user's own edits are left alone.
+- **Choosing in the song.** `audition_in_song` puts up to four candidates in a channel's place and
+  renders the groove with each, through the slot, saying how much of each is covered by the rest;
+  the files go to `offer_choice`, so the user picks a sound with the groove around it.
+- **The combination check.** `check_mix` renders each channel and lists what goes wrong between
+  the parts, worst first, each with a fix: no slot, low end outside the low parts, kick and rumble
+  or bass sharing the low end with nothing ducking, parts covering each other, the balance against
+  the references (too many highs above all), highs that never move, loops out of key.
+
+The agent's process: one part at a time; choose it in the song; check the mix and fix the worst
+problem before the next part.
+
 ### 3. A review (the ears)
 
 A `review` tool (engine `song.review`) that checks the song against its guide and returns a ranked
@@ -221,7 +246,8 @@ In this order; each step is judged by the test round (6) before the next.
    the references" (the old step 5).
 3. **Sound matching** (built for the kick and rumble; see "Sound matching" above). This takes in
    "Sound choice from the references".
-4. **The review** (one to two sessions). Measures the song against its guide and the user's
+4. **The review** (the mix half is built: mix slots and `check_mix`, see "Mix slots" above; the
+   arrangement half and the guide's targets are next). Measures the song against its guide and the user's
    reference folders and returns ranked, concrete problems ("the clap is 2 dB under the kick; your
    references put it 7 to 16 dB under", "bars 33 to 48 have 9 parts; the budget is 6", "the highs
    are busier than your Berlin references"). The guides' targets come from the references'

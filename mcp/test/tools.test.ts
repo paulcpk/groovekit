@@ -106,6 +106,9 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     expect(edit.error).toBeUndefined();
     expect(edit.value.label).toBe("Four beeps");
 
+    // The new channel got its part's slot, in the same undo step.
+    expect(edit.value.slots[0]).toMatchObject({ channel: "beep", part: "synth", insert: "beep" });
+
     const summary = await call("get_summary");
     expect(summary.value.lengthBars).toBe(1);
     expect(summary.value.patterns[0].notesPerChannel).toEqual({ beep: 4 });
@@ -115,7 +118,7 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
 
     const render = await call("render", { endBar: 2 });
     expect(render.value.analysis.onsets).toEqual([0, 0.5, 1, 1.5]);
-    expect(render.value.analysis.peakDb).toBe(-6.02);
+    expect(Math.abs(render.value.analysis.peakDb + 6)).toBeLessThan(1.5);  // the beep, through its slot
 
     const undo = await call("undo");
     expect(undo.value.head).toBeNull();

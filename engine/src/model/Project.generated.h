@@ -52,6 +52,57 @@ inline void readValue (Reader& r, const Json& j, ChannelGroup& out)
     r.fail ("unknown value \"" + s + "\"");
 }
 
+enum class ChannelPart
+{
+    kick,
+    rumble,
+    drums,
+    bass,
+    percussion,
+    hats,
+    synth,
+    vocal,
+    fx
+};
+
+inline const char* toString (ChannelPart v)
+{
+    switch (v)
+    {
+        case ChannelPart::kick: return "kick";
+        case ChannelPart::rumble: return "rumble";
+        case ChannelPart::drums: return "drums";
+        case ChannelPart::bass: return "bass";
+        case ChannelPart::percussion: return "percussion";
+        case ChannelPart::hats: return "hats";
+        case ChannelPart::synth: return "synth";
+        case ChannelPart::vocal: return "vocal";
+        case ChannelPart::fx: return "fx";
+    }
+
+    return "";
+}
+
+inline Json toJson (ChannelPart v) { return toString (v); }
+
+inline void readValue (Reader& r, const Json& j, ChannelPart& out)
+{
+    std::string s;
+    readValue (r, j, s);
+
+    if (s == "kick") { out = ChannelPart::kick; return; }
+    if (s == "rumble") { out = ChannelPart::rumble; return; }
+    if (s == "drums") { out = ChannelPart::drums; return; }
+    if (s == "bass") { out = ChannelPart::bass; return; }
+    if (s == "percussion") { out = ChannelPart::percussion; return; }
+    if (s == "hats") { out = ChannelPart::hats; return; }
+    if (s == "synth") { out = ChannelPart::synth; return; }
+    if (s == "vocal") { out = ChannelPart::vocal; return; }
+    if (s == "fx") { out = ChannelPart::fx; return; }
+
+    r.fail ("unknown value \"" + s + "\"");
+}
+
 enum class SamplerFilterType
 {
     off,
@@ -1121,6 +1172,8 @@ struct Channel
     Id insert = "master";
     /** Which list of the channel rack shows the channel: rack for sounds played by patterns, arrangement for samples dropped onto the playlist. Only the view depends on it. */
     ChannelGroup group = ChannelGroup::rack;
+    /** What the channel plays in the mix. Its insert's slot EQ (the effect with id "slot") keeps it to that part's frequency range: kick and rumble low-passed, synths band-passed to the mids, percussion and hats high-passed with their top tamed. */
+    std::optional<ChannelPart> part;
     Instrument instrument;
 
     bool operator== (const Channel&) const = default;
@@ -1128,7 +1181,7 @@ struct Channel
 
 inline void readValue (Reader& r, const Json& j, Channel& out)
 {
-    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "solo", "insert", "group", "instrument" });
+    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "solo", "insert", "group", "part", "instrument" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
@@ -1139,6 +1192,7 @@ inline void readValue (Reader& r, const Json& j, Channel& out)
     r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
     r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert); r.checkPattern (out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "group", [&] (const Json& v) { readValue (r, v, out.group); });
+    r.optional (j, "part", [&] (const Json& v) { readValue (r, v, out.part.emplace()); });
     r.required (j, "instrument", [&] (const Json& v) { readValue (r, v, out.instrument); });
 }
 
@@ -1157,6 +1211,10 @@ inline Json toJson (const Channel& v)
     j["solo"] = toJson (v.solo);
     j["insert"] = toJson (v.insert);
     j["group"] = toJson (v.group);
+
+    if (v.part)
+        j["part"] = toJson (*v.part);
+
     j["instrument"] = toJson (v.instrument);
     return j;
 }

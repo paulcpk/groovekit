@@ -177,10 +177,20 @@ float StyleProfile::fit (Role role, const Embedding& e, std::optional<size_t> le
 
 Json StyleProfile::Track::toJson() const
 {
-    Json levelsJson = Json::object(), soundsJson = Json::object();
+    Json levelsJson = Json::object(), soundsJson = Json::object(), spectraJson = Json::object();
 
     for (auto& [role, db] : levels)
         levelsJson[roleName (role)] = round (db, 0.1);
+
+    for (auto& [role, bands] : spectra)
+    {
+        auto rounded = Json::array();
+
+        for (auto db : bands)
+            rounded.push_back (round (db, 0.1));
+
+        spectraJson[roleName (role)] = rounded;
+    }
 
     for (auto& [role, list] : sounds)
     {
@@ -197,6 +207,9 @@ Json StyleProfile::Track::toJson() const
 
     if (swing)
         j["swing"] = round (*swing, 0.01);
+
+    if (! spectra.empty())
+        j["spectra"] = spectraJson;
 
     if (arrangement)
         j["arrangement"] = arrangement->toJson();
@@ -236,10 +249,15 @@ StyleProfile::Track StyleProfile::Track::fromJson (const Json& tj)
     // Held here: items() only refers to the object it's given.
     const auto levels = tj.value ("levels", Json::object());
     const auto sounds = tj.value ("sounds", Json::object());
+    const auto spectra = tj.value ("spectra", Json::object());
 
     for (auto& [name, db] : levels.items())
         if (auto role = roleFromName (name))
             t.levels[*role] = db.get<float>();
+
+    for (auto& [name, bands] : spectra.items())
+        if (auto role = roleFromName (name))
+            t.spectra[*role] = bands.get<std::vector<float>>();
 
     for (auto& [name, list] : sounds.items())
         if (auto role = roleFromName (name))
@@ -341,7 +359,44 @@ Json StyleProfile::measurements() const
     }
 
     j["levels"] = levels;
+
+    Json spectra = Json::object();
+
+    for (auto role : { Role::drums, Role::bass, Role::music })
+        if (auto bands = spectrum (role); ! bands.empty())
+        {
+            auto rounded = Json::array();
+
+            for (auto db : bands)
+                rounded.push_back (round (db, 0.1));
+
+            spectra[roleName (role)] = rounded;
+        }
+
+    if (! spectra.empty())
+        j["spectra"] = spectra;
+
     return j;
+}
+
+std::vector<float> StyleProfile::spectrum (Role role) const
+{
+    std::vector<std::vector<float>> perBand;
+
+    for (auto& t : tracks)
+        if (auto it = t.spectra.find (role); it != t.spectra.end())
+            for (size_t b = 0; b < it->second.size(); ++b)
+            {
+                perBand.resize (std::max (perBand.size(), it->second.size()));
+                perBand[b].push_back (it->second[b]);
+            }
+
+    std::vector<float> bands;
+
+    for (auto& values : perBand)
+        bands.push_back (values.empty() ? analysis::silenceDb : median (values));
+
+    return bands;
 }
 
 int currentAnalysisVersion()
@@ -1190,6 +1245,7 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
     std::vector<float> lufs;
     std::map<Role, std::vector<float>> levels;
     std::vector<std::vector<float>> balances;
+    std::map<Role, std::vector<std::vector<float>>> spectra;
 
     for (int w = 0; w < windowsPerTrack; ++w)
     {
@@ -1263,6 +1319,22 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
             balance.push_back (band.db);
 
         balances.push_back (balance);
+
+        // Where each stem's energy sits, for the parts' frequency slots.
+        const std::pair<Role, const juce::AudioBuffer<float>*> stemParts[] = {
+            { Role::drums, &stems.drums }, { Role::bass, &stems.bass }, { Role::music, &stems.other },
+        };
+
+        for (auto& [role, stem] : stemParts)
+        {
+            std::vector<float> bands;
+
+            for (auto& band : analysis::spectralBalance (toAudio (*stem, Separator::sampleRate)))
+                bands.push_back (band.db);
+
+            if (std::any_of (bands.begin(), bands.end(), [] (float db) { return db > analysis::silenceDb; }))
+                spectra[role].push_back (std::move (bands));
+        }
 
         // The tempo from the kick (in this music, on every beat) when there is one; the swing and
         // density from the hats, which carry the 16ths and are lost under the kick in the full drums.
@@ -1363,6 +1435,16 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
 
     for (auto& [role, values] : levels)
         track.levels[role] = median (values);
+
+    for (auto& [role, list] : spectra)
+    {
+        auto& bands = track.spectra[role];
+        bands.assign (list.front().size(), 0.0f);
+
+        for (auto& b : list)
+            for (size_t i = 0; i < std::min (b.size(), bands.size()); ++i)
+                bands[i] += b[i] / static_cast<float> (list.size());
+    }
 
     if (! balances.empty())
     {
