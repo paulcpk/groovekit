@@ -13,7 +13,7 @@ export interface Offer {
   style?: string;
   reference?: { file: string; from?: number; title?: string };
   /** alone and rest: a candidate tried in the song, as two layers played in sync. */
-  candidates: { path: string; audition?: string; label?: string; alone?: string; rest?: string }[];
+  candidates: { path?: string; audition?: string; label?: string; alone?: string; rest?: string }[];
 }
 
 // Offers arrive as "picks" notifications; a choice made anywhere closes the window.
@@ -31,6 +31,9 @@ listen("picks", (params: Offer | { id: number; choice: number }) => {
 
 const LETTERS = "ABCDEFGHIJ".split("");
 const name = (path: string) => path.replace(/^.*\//, "").replace(/\.[^.]+$/, "");
+
+/** What plays for a candidate: its audition, else its sample (an instrument is always auditioned). */
+const fileOf = (c: Offer["candidates"][number]) => c.audition ?? c.path ?? "";
 
 /** Plays a file (from a time in it), or stops it when it's the one playing. With layers, the sound
     plays alone with the rest of the song beneath it at underLevel. */
@@ -147,9 +150,9 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
     // A candidate tried in the song already has the song in it: the transport would play it twice, out of step.
     if (c.alone && c.rest) {
       if (useEngine.getState().transport.playing) void call("transport.stop");
-      play(c.audition ?? c.path, 0, { alone: c.alone, rest: c.rest, underLevel: underLevel(mix) });
-    } else {
-      play(c.audition ?? c.path);
+      play(fileOf(c), 0, { alone: c.alone, rest: c.rest, underLevel: underLevel(mix) });
+    } else if (fileOf(c)) {
+      play(fileOf(c));
     }
   };
 
@@ -160,7 +163,7 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
 
     if (move) {
       const next = selected < 0 ? (move > 0 ? 0 : count - 1) : (selected + move + count) % count;
-      if (next !== selected || previewing !== (offer.candidates[next].audition ?? offer.candidates[next].path)) playCandidate(next);
+      if (next !== selected || previewing !== fileOf(offer.candidates[next])) playCandidate(next);
       rows.current[next]?.scrollIntoView({ block: "nearest" });
     } else if (e.key === "Enter" && selected >= 0) {
       choose(selected);
@@ -191,10 +194,10 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
           )}
           <div className="-mx-1 flex max-h-[52vh] flex-col gap-2 overflow-y-auto px-1 py-0.5">
           {offer.candidates.map((c, i) => {
-            const file = c.audition ?? c.path;
-            const playing = previewing === file;
+            const file = fileOf(c);
+            const playing = !!file && previewing === file;
             return (
-              <div key={c.path} ref={(el) => void (rows.current[i] = el)}
+              <div key={i} ref={(el) => void (rows.current[i] = el)}
                 className={cn("flex items-center gap-2 rounded-[6px] px-2 py-1.5 ring-1", playing ? "bg-agent/10" : "bg-raised", selected === i ? "ring-agent" : playing ? "ring-agent/60" : "ring-line")}>
                 <button type="button" title={c.alone ? "Play it in the song" : c.audition ? "Play it in the groove" : "Play it"}
                   onClick={() => {
@@ -205,8 +208,8 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
                   {playing ? <Square size={11} className="text-agent" fill="currentColor" /> : LETTERS[i]}
                 </button>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs text-fg" title={c.path}>{c.label ?? name(c.path)}</div>
-                  {c.label && <div className="truncate text-2xs text-faint">{name(c.path)}</div>}
+                  <div className="truncate text-xs text-fg" title={c.path}>{c.label ?? (c.path ? name(c.path) : `Sound ${LETTERS[i]}`)}</div>
+                  {c.label && c.path && <div className="truncate text-2xs text-faint">{name(c.path)}</div>}
                 </div>
                 <button type="button" onClick={() => choose(i)} className="h-6 shrink-0 rounded-[4px] bg-agent px-2.5 text-xs text-black hover:brightness-110">Pick</button>
               </div>

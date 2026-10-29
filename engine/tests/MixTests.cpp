@@ -287,7 +287,7 @@ TEST_CASE ("Candidates are heard in the song, in the channel's place")
     auto offer = h.call ("picks.get", { { "id", offered["result"]["id"] } })["result"]["offer"];
     CHECK (offer["candidates"][0]["alone"] == result["candidates"][0]["alone"]);
     CHECK (offer["candidates"][0]["rest"] == result["candidates"][0]["rest"]);
-    CHECK_FALSE (offer["candidates"][1].contains ("alone"));
+    CHECK (offer["candidates"][1].contains ("alone"));             // a one-shot: on its part's figure, in a phantom slot
 
     // The song itself is unchanged.
     CHECK (std::get<model::SamplerInstrument> (h.channel ("lead").instrument).layers.front().sample == test::fixture ("beep.wav").string());
@@ -403,7 +403,7 @@ TEST_CASE ("A loop offered on its own is tried in the song, on its grid from the
 
     REQUIRE (offer["candidates"][0].contains ("alone"));
     CHECK (offer["candidates"][0].contains ("audition"));
-    CHECK_FALSE (offer["candidates"][1].contains ("alone"));      // a one-shot has no channel to play in
+    CHECK (offer["candidates"][1].contains ("alone"));            // a one-shot plays its part's figure (hats: off-beats)
 
     // Stretched to 120 BPM, its clicks fall on the song's 8ths for all eight bars: no drift.
     const auto alone = analysis::loadAudio (offer["candidates"][0]["alone"].get<std::string>());
@@ -418,4 +418,46 @@ TEST_CASE ("A loop offered on its own is tried in the song, on its grid from the
 
     // The song stays as it was.
     CHECK (h.session.getProject().channels.size() == 1);
+}
+
+TEST_CASE ("One-shots and instruments are offered playing notes in the song")
+{
+    Harness h;
+    auto commands = Json::array ({ addChannel ("bass", "Bass", "bass_a2.wav") });
+
+    for (auto& c : playEveryBeat ({ "bass" }, 2))
+        commands.push_back (c);
+
+    h.call ("execute", { { "commands", commands } });
+
+    // A kick one-shot on its part's figure (every beat), and an instrument with a line of its own.
+    const Json instrument { { "type", "sampler" }, { "layers", { { { "id", "l" }, { "sample", test::fixture ("beep.wav").string() }, { "rootKey", 69 } } } } };
+    auto offered = h.call ("picks.offer", { { "title", "Which sound?" }, { "end", 2 * 3840 }, { "candidates", {
+        { { "path", test::fixture ("kick.wav").string() }, { "part", "kick" } },
+        { { "instrument", instrument }, { "label", "Beep line" }, { "notes", { { { "start", 0 }, { "length", 480 }, { "key", 69 } },
+                                                                              { { "start", 1920 }, { "length", 480 }, { "key", 72 } } } } },
+    } } });
+    REQUIRE (offered.contains ("result"));
+    auto offer = h.call ("picks.get", { { "id", offered["result"]["id"] } })["result"]["offer"];
+
+    auto onsetsOf = [&] (int n)
+    {
+        REQUIRE (offer["candidates"][n].contains ("alone"));
+        return analysis::detectOnsets (analysis::loadAudio (offer["candidates"][n]["alone"].get<std::string>()), -30.0f, 0.2);
+    };
+
+    // At 120 BPM: the kick on every beat (0.5 s), the line on beats 1 and 3 (1 s), for two bars, from the same bar.
+    const auto kick = onsetsOf (0);
+    REQUIRE (kick.size() == 8);
+    CHECK (kick.front() < 0.012);
+    CHECK (std::abs (kick[1] - 0.5) < 0.012);
+
+    const auto line = onsetsOf (1);
+    REQUIRE (line.size() == 4);
+    CHECK (std::abs (line[1] - 1.0) < 0.012);
+
+    // Picking the instrument: no sample to rate, and the song is as it was.
+    CHECK (h.call ("picks.choose", { { "id", offered["result"]["id"] }, { "choice", 1 } }).contains ("result"));
+    CHECK (h.session.getProject().channels.size() == 1);
+    CHECK (h.call ("picks.offer", { { "title", "?" }, { "candidates", { { { "label", "nothing" } } } } }).contains ("error"));
 }
