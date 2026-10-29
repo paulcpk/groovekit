@@ -361,6 +361,56 @@ TEST_CASE ("Mixer moves apply to the playing Edit without rebuilding it")
     CHECK (live.findPlugin ("effect:master/lp")->getAutomatableParameterByID ("frequency")->getCurrentValue() == Approx (500.0f).margin (1.0f));
 }
 
+TEST_CASE ("Muting or soloing a row switches its automation, not just its clips")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-automation-rows");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
+
+    auto run = [&] (const char* json)
+    {
+        model::Reader r;
+        model::Command c;
+        readValue (r, Json::parse (json), c);
+        session->execute ({ c });
+        live.updateNow();
+    };
+
+    // The master's volume automated from row 1; the beeps on row 0.
+    run (R"({ "type": "addClip", "clip": { "type": "automation", "id": "a", "row": 1, "start": 0, "length": 3840,
+              "target": { "scope": "insert", "insert": "master", "param": "volume" }, "points": [ { "time": 0, "value": -20 } ] } })");
+    auto edit = live.getEdit();
+
+    // Muting the beeps' row switches their clip where it is.
+    run (R"({ "type": "updateRow", "row": 0, "changes": { "mute": true } })");
+    CHECK (live.getEdit() != edit);     // with automation in the song, a row's mute rebuilds it
+
+    // Muted, the automation row no longer drives the volume: it's back to its own level.
+    run (R"({ "type": "updateRow", "row": 0, "changes": { "mute": false } })");
+    run (R"({ "type": "updateRow", "row": 1, "changes": { "mute": true } })");
+
+    // Points on any fader's volume: the automation, where it drives one.
+    auto masterVolume = [&]
+    {
+        int points = 0;
+
+        for (auto t : te::getAudioTracks (*live.getEdit()))
+            for (auto p : t->pluginList)
+                if (auto f = dynamic_cast<mixer::FaderPlugin*> (p))
+                    points += f->volumeParam->getCurve().getNumPoints();
+
+        return points;
+    };
+
+    CHECK (masterVolume() == 0);
+    run (R"({ "type": "updateRow", "row": 1, "changes": { "mute": false } })");
+    CHECK (masterVolume() > 0);
+
+    // A solo on the beeps' row leaves the automation out too.
+    run (R"({ "type": "updateRow", "row": 0, "changes": { "solo": true } })");
+    CHECK (masterVolume() == 0);
+}
+
 TEST_CASE ("Levels report what plays")
 {
     HostedAudio audio (2);

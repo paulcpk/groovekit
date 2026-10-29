@@ -9,6 +9,7 @@ import { droppedSample, isSampleDrag } from "@/features/playlist/geometry";
 import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { newPattern } from "@/features/playlist/Playlist";
 import { cn } from "@/lib/cn";
+import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { useLivePosition } from "@/lib/playhead";
 import { ColorSwatch } from "@/components/color";
@@ -279,6 +280,8 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
   const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateChannel", channel: channel.id, changes }, { label });
   const volume = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { volumeDb: Math.round(v * 10) / 10 } }), "Channel volume");
   const pan = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan channel");
+  const volumeShown = useAutomated({ scope: "channel", channel: channel.id, param: "volume" }, channel.volumeDb ?? 0);
+  const panShown = useAutomated({ scope: "channel", channel: channel.id, param: "pan" }, channel.pan ?? 0);
 
   const previewPath = channel.instrument.type === "sampler" ? channel.instrument.layers[0]?.sample : undefined;
   const preview = () => previewPath && void call("preview.play", { path: previewPath });
@@ -287,10 +290,10 @@ function ChannelRow({ doc, channel, pattern, steps, playingStep, selected, paint
     <div className={cn("relative flex h-[30px] items-center gap-2 px-2", selected && "bg-raised")}>
       <ActivityLed level={level} />
       <Automatable target={{ scope: "channel", channel: channel.id, param: "pan" }} value={channel.pan ?? 0}>
-        <Knob size={20} value={channel.pan ?? 0} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan} onChange={pan.onChange} onCommit={pan.onCommit} />
+        <Knob size={20} value={panShown} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan} onChange={pan.onChange} onCommit={pan.onCommit} />
       </Automatable>
       <Automatable target={{ scope: "channel", channel: channel.id, param: "volume" }} value={channel.volumeDb ?? 0}>
-        <Knob size={20} value={channel.volumeDb ?? 0} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`} onChange={volume.onChange} onCommit={volume.onCommit} />
+        <Knob size={20} value={volumeShown} min={-60} max={12} defaultValue={0} title="Volume" format={(v) => `${formatDb(v)} dB`} onChange={volume.onChange} onCommit={volume.onCommit} />
       </Automatable>
 
       <Dropdown>

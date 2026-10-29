@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { Knob } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { Automatable } from "@/features/playlist/Automatable";
+import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { formatDb, formatPan, insertName } from "@/lib/model";
 import { execute } from "@/state/engine";
@@ -32,6 +33,8 @@ export function InsertItems({ doc, channel }: { doc: Project; channel: Channel }
 export function ChannelBar({ doc, channel }: { doc: Project; channel: Channel }) {
   const volume = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { volumeDb: Math.round(v * 10) / 10 } }), "Channel volume");
   const pan = useLiveControl((v) => ({ type: "updateChannel", channel: channel.id, changes: { pan: Math.round(v * 100) / 100 } }), "Pan channel");
+  const volumeShown = useAutomated({ scope: "channel", channel: channel.id, param: "volume" }, channel.volumeDb ?? 0);
+  const panShown = useAutomated({ scope: "channel", channel: channel.id, param: "pan" }, channel.pan ?? 0);
   const index = doc.mixer.inserts.findIndex((i) => i.id === (channel.insert ?? "master"));
 
   return (
@@ -53,11 +56,11 @@ export function ChannelBar({ doc, channel }: { doc: Project; channel: Channel })
         </Dropdown>
       </div>
       <Automatable target={{ scope: "channel", channel: channel.id, param: "volume" }} value={channel.volumeDb ?? 0}>
-        <Knob size={28} label="Volume" value={channel.volumeDb ?? 0} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`}
+        <Knob size={28} label="Volume" value={volumeShown} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`}
           onChange={volume.onChange} onCommit={volume.onCommit} />
       </Automatable>
       <Automatable target={{ scope: "channel", channel: channel.id, param: "pan" }} value={channel.pan ?? 0}>
-        <Knob size={28} label="Pan" value={channel.pan ?? 0} min={-1} max={1} defaultValue={0} bipolar format={formatPan}
+        <Knob size={28} label="Pan" value={panShown} min={-1} max={1} defaultValue={0} bipolar format={formatPan}
           onChange={pan.onChange} onCommit={pan.onCommit} />
       </Automatable>
     </div>

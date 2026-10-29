@@ -396,6 +396,26 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
         // on or off where it is (one solo changes who else is heard), without rebuilding.
         const auto isFlag = [] (const std::string& k) { return k == "mute" || k == "solo"; };
 
+        // Automation isn't a clip there but curves on its parameters: a row's mute or solo, or an
+        // automation clip's mute, rebuilds them.
+        const auto automationSwitched = [&]
+        {
+            if (keys.size() != 4 || keys[0] != "playlist" || ! isFlag (keys[3]))
+                return false;
+
+            auto& clips = project.playlist.clips;
+            const auto isAutomation = [] (const Clip& c) { return std::holds_alternative<AutomationClip> (c); };
+
+            if (keys[1] == "rows")
+                return std::any_of (clips.begin(), clips.end(), isAutomation);
+
+            const auto i = index (keys[2]);
+            return keys[1] == "clips" && i && *i < clips.size() && isAutomation (clips[*i]);
+        };
+
+        if (automationSwitched())
+            return false;
+
         if ((keys.size() == 4 && keys[0] == "playlist" && (keys[1] == "rows" || keys[1] == "clips") && isFlag (keys[3]))
             || (keys.size() == 3 && keys[0] == "channels" && isFlag (keys[2]))
             || (keys.size() == 4 && keys[0] == "mixer" && keys[1] == "inserts" && isFlag (keys[3])))

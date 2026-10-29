@@ -1,4 +1,5 @@
 import type { AutomationTarget, SamplerFilter } from "@groovekit/schema/project";
+import { useAutomated } from "@/lib/automation";
 import { Knob } from "@/components/controls";
 import { startDrag } from "@/lib/drag";
 import { useHeld } from "@/lib/held";
@@ -29,7 +30,16 @@ export function FilterGraph({ filter, color, channel, onChange, onCommit }: {
   filter: SamplerFilter | undefined; color: string; channel?: string;
   onChange: (f: Partial<SamplerFilter>) => void; onCommit: (f: Partial<SamplerFilter>) => void;
 }) {
-  const [f, hold] = useHeld<Filter>({ type: "off", cutoff: 20000, resonance: 0, envelopeAmount: 0, ...withoutEnvelope(filter) });
+  const [held, hold] = useHeld<Filter>({ type: "off", cutoff: 20000, resonance: 0, envelopeAmount: 0, ...withoutEnvelope(filter) });
+
+  // Where automation has the filter at the playhead, so the graph and knobs move with the song.
+  const automated = (param: string, value: number) => useAutomated({ scope: "channel", channel: channel ?? "", param }, value);
+  const f: Filter = {
+    ...held,
+    cutoff: automated("filterCutoff", held.cutoff),
+    resonance: automated("filterResonance", held.resonance),
+    envelopeAmount: automated("filterEnvelopeAmount", held.envelopeAmount),
+  };
   const off = f.type === "off";
 
   const y = (db: number) => ((TOP_DB - Math.min(TOP_DB, Math.max(BOTTOM_DB, db))) / (TOP_DB - BOTTOM_DB)) * H;

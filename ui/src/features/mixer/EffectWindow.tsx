@@ -13,6 +13,7 @@ import { StereoEditor } from "@/features/effects/StereoEditor";
 import { ParamKnob } from "@/features/effects/params";
 import { PresetMenu } from "@/features/effects/PresetMenu";
 import { useCatalogue } from "@/lib/catalogue";
+import { useAutomatedEffect } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { insertName } from "@/lib/model";
 import { execute, useEngine } from "@/state/engine";
@@ -41,7 +42,9 @@ const WIDTHS: Partial<Record<string, number>> = { multiband: 900, exciter: 720, 
 
 /** One of our effects in a window of its own: its controls, with the slot's on switch and mix
     knob in the title bar. */
-export function EffectWindow({ window: w, insert, effect }: { window: OpenWindow; insert: Insert; effect: BuiltinEffect }) {
+export function EffectWindow({ window: w, insert, effect: set }: { window: OpenWindow; insert: Insert; effect: BuiltinEffect }) {
+  // Turning with the song where automation drives it.
+  const effect = useAutomatedEffect(insert.id, set);
   const doc = useEngine((s) => s.doc)!;
   const catalogue = useCatalogue();
   const info = catalogue?.[effect.kind];

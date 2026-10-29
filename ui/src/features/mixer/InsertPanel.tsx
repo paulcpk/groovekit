@@ -7,6 +7,7 @@ import { createAutomation } from "@/features/playlist/automation";
 import { PluginList } from "@/features/rack/PluginPicker";
 import { effectNames, getCatalogue } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
+import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { colorFor, formatDb, insertName, uniqueId } from "@/lib/model";
 import { call, execute, useEngine } from "@/state/engine";
@@ -70,6 +71,7 @@ export function InsertPanel({ doc, insert, index }: { doc: Project; insert: Inse
 }
 
 function EffectSlot({ doc, insert, effect, index, count }: { doc: Project; insert: Insert; effect: Effect; index: number; count: number }) {
+  const mixShown = useAutomated({ scope: "effect", insert: insert.id, effect: effect.id, param: "mix" }, effect.mix ?? 1);
   const name = effectName(effect);
   const open = useWindows((s) => s.windows.some((w) => w.key === windowKey({ kind: "effect", insert: insert.id, effect: effect.id })));
   const mix = useLiveControl((v) => ({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { mix: Math.round(v * 100) / 100 } }), `${name} mix`);
@@ -104,8 +106,8 @@ function EffectSlot({ doc, insert, effect, index, count }: { doc: Project; inser
             className={cn("min-w-0 flex-1 truncate text-left text-xs", effect.bypass ? "text-faint line-through" : "text-fg")}>
             {name}
           </button>
-          <span className="w-8 text-right text-2xs text-faint tabular">{Math.round((effect.mix ?? 1) * 100)}%</span>
-          <Knob size={22} value={effect.mix ?? 1} min={0} max={1} defaultValue={1} title="Mix" format={(v) => `${Math.round(v * 100)}%`}
+          <span className="w-8 text-right text-2xs text-faint tabular">{Math.round(mixShown * 100)}%</span>
+          <Knob size={22} value={mixShown} min={0} max={1} defaultValue={1} title="Mix" format={(v) => `${Math.round(v * 100)}%`}
             onChange={mix.onChange} onCommit={mix.onCommit} />
         </div>
       </ContextMenuTrigger>
@@ -212,7 +214,8 @@ function Sends({ doc, insert }: { doc: Project; insert: Insert }) {
   );
 }
 
-function SendKnob({ insertId, sendId, levelDb }: { insertId: string; sendId: string; levelDb: number }) {
+function SendKnob({ insertId, sendId, levelDb: set }: { insertId: string; sendId: string; levelDb: number }) {
+  const levelDb = useAutomated({ scope: "send", insert: insertId, send: sendId, param: "level" }, set);
   const level = useLiveControl((v) => ({ type: "updateSend", insert: insertId, send: sendId, changes: { levelDb: Math.round(v * 10) / 10 } }), "Send level");
   return (
     <Knob size={22} value={levelDb} min={-60} max={12} defaultValue={0} format={(v) => `${formatDb(v)} dB`} title="Send level"

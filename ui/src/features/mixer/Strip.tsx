@@ -9,6 +9,7 @@ import { effectNames } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
 import { ColorSwatch } from "@/components/color";
 import { colorFor, formatDb, formatPan, insertName, palette } from "@/lib/model";
+import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { useHeight } from "@/lib/useHeight";
 import { execute, useEngine } from "@/state/engine";
@@ -28,7 +29,9 @@ export function Strip({ doc, insert, index, selected, onSelect }: {
   const master = insert.id === "master";
   const color = master ? "#d6d6db" : colorFor(insert.id, insert.color);
   const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateInsert", insert: insert.id, changes }, { label });
-  const db = liveDb ?? insert.volumeDb ?? 0;
+  const automatedDb = useAutomated({ scope: "insert", insert: insert.id, param: "volume" }, insert.volumeDb ?? 0);
+  const automatedPan = useAutomated({ scope: "insert", insert: insert.id, param: "pan" }, insert.pan ?? 0);
+  const db = liveDb ?? automatedDb;
   const feeders = doc.channels.filter((c) => (c.insert ?? "master") === insert.id).length;
   const [faderArea, faderAreaHeight] = useHeight<HTMLDivElement>();
   const volume = useLiveControl((v) => ({ type: "updateInsert", insert: insert.id, changes: { volumeDb: v } }), `${insertName(insert, index)} volume`);
@@ -60,7 +63,7 @@ export function Strip({ doc, insert, index, selected, onSelect }: {
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div>
-              <Knob size={26} value={insert.pan ?? 0} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan}
+              <Knob size={26} value={automatedPan} min={-1} max={1} defaultValue={0} bipolar title="Pan" format={formatPan}
                 onChange={pan.onChange} onCommit={pan.onCommit} />
             </div>
           </ContextMenuTrigger>
@@ -73,7 +76,7 @@ export function Strip({ doc, insert, index, selected, onSelect }: {
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div ref={faderArea} className="flex min-h-0 flex-1 items-end justify-center gap-1.5 px-2">
-            <Fader db={insert.volumeDb ?? 0} height={faderH}
+            <Fader db={automatedDb} height={faderH}
               onChange={(v) => {
                 setLiveDb(v);
                 volume.onChange(v);
