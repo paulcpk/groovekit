@@ -600,16 +600,17 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "offer_choice",
     {
-      description: "Puts sounds to the user to pick by ear (A, B, C...): five by default, or as many as the user asks for (two to ten). A window shows each with a play button, next to the reference when there is one, and this waits (up to ten minutes) for their pick. Their pick fits the style from then on; \"none of them\" counts against all. They can also answer Other with a note in their own words (\"only hat loops, not whole drum loops\"): then none was right for this, which says nothing about the sounds' fit, so do what the note asks (search again, another kind of sound, another part) and offer again. Give each candidate the path, the audition file from match_sound audition when there is one, and a short label. Returns the chosen index, -1 for none, or that they haven't chosen yet.",
+      description: "Puts sounds to the user to pick by ear (A, B, C...): five by default, or as many as the user asks for (two to ten). A window shows each with a play button, next to the reference when there is one, and this waits (up to ten minutes) for their pick. Their pick fits the style from then on; \"none of them\" counts against all. After a first \"none of them\", search once more for the same part with different sounds and offer again (again: true); after a second, go on without that part and tell the user at the end, since they can always ask for it. They can also answer Other with a note in their own words (\"only hat loops, not whole drum loops\"): then none was right for this, which says nothing about the sounds' fit, so do what the note asks (search again, another kind of sound, another part) and offer again. Give each candidate the path, the audition file from match_sound audition when there is one, and a short label. Returns the chosen index, -1 for none, or that they haven't chosen yet.",
       inputSchema: {
         title: z.string().describe("What's being chosen: \"Which kick for the groove?\""),
         style: z.string().optional().describe("The style the pick is for (the song's)"),
         reference: z.object({ file: z.string(), from: z.number().optional(), title: z.string().optional() }).optional()
           .describe("The reference to compare with: its file and where to play from (seconds), as match_sound gives it"),
         candidates: z.array(z.object({ path: z.string(), audition: z.string().optional(), label: z.string().optional() })).min(2).max(10),
+        again: z.boolean().optional().describe("True when this offer follows a \"none of them\" for the same part"),
       },
     },
-    ({ title, style, reference, candidates }) =>
+    ({ title, style, reference, candidates, again }) =>
       attempt(async () => {
         await engine.connect();
         const { id } = (await engine.call("picks.offer", { title, candidates, ...(style ? { style } : {}), ...(reference ? { reference } : {}) })) as { id: number };
@@ -618,7 +619,15 @@ Opening, creating or saving as switches the user's window too, so only do it whe
           if (r.status === "chosen") {
             if (r.note) return { choice: -1, chosen: "other", note: r.note, next: "None of these was what the user wants: do what their note says and offer again." };
             const chosen = r.choice !== undefined && r.choice >= 0 ? candidates[r.choice] : undefined;
-            return { choice: r.choice, ...(chosen ? { chosen } : { chosen: "none of them" }) };
+            if (chosen) return { choice: r.choice, chosen };
+
+            // None of them: one more round of different sounds, then on without the part.
+            return {
+              choice: -1, chosen: "none of them",
+              next: again
+                ? "None fit a second time: go on without this part (add no sound for it). When the rest is done, tell the user it's left out and that they can ask for it again."
+                : "None of these fit: search once more for the same part with different sounds (other words, folders or fit; none of the ones just offered), then offer_choice again with again: true.",
+            };
           }
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }

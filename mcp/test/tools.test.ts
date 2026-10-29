@@ -60,7 +60,10 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
   };
 
   beforeAll(async () => {
-    engineProcess = spawn(enginePath, ["serve", project, "--port", String(port), "--library", join(project, "library.json"), "--no-audio", "1"], { stdio: "ignore" });
+    // App data, references, guides and caches in the test's own folder: picks write verdicts.
+    const env = { ...process.env, GROOVEKIT_APP_DATA: join(project, "app"), GROOVEKIT_REFERENCES: join(project, "references"),
+                  GROOVEKIT_GUIDES: join(project, "guides"), GROOVEKIT_CACHE_DIR: join(project, "cache") };
+    engineProcess = spawn(enginePath, ["serve", project, "--port", String(port), "--library", join(project, "library.json"), "--no-audio", "1"], { stdio: "ignore", env });
     engine = new EngineClient(`ws://127.0.0.1:${port}`);
 
     for (let i = 0; i < 100; i++) {
@@ -124,6 +127,29 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     expect(undo.value.head).toBeNull();
     expect((await call("get_project", { path: "/channels" })).value).toEqual([]);
   });
+
+  it("asks once more after none of them, then goes on without the part; Other brings the user's note", async () => {
+    const candidates = [{ path: join(fixtures, "hat.wav") }, { path: join(fixtures, "snare.wav") }];
+
+    // The user answers in the pick window.
+    const answer = async (choice: number, note?: string) => {
+      for (let i = 0; i < 50; i++) {
+        const { offers } = (await engine.call("picks.list")) as { offers: { id: number }[] };
+        if (offers.length) return engine.call("picks.choose", { id: offers[0].id, choice, ...(note ? { note } : {}) });
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    };
+
+    let [r] = await Promise.all([call("offer_choice", { title: "Which hats?", candidates }), answer(-1)]);
+    expect(r.value.chosen).toBe("none of them");
+    expect(r.value.next).toContain("again: true");
+
+    [r] = await Promise.all([call("offer_choice", { title: "Which hats?", candidates, again: true }), answer(-1)]);
+    expect(r.value.next).toContain("go on without this part");
+
+    [r] = await Promise.all([call("offer_choice", { title: "Which hats?", candidates }), answer(-1, "only hat loops")]);
+    expect(r.value).toMatchObject({ chosen: "other", note: "only hat loops" });
+  }, 20_000);
 
   it("reports command errors without changing anything", async () => {
     const result = await call("edit_project", { commands: [{ type: "updateChannel", channel: "ghost", changes: { volumeDb: -3 } }] });
