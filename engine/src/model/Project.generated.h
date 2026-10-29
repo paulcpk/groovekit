@@ -1476,7 +1476,7 @@ struct AutomationPoint
     Ticks time {};
     /** In the parameter's own units (dB for volume and send level, -1..1 for pan). */
     double value {};
-    /** Shape of the segment to the next point: 0 linear, negative ease-in, positive ease-out. */
+    /** Shape of the segment to the next point: 0 straight; positive stays near this point's value at first and then moves fast (a late turn); negative moves fast at first and then eases into the next point. Fully bent at ±0.5. In the playlist, drag the line between two points to bend it. */
     double curve = 0;
 
     bool operator== (const AutomationPoint&) const = default;

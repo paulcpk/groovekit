@@ -1,5 +1,6 @@
 import type { AutomationTarget } from "@groovekit/schema/project";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRevealedAt } from "@/lib/reveal";
 import { openControlMenu } from "./controlMenu";
 import { startDrag } from "@/lib/drag";
 import { formatDb, gainToDb } from "@/lib/model";
@@ -27,9 +28,15 @@ export function Fader({ db, onChange, onCommit, height = 140, automation }: {
   const shown = live ?? db;
   const pos = dbToFader(shown);
   const track = height - 12;
+  const revealed = useRevealedAt(automation);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (revealed !== undefined) root.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [revealed]);
 
   return (
     <div
+      ref={root}
       className="relative w-5 cursor-ns-resize"
       style={{ height }}
       title={`${formatDb(shown)} dB`}
@@ -55,6 +62,7 @@ export function Fader({ db, onChange, onCommit, height = 140, automation }: {
         }, "ns-resize");
       }}
     >
+      {revealed !== undefined && <span key={revealed} className="pointer-events-none absolute -inset-1 z-10 animate-agent-flash rounded-[4px] ring-2 ring-accent" />}
       <div className="absolute top-1.5 bottom-1.5 left-1/2 w-[3px] -translate-x-1/2 rounded bg-bg" />
       <div className="absolute left-0 right-0 h-px bg-faint" style={{ bottom: 6 + dbToFader(0) * track }} />
       <div

@@ -438,7 +438,7 @@
       "properties": {
         "time": { "description": "Ticks from the clip start.", "$ref": "#/$defs/Ticks" },
         "value": { "description": "In the parameter's own units (dB for volume and send level, -1..1 for pan).", "type": "number" },
-        "curve": { "description": "Shape of the segment to the next point: 0 linear, negative ease-in, positive ease-out.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 }
+        "curve": { "description": "Shape of the segment to the next point: 0 straight; positive stays near this point's value at first and then moves fast (a late turn); negative moves fast at first and then eases into the next point. Fully bent at ±0.5. In the playlist, drag the line between two points to bend it.", "type": "number", "minimum": -1, "maximum": 1, "default": 0 }
       }
     },
 

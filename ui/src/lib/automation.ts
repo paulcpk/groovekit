@@ -103,9 +103,12 @@ interface Index {
 
 const indexes = new WeakMap<Project, Index>();
 
-function keyOf(t: AutomationTarget) {
+/** A target as a string, the same for equal targets. */
+export function automationKey(t: AutomationTarget) {
   return `${t.scope}|${t.param}|${t.channel ?? ""}|${t.insert ?? ""}|${t.effect ?? ""}|${t.send ?? ""}`;
 }
+
+const keyOf = automationKey;
 
 function automationIndex(doc: Project): Index {
   const cached = indexes.get(doc);
@@ -137,17 +140,33 @@ function automationIndex(doc: Project): Index {
   return index;
 }
 
-/** A segment shaped like the engine's: straight, or a quadratic bezier through a control point
-    pulled by the curve (twice it, up to ±1), as Tracktion draws it. */
-function segment(x1: number, y1: number, x2: number, y2: number, curve: number, x: number) {
-  if (x2 <= x1) return y2;
+/** The control point of a segment's quadratic bezier, as the engine shapes it: pulled by the
+    curve (twice it, up to ±1) along the segment's diagonal, so a positive curve moves fast at
+    first and then eases. Straight when the curve is 0. */
+export function bezierControl(x1: number, y1: number, x2: number, y2: number, curve: number) {
   const c = Math.max(-1, Math.min(1, curve * 2));
-  if (c === 0) return y1 + ((x - x1) / (x2 - x1)) * (y2 - y1);
-
   const run = x2 - x1;
   const rise = Math.abs(y2 - y1);
   const xc = x1 + run / 2 + (run / 2) * c;
   const yc = y2 > y1 ? y1 + rise / 2 - (rise / 2) * c : y2 + rise / 2 + (rise / 2) * c;
+  return { xc, yc, c };
+}
+
+/** The curve that puts the middle of a segment's bezier (t = ½) at `yMid`, the inverse of
+    bezierControl for dragging the line: undefined for a flat segment, which can't bend. */
+export function curveThrough(y1: number, y2: number, yMid: number) {
+  const rise = Math.abs(y2 - y1);
+  if (rise < 1e-9) return undefined;
+  const c = y2 > y1 ? ((y1 + y2) / 2 - yMid) / (rise / 4) : (yMid - (y1 + y2) / 2) / (rise / 4);
+  return Math.max(-0.5, Math.min(0.5, c / 2));
+}
+
+/** A segment shaped like the engine's: straight, or a quadratic bezier through a control point
+    pulled by the curve (twice it, up to ±1), as Tracktion draws it. */
+function segment(x1: number, y1: number, x2: number, y2: number, curve: number, x: number) {
+  if (x2 <= x1) return y2;
+  const { xc, yc, c } = bezierControl(x1, y1, x2, y2, curve);
+  if (c === 0) return y1 + ((x - x1) / (x2 - x1)) * (y2 - y1);
 
   // x(t) = (1-t)²·x1 + 2(1-t)t·xc + t²·x2: solve for t, then y(t).
   const a = x1 - 2 * xc + x2, b = 2 * (xc - x1), k = x1 - x;

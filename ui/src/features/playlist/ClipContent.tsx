@@ -1,6 +1,6 @@
 import type { AudioClip, AutomationClip, AutomationPoint, PatternClip, Project } from "@groovekit/schema/project";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { automatedEffect, rangePosition, rangeValue, targetRangeOf } from "@/lib/automation";
+import { automatedEffect, bezierControl, curveThrough, rangePosition, rangeValue, targetRangeOf } from "@/lib/automation";
 import { useCatalogue } from "@/lib/catalogue";
 import { snapTo, startDrag } from "@/lib/drag";
 import { fitSpeed } from "@/lib/fit";
@@ -153,7 +153,9 @@ export const AudioContent = memo(function AudioContent({ clip, width, height, co
   );
 });
 
-/** The automation curve, editable: drag points, double-click to add, Alt-click to remove. */
+/** The automation curve, editable: drag points, drag the line between two points to bend it
+    (Alt-click the line to straighten it), double-click to add a point, Alt-click a point to
+    remove it. Ctrl-click the clip to show the control it drives. */
 export const AutomationContent = memo(function AutomationContent({ clip, width, height, color, pxPerTick, snap }: {
   clip: AutomationClip; width: number; height: number; color: string; pxPerTick: number; snap: number;
 }) {
@@ -168,14 +170,25 @@ export const AutomationContent = memo(function AutomationContent({ clip, width, 
 
   if (height < 8) return null;
 
+  // Each segment as the engine plays it: a bezier through the curve's control point, in the
+  // parameter's own units mapped to pixels. Flat before the first point and after the last.
+  const at = (p: AutomationPoint) => ({ x: p.time * pxPerTick, y: toY(p.value) });
+  const segments = points.slice(0, -1).map((p, i) => {
+    const q = points[i + 1];
+    const a = at(p), b = at(q);
+    const { xc, yc } = bezierControl(p.time, p.value, q.time, q.value, p.curve ?? 0);
+    const control = { x: xc * pxPerTick, y: toY(yc) };
+    return { d: `M ${a.x} ${a.y} Q ${control.x} ${control.y} ${b.x} ${b.y}`, p, q, a, b };
+  });
   const path = points.length === 0 ? "" : [
-    `M 0 ${toY(points[0].value)}`,
-    ...points.map((p) => `L ${p.time * pxPerTick} ${toY(p.value)}`),
-    `L ${width} ${toY(points[points.length - 1].value)}`,
+    `M 0 ${at(points[0]).y} L ${at(points[0]).x} ${at(points[0]).y}`,
+    ...segments.map((s) => s.d.replace(/^M [^Q]+/, "")),
+    `L ${width} ${at(points[points.length - 1]).y}`,
   ].join(" ");
 
   const save = (next: AutomationPoint[], label: string) =>
     void execute({ type: "updateClip", clip: clip.id, changes: { points: [...next].sort((a, b) => a.time - b.time) } }, { label });
+  const preview = (next: AutomationPoint[]) => useEngine.setState((s) => (s.doc ? { doc: patchPoints(s.doc, clip.id, next) } : s));
 
   return (
     <svg
@@ -188,27 +201,56 @@ export const AutomationContent = memo(function AutomationContent({ clip, width, 
       }}
     >
       <path d={path} stroke={color} strokeWidth={1.5} fill="none" />
-      {points.map((p, i) => (
-        <circle
-          key={i} cx={p.time * pxPerTick} cy={toY(p.value)} r={3.5} fill={color} stroke="#111" strokeWidth={1}
-          className="cursor-pointer"
+      {/* The line between two points, wide to grab: drag up or down to bend it. */}
+      {segments.map(({ d, p, q }, i) => (
+        <path
+          key={`s${i}`} d={d} stroke="transparent" strokeWidth={10} fill="none" className="cursor-ns-resize"
           onPointerDown={(e) => {
+            if (e.button !== 0 || e.ctrlKey) return;
             e.stopPropagation();
             if (e.altKey) {
-              save(points.filter((_, j) => j !== i), "Remove automation point");
+              if (p.curve) save(points.map((o, j) => (j === i ? { ...o, curve: 0 } : o)), "Straighten automation");
               return;
             }
-            const svg = (e.currentTarget as SVGCircleElement).ownerSVGElement!;
+            if (Math.abs(q.value - p.value) < 1e-9) return;
+            const svg = (e.currentTarget as SVGPathElement).ownerSVGElement!;
             const r = svg.getBoundingClientRect();
             let next = points;
             startDrag(e, (_dx, _dy, ev) => {
-              const time = Math.max(0, Math.min(clip.length, snapTo((ev.clientX - r.left) / pxPerTick, snap / 4)));
-              const value = toValue(Math.min(height - pad, Math.max(pad, ev.clientY - r.top)));
-              next = points.map((q, j) => (j === i ? { ...q, time, value } : q));
-              useEngine.setState((s) => (s.doc ? { doc: patchPoints(s.doc, clip.id, next) } : s));
-            }, (_dx, _dy, _ev, moved) => moved && save(next, "Move automation point"), "grabbing");
+              const yMid = toValue(Math.min(height - pad, Math.max(pad, ev.clientY - r.top)));
+              const curve = curveThrough(p.value, q.value, yMid);
+              if (curve === undefined) return;
+              next = points.map((o, j) => (j === i ? { ...o, curve: Math.round(curve * 1000) / 1000 } : o));
+              preview(next);
+            }, (_dx, _dy, _ev, moved) => moved && save(next, "Bend automation"), "ns-resize");
           }}
         />
+      ))}
+      {points.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.time * pxPerTick} cy={toY(p.value)} r={3.5} fill={color} stroke="#111" strokeWidth={1} className="pointer-events-none" />
+          {/* A wider target than the dot, so it's easy to catch. */}
+          <circle
+            cx={p.time * pxPerTick} cy={toY(p.value)} r={7} fill="transparent" className="cursor-pointer"
+            onPointerDown={(e) => {
+              if (e.button !== 0 || e.ctrlKey) return;
+              e.stopPropagation();
+              if (e.altKey) {
+                save(points.filter((_, j) => j !== i), "Remove automation point");
+                return;
+              }
+              const svg = (e.currentTarget as SVGCircleElement).ownerSVGElement!;
+              const r = svg.getBoundingClientRect();
+              let next = points;
+              startDrag(e, (_dx, _dy, ev) => {
+                const time = Math.max(0, Math.min(clip.length, snapTo((ev.clientX - r.left) / pxPerTick, snap / 4)));
+                const value = toValue(Math.min(height - pad, Math.max(pad, ev.clientY - r.top)));
+                next = points.map((o, j) => (j === i ? { ...o, time, value } : o));
+                preview(next);
+              }, (_dx, _dy, _ev, moved) => moved && save(next, "Move automation point"), "grabbing");
+            }}
+          />
+        </g>
       ))}
     </svg>
   );

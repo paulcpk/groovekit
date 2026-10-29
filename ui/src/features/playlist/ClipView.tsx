@@ -8,6 +8,7 @@ import { snapTo } from "@/lib/drag";
 import { barRange, barsAt, fitCommands, fitMode, formatBars, suggestedBars, tempoFor, type FitMode } from "@/lib/fit";
 import { audioSource, colorFor, uniqueId } from "@/lib/model";
 import { usePeaks } from "@/lib/peaks";
+import { revealControl } from "@/lib/reveal";
 import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { openWindow } from "@/state/windows";
@@ -101,6 +102,13 @@ export const ClipView = memo(function ClipView({ clip, color, name, left, width,
       style={{ left, width: Math.max(3, width), height, ...glass(color, selected) }}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
+        // Ctrl-click an automation clip: show the control it drives.
+        if (e.ctrlKey && clip.type === "automation") {
+          e.stopPropagation();
+          const doc = useEngine.getState().doc;
+          if (doc) revealControl(clip.target, doc);
+          return;
+        }
         // The keyboards play the sample of the clip last touched.
         if (clip.type === "audio") setUi({ selectedChannel: clip.channel });
         const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
@@ -108,6 +116,12 @@ export const ClipView = memo(function ClipView({ clip, color, name, left, width,
         onPointerDown(e, clip, edge);
       }}
       onContextMenu={(e) => {
+        // Ctrl-click is a right-click to the browser; on an automation clip it reveals instead.
+        if (e.ctrlKey && clip.type === "automation") {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         if (ghost) return;
         const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
         onMenu(clip, Math.round(clip.start + snapTo(x / pxPerTick, snap)));
@@ -179,6 +193,12 @@ export function ClipMenu({ clipId, at }: { clipId: string; at: number }) {
           <ContextMenuItem onSelect={() => setUi({ selectedPattern: clip.pattern, bottomOpen: true, bottomPanel: "rack" })}>Open in channel rack</ContextMenuItem>
           <ContextMenuItem onSelect={() => setUi({ selectedPattern: clip.pattern, bottomOpen: true, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
           <ContextMenuItem onSelect={makeUnique}>Make unique</ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
+      {clip.type === "automation" && (
+        <>
+          <ContextMenuItem shortcut="⌃click" onSelect={() => revealControl(clip.target, doc)}>Show the control it automates</ContextMenuItem>
           <ContextMenuSeparator />
         </>
       )}

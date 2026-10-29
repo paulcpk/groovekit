@@ -2,6 +2,7 @@ import type { AutomationTarget } from "@groovekit/schema/project";
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { startDrag } from "@/lib/drag";
+import { useRevealedAt } from "@/lib/reveal";
 import { openControlMenu } from "./controlMenu";
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -72,6 +73,11 @@ export function Knob({
   const shown = live ?? value;
   const t = (Math.min(max, Math.max(min, shown)) - min) / (max - min || 1);
   const start = -135, sweep = 270;
+  const revealed = useRevealedAt(automation);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (revealed !== undefined) root.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [revealed]);
   const angle = start + t * sweep;
   const origin = bipolar ? start + 0.5 * sweep : start;
   const r = size / 2 - 3;
@@ -87,8 +93,9 @@ export function Knob({
   const text = format ? format(shown) : shown.toFixed(2);
 
   return (
-    <div className="flex flex-col items-center gap-0.5" title={title ? `${title}: ${text}` : text}
+    <div ref={root} className="relative flex flex-col items-center gap-0.5" title={title ? `${title}: ${text}` : text}
       onContextMenu={(e) => openControlMenu(e, { automation, value: automationValue ?? value, defaultValue, format, onCommit })}>
+      {revealed !== undefined && <span key={revealed} className="pointer-events-none absolute -inset-1 z-10 animate-agent-flash rounded-full ring-2 ring-accent" />}
       <svg
         width={size} height={size}
         className="cursor-ns-resize"

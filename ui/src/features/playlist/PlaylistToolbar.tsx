@@ -38,12 +38,12 @@ export function PlaylistToolbar({ doc }: { doc: Project }) {
       <IconButton size="sm" title="Follow the playhead" active={followPlayhead} onClick={() => setUi({ followPlayhead: !followPlayhead })}>
         <ScrollText size={13} />
       </IconButton>
-      <Button size="sm" title="Row height" onClick={() => setUi({ rowHeight: rowHeight >= 72 ? 32 : rowHeight + 20 })}>
+      <Button size="sm" title="Row height (⇧ scroll up and down)" onClick={() => setUi({ rowHeight: rowHeight >= 72 ? 32 : rowHeight + 20 })}>
         {rowHeight <= 32 ? "S" : rowHeight <= 52 ? "M" : "L"}
       </Button>
       <div className="flex items-center">
-        <IconButton size="sm" title="Zoom out (⌘ scroll)" onClick={() => setUi({ playlistZoom: Math.max(2, playlistZoom / 1.4) })}><Minus size={12} /></IconButton>
-        <IconButton size="sm" title="Zoom in (⌘ scroll)" onClick={() => setUi({ playlistZoom: Math.min(400, playlistZoom * 1.4) })}><Plus size={12} /></IconButton>
+        <IconButton size="sm" title="Zoom out (⌘ scroll, or ⇧ scroll sideways)" onClick={() => setUi({ playlistZoom: Math.max(2, playlistZoom / 1.4) })}><Minus size={12} /></IconButton>
+        <IconButton size="sm" title="Zoom in (⌘ scroll, or ⇧ scroll sideways)" onClick={() => setUi({ playlistZoom: Math.min(400, playlistZoom * 1.4) })}><Plus size={12} /></IconButton>
       </div>
     </div>
   );
