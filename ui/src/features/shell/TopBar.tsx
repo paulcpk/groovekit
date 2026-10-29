@@ -72,7 +72,7 @@ function TransportButtons() {
     ({ looping: s.looping, typingKeyboard: s.typingKeyboard, keyboardOctave: s.keyboardOctave, recordQuantize: s.recordQuantize })));
 
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-0.5" data-tour="transport">
       <IconButton title="Play / pause (Space)" active={playing} tone="accent" onClick={() => void togglePlay()}>
         {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
       </IconButton>

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/controls";
 import { Dialog } from "@/components/dialog";
 import { inDesktopApp } from "@/engine/client";
+import { isWelcomed, useTour } from "@/features/shell/Welcome";
 import { toast, useEngine } from "@/state/engine";
 import { createReferences, refreshReferences } from "./listening";
 
@@ -10,20 +11,22 @@ const ASKED = "groovekit.referencesAsked";
 
 const home = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
 
-/** Asks once, on the first start, to create the folder for reference tracks, if it isn't there. */
+/** Asks once, on the first start, to create the folder for reference tracks, if it isn't there;
+    after the welcome and its tour, when those are showing. */
 export function ReferencesPrompt() {
   const connected = useEngine((s) => s.status === "connected");
+  const touring = useTour((s) => s.open);
   const [folder, setFolder] = useState<string>();
 
   useEffect(() => {
-    if (!connected || !inDesktopApp) return;
+    if (!connected || !inDesktopApp || touring || !isWelcomed()) return;
     try {
       if (localStorage.getItem(ASKED)) return;
     } catch {
       return;
     }
     void refreshReferences().then((r) => !r.exists && setFolder(r.folder), () => {});
-  }, [connected]);
+  }, [connected, touring]);
 
   const close = () => {
     setFolder(undefined);

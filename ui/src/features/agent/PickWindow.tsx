@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { FloatingWindow } from "@/components/window";
 import { stopPreview, useStopPreviewsOnClose } from "@/features/shell/actions";
 import { cn } from "@/lib/cn";
+import { useAgentChoices } from "./agent";
 import { call, listen, useEngine } from "@/state/engine";
 import { closeWindow, openWindow, type OpenWindow } from "@/state/windows";
 
@@ -29,7 +30,7 @@ listen("picks", (params: Offer | { id: number; choice: number }) => {
   }
 });
 
-const LETTERS = "ABCDEFGHIJ".split("");
+const LETTERS = "ABCDEFGHIJKLMNOPQRST".split("");
 const name = (path: string) => path.replace(/^.*\//, "").replace(/\.[^.]+$/, "");
 
 /** What plays for a candidate: its audition, else its sample (an instrument is always auditioned). */
@@ -106,6 +107,7 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
   const [other, setOther] = useState(false);
   const [note, setNote] = useState("");
   const [mix, setMixState] = useState(loadMix);
+  const another = useAgentChoices((s) => s.choices);
   const sent = useRef(0);
   useStopPreviewsOnClose();
 
@@ -130,10 +132,11 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
     if (!offer) void call<{ offer: Offer; status: string }>("picks.get", { id }).then((r) => (r.status === "waiting" ? setOffer(r.offer) : closeWindow(w.key)), () => closeWindow(w.key));
   }, [id, offer, w.key]);
 
-  // "Other" goes back to the agent with what the user wants instead.
-  const choose = (choice: number, text?: string) => {
+  // "Other" goes back to the agent with what the user wants instead; "Another N" asks for as
+  // many new sounds again.
+  const choose = (choice: number, text?: string, more = false) => {
     void stopPreview();
-    void call("picks.choose", { id, choice, ...(text ? { note: text } : {}) }).then(() => closeWindow(w.key), () => {});
+    void call("picks.choose", { id, choice, ...(text ? { note: text } : {}), ...(more ? { more } : {}) }).then(() => closeWindow(w.key), () => {});
   };
   const sendOther = () => note.trim() && choose(-1, note.trim());
 
@@ -238,9 +241,11 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
             </div>
           ) : (
             <div className="flex items-center gap-1 pt-1">
-              <span className="flex-1 text-2xs text-faint" title={`Your pick counts as fitting ${offer.style ?? "the style"} from now on`}>↑↓ to listen, Enter to pick</span>
-              <button type="button" onClick={() => setOther(true)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Other…</button>
-              <button type="button" onClick={() => choose(-1)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">None of these</button>
+              <span className="min-w-0 flex-1 truncate text-2xs text-faint" title={`Your pick counts as fitting ${offer.style ?? "the style"} from now on`}>↑↓ to listen, Enter to pick</span>
+              <button type="button" onClick={() => setOther(true)} className="h-6 shrink-0 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Other…</button>
+              <button type="button" onClick={() => choose(-1)} className="h-6 shrink-0 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">None of these</button>
+              <button type="button" title={`None of these: hear ${another} new sounds for this part`} onClick={() => choose(-1, undefined, true)}
+                className="h-6 shrink-0 rounded-[4px] bg-control px-2 text-xs text-fg hover:bg-hover">Another {another}</button>
             </div>
           )}
         </div>

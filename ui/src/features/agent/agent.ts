@@ -72,7 +72,7 @@ export const DEFAULT_CHOICES = 5;
 function loadChoices() {
   try {
     const n = Number(localStorage.getItem(CHOICES_STORAGE));
-    return n >= 2 && n <= 10 ? n : DEFAULT_CHOICES;
+    return n >= 2 && n <= 20 ? n : DEFAULT_CHOICES;
   } catch {
     return DEFAULT_CHOICES;
   }
@@ -294,7 +294,7 @@ export async function send(text: string, resume = false) {
 
   try {
     const [notes, guide] = await Promise.all([notesForAgent(), guideForAgent()]);
-    const choices = `When the user picks sounds by ear (offer_choice), offer ${useAgentChoices.getState().choices} candidates, as they've set in GrooveKit's settings; fewer only when there aren't that many good ones.`;
+    const choices = `When the user picks sounds by ear (offer_choice), offer ${useAgentChoices.getState().choices} candidates, as they've set in GrooveKit's settings; fewer only when there aren't that many good ones. When they ask for another round, offer that many more, all new.`;
     const system = [SYSTEM, choices, guide, notes].filter(Boolean).join("\n\n");
 
     while (!controller.signal.aborted) {

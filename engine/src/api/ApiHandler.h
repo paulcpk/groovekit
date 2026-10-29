@@ -93,6 +93,7 @@ private:
         model::Json offer;
         std::optional<int> choice;
         std::string note;               // "Other": what the user wants instead, in their words
+        bool more = false;              // "Another round": none of these, and as many new ones again
     };
 
     std::map<int, Offer> offers;

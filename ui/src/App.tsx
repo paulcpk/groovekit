@@ -17,6 +17,7 @@ import { useLiveChannel, useTypingKeyboard } from "@/features/shell/liveInput";
 import { useAgentConversation } from "@/features/agent/AgentPanel";
 import { useShortcuts } from "@/features/shell/shortcuts";
 import { ReferencesPrompt } from "@/features/browser/ReferencesPrompt";
+import { Welcome } from "@/features/shell/Welcome";
 import { EngineVersionBanner } from "@/features/shell/EngineVersionBanner";
 import { Windows } from "@/features/windows/Windows";
 import { createAutomation } from "@/features/playlist/automation";
@@ -84,6 +85,7 @@ export function App() {
       <SaveChangesDialog />
       <ExportDialog />
       <ReferencesPrompt />
+      <Welcome />
     </div>
   );
 }

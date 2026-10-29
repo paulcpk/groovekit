@@ -2786,8 +2786,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
         {
             const auto candidates = params.value ("candidates", Json::array());
 
-            if (candidates.empty() || candidates.size() > 10)
-                throw RpcError (invalidParams, "candidates: one to ten");
+            if (candidates.empty() || candidates.size() > 20)
+                throw RpcError (invalidParams, "candidates: one to twenty");
 
             for (auto& c : candidates)
                 if (! c.contains ("path") && ! c.contains ("instrument"))
@@ -2909,6 +2909,9 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             if (! it->second.note.empty())
                 j["note"] = it->second.note;
 
+            if (it->second.more)
+                j["more"] = true;
+
             return j;
         }
 
@@ -2917,6 +2920,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             const auto choice = static_cast<int> (optionalNumber (params, "choice").value_or (-1));
             const auto& candidates = it->second.offer["candidates"];
             const auto note = juce::String (params.value ("note", std::string())).trim().substring (0, 2000).toStdString();
+            // "Another round": none of these, and the user wants to hear as many again.
+            const bool more = params.value ("more", false);
 
             if (choice >= static_cast<int> (candidates.size()))
                 throw RpcError (invalidParams, "choice: an index into the candidates, or -1 for none of them");
@@ -2924,8 +2929,12 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             if (! note.empty() && choice >= 0)
                 throw RpcError (invalidParams, "note: only with choice -1 (Other)");
 
+            if (more && (choice >= 0 || ! note.empty()))
+                throw RpcError (invalidParams, "more: only with choice -1 and no note");
+
             it->second.choice = choice;
             it->second.note = note;
+            it->second.more = more;
 
             // The pick fits the style; with none picked, none of them does. Passed over isn't a verdict, and
             // neither is "Other": the user wants another kind of sound, which says nothing about these.
@@ -2953,6 +2962,9 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
 
             if (! note.empty())
                 chosen["note"] = note;
+
+            if (more)
+                chosen["more"] = true;
 
             if (broadcast)
                 broadcast (notification ("picks", chosen).dump());
@@ -3105,7 +3117,7 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             const auto bars = std::clamp (static_cast<int> (optionalNumber (params, "bars").value_or (4)), 1, 16);
             constexpr double rate = 44100;
 
-            if (paths.empty() || paths.size() > 10)
+            if (paths.empty() || paths.size() > 20)
                 throw RpcError (invalidParams, "paths: one to ten samples");
 
             listening::KickTiming timing;
@@ -3528,7 +3540,7 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
                 for (auto& path : readParam<std::vector<std::string>> (params, "paths"))
                     candidates.push_back ({ path, {}, {}, {}, {}, path });
 
-            if (candidates.empty() || candidates.size() > 10)
+            if (candidates.empty() || candidates.size() > 20)
                 throw RpcError (invalidParams, "paths: one to ten samples");
 
             const auto sharedNotes = params.contains ("notes") ? std::optional (notesOf (params["notes"])) : std::nullopt;

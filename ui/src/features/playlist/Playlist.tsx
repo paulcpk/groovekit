@@ -94,7 +94,7 @@ export function Playlist() {
   const gridStyle: React.CSSProperties = { width, height: g.rowHeight };
 
   return (
-    <div className="flex h-full flex-col bg-bg">
+    <div className="flex h-full flex-col bg-bg" data-tour="playlist">
       <PlaylistToolbar doc={doc} />
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-auto">
         {/* One context menu serves every clip: a right-click on a clip names it (openClipMenu)

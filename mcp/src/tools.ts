@@ -434,10 +434,10 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "audition_in_song",
     {
-      description: "Tries up to ten candidate samples in a channel's place inside the song: renders the bars (default the first 8) with each candidate on the channel (loops at their own tempo, through the channel's slot and effects) and as it is now, and says how each sits with the rest: fit 0-100 (100 when the bands it lives in are its own, low when the rest covers it there), covers (the bands where the rest is as loud as it), holds and its level against the mix. Candidates play as loud as the sound they would replace, so the comparison is fair; for bass, synths and vocals, key says whether its notes go with the song's key and the transpose that puts it in. Each has a file to offer_choice as its audition, so the user chooses sounds with the groove around them, not alone; the pick window then has a slider that fades the song under the sound, down to the sound alone. The song isn't changed: put the pick in with edit_project.",
+      description: "Tries up to twenty candidate samples in a channel's place inside the song: renders the bars (default the first 8) with each candidate on the channel (loops at their own tempo, through the channel's slot and effects) and as it is now, and says how each sits with the rest: fit 0-100 (100 when the bands it lives in are its own, low when the rest covers it there), covers (the bands where the rest is as loud as it), holds and its level against the mix. Candidates play as loud as the sound they would replace, so the comparison is fair; for bass, synths and vocals, key says whether its notes go with the song's key and the transpose that puts it in. Each has a file to offer_choice as its audition, so the user chooses sounds with the groove around them, not alone; the pick window then has a slider that fades the song under the sound, down to the sound alone. The song isn't changed: put the pick in with edit_project.",
       inputSchema: {
         channel: z.string().describe("A sampler channel already in the song (its first layer is swapped)"),
-        paths: z.array(z.string()).min(1).max(10).describe("The candidate samples"),
+        paths: z.array(z.string()).min(1).max(20).describe("The candidate samples"),
         startBar: z.number().min(1).optional(),
         endBar: z.number().min(1).optional(),
       },
@@ -576,7 +576,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
   server.registerTool(
     "match_sound",
     {
-      description: "Finds and checks a kick and rumble like a reference's, measured in numbers (the note of the body, how long it rings, attack and click, grit, the rumble between kicks and its grit, width, spectrum, pattern), not just by its fingerprint. The reference is a song map (id, from song_maps list: its kick measured where it plays with least around it) or a library sample (path). find: the library's kicks and drum loops ranked by how close they are (score 0-100: measured 75%, fingerprint 25%), each with what differs most; loops true or false narrows to loops or one-shots. audition: renders samples (paths, up to 10) in a groove at the tempo (default the reference's), one-shots on the reference's pattern and loops stretched, measures each like the reference and says what differs and what to change; each has an audition file for offer_choice. channel: renders one channel of the song alone (start and end in bars, default the first 8) and measures it against the reference: score, differences and changes to make (tune, shorten, punch, EQ, grit, the rumble). A sample doesn't need to be perfect: pick the closest and close the gap with the changes, measuring again after each.",
+      description: "Finds and checks a kick and rumble like a reference's, measured in numbers (the note of the body, how long it rings, attack and click, grit, the rumble between kicks and its grit, width, spectrum, pattern), not just by its fingerprint. The reference is a song map (id, from song_maps list: its kick measured where it plays with least around it) or a library sample (path). find: the library's kicks and drum loops ranked by how close they are (score 0-100: measured 75%, fingerprint 25%), each with what differs most; loops true or false narrows to loops or one-shots. audition: renders samples (paths, up to 20) in a groove at the tempo (default the reference's), one-shots on the reference's pattern and loops stretched, measures each like the reference and says what differs and what to change; each has an audition file for offer_choice. channel: renders one channel of the song alone (start and end in bars, default the first 8) and measures it against the reference: score, differences and changes to make (tune, shorten, punch, EQ, grit, the rumble). A sample doesn't need to be perfect: pick the closest and close the gap with the changes, measuring again after each.",
       inputSchema: {
         action: z.enum(["find", "audition", "channel"]),
         id: z.string().optional().describe("A song map as the reference (style/title)"),
@@ -605,10 +605,13 @@ Opening, creating or saving as switches the user's window too, so only do it whe
       })
   );
 
+  /** Sounds shown per part (or offer title) since the user last picked one, across rounds. */
+  const shownForPart = new Map<string, number>();
+
   server.registerTool(
     "offer_choice",
     {
-      description: "Puts sounds to the user to pick by ear (A, B, C...): five by default, or as many as the user asks for (two to ten). A window shows each with a play button, next to the reference when there is one, and this waits (up to ten minutes) for their pick. Their pick fits the style from then on; \"none of them\" counts against all. After a first \"none of them\", search once more for the same part with different sounds and offer again (again: true); after a second, go on without that part and tell the user at the end, since they can always ask for it. They can also answer Other with a note in their own words (\"only hat loops, not whole drum loops\"): then none was right for this, which says nothing about the sounds' fit, so do what the note asks (search again, another kind of sound, another part) and offer again. Give each candidate the path, the audition file from match_sound or audition_in_song when there is one, and a short label. Candidates without an in-song audition are tried in the song here, so every one plays in time with it from the same bar: in channel's place when you give one (the channel the pick is for, playing its notes), else in a slot of their own: loops over the bars, one-shots and instruments playing notes (the candidate's own, the offer's, or a bar of the part's usual figure). Candidates can be sounds played by notes too: one-shot samples, or instruments (Triad with different presets, a sampler set up another way) with the line they'd play, so the user picks synth sounds and lines by ear in the song as well. Give startBar and endBar for the stretch where the part will play (default the first 8 bars). Returns the chosen index, -1 for none, or that they haven't chosen yet.",
+      description: "Puts sounds to the user to pick by ear (A, B, C...): as many as they've set in GrooveKit's settings (the system prompt says how many; two to twenty), or as many as they ask for. A window shows each with a play button, next to the reference when there is one, and this waits (up to ten minutes) for their pick. Their pick fits the style from then on; \"none of them\" counts against all. After a first \"none of them\", search once more for the same part with different sounds and offer again (again: true); after a second, go on without that part and tell the user at the end, since they can always ask for it. \"Another round\" (chosen: another round) means none of these and as many new ones again: offer that many more, different from every sound offered for this part so far, as often as asked; the result counts the sounds shown for the part, and once fifty have been without a pick it says to stop and ask the user which way to go instead (other words, another kind of sound, another part). They can also answer Other with a note in their own words (\"only hat loops, not whole drum loops\"): then none was right for this, which says nothing about the sounds' fit, so do what the note asks (search again, another kind of sound, another part) and offer again. Give each candidate the path, the audition file from match_sound or audition_in_song when there is one, and a short label. Candidates without an in-song audition are tried in the song here, so every one plays in time with it from the same bar: in channel's place when you give one (the channel the pick is for, playing its notes), else in a slot of their own: loops over the bars, one-shots and instruments playing notes (the candidate's own, the offer's, or a bar of the part's usual figure). Candidates can be sounds played by notes too: one-shot samples, or instruments (Triad with different presets, a sampler set up another way) with the line they'd play, so the user picks synth sounds and lines by ear in the song as well. Give startBar and endBar for the stretch where the part will play (default the first 8 bars). Returns the chosen index, -1 for none, or that they haven't chosen yet.",
       inputSchema: {
         title: z.string().describe("What's being chosen: \"Which kick for the groove?\""),
         style: z.string().optional().describe("The style the pick is for (the song's)"),
@@ -621,7 +624,7 @@ Opening, creating or saving as switches the user's window too, so only do it whe
             .describe("What it plays in its own slot (ticks from the bar, one pattern that repeats): its line, chords or rhythm"),
           part: z.enum(["kick", "rumble", "drums", "bass", "percussion", "clap", "hats", "synth", "vocal", "fx"]).optional(),
           audition: z.string().optional(), label: z.string().optional(),
-        })).min(2).max(10),
+        })).min(2).max(20),
         again: z.boolean().optional().describe("True when this offer follows a \"none of them\" for the same part"),
         channel: z.string().optional().describe("The song's channel the pick is for: candidates are tried in its place, playing its notes"),
         notes: z.array(z.object({ start: z.number().int().min(0), length: z.number().int().min(1), key: z.number().int().min(0).max(127).optional(), velocity: z.number().int().min(1).max(127).optional() })).optional()
@@ -640,12 +643,27 @@ Opening, creating or saving as switches the user's window too, so only do it whe
           ...(startBar !== undefined ? { start: barToTicks(startBar) } : {}),
           ...(endBar !== undefined ? { end: barToTicks(endBar) } : {}),
         })) as { id: number };
+        // How many sounds the user has been shown for this part without picking one.
+        const key = part ?? title;
+        const shown = (shownForPart.get(key) ?? 0) + candidates.length;
+        shownForPart.set(key, shown);
         for (let waited = 0; waited < 600; waited++) {
-          const r = (await engine.call("picks.get", { id })) as { status: string; choice?: number; note?: string };
+          const r = (await engine.call("picks.get", { id })) as { status: string; choice?: number; note?: string; more?: boolean };
           if (r.status === "chosen") {
             if (r.note) return { choice: -1, chosen: "other", note: r.note, next: "None of these was what the user wants: do what their note says and offer again." };
             const chosen = r.choice !== undefined && r.choice >= 0 ? candidates[r.choice] : undefined;
-            if (chosen) return { choice: r.choice, chosen };
+            if (chosen) {
+              shownForPart.delete(key);
+              return { choice: r.choice, chosen };
+            }
+            if (r.more) {
+              return {
+                choice: -1, chosen: "another round", shown,
+                next: shown >= 50
+                  ? `None of ${shown} sounds fit this part. Don't offer more of the same: tell the user how many you've been through and ask which way to go instead (other words for the sound, another kind of sound or instrument, another part, or leave it out), then wait for their answer.`
+                  : `None of these: offer ${candidates.length} more for the same part, different from every sound offered for it so far (${shown} by now), with again: true.`,
+              };
+            }
 
             // None of them: one more round of different sounds, then on without the part.
             return {

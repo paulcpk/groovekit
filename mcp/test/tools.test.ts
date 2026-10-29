@@ -135,10 +135,10 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     const candidates = [{ path: join(fixtures, "hat.wav") }, { path: join(fixtures, "snare.wav") }];
 
     // The user answers in the pick window.
-    const answer = async (choice: number, note?: string) => {
+    const answer = async (choice: number, note?: string, more?: boolean) => {
       for (let i = 0; i < 50; i++) {
         const { offers } = (await engine.call("picks.list")) as { offers: { id: number }[] };
-        if (offers.length) return engine.call("picks.choose", { id: offers[0].id, choice, ...(note ? { note } : {}) });
+        if (offers.length) return engine.call("picks.choose", { id: offers[0].id, choice, ...(note ? { note } : {}), ...(more ? { more } : {}) });
         await new Promise((r) => setTimeout(r, 100));
       }
     };
@@ -152,6 +152,13 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
 
     [r] = await Promise.all([call("offer_choice", { title: "Which hats?", candidates }), answer(-1, "only hat loops")]);
     expect(r.value).toMatchObject({ chosen: "other", note: "only hat loops" });
+
+    // Another round asks for as many again, counting what's been shown for the part.
+    [r] = await Promise.all([call("offer_choice", { title: "Which hats?", candidates, part: "hats" }), answer(-1, undefined, true)]);
+    expect(r.value).toMatchObject({ chosen: "another round", shown: 2 });
+    expect(r.value.next).toContain("2 more");
+    [r] = await Promise.all([call("offer_choice", { title: "Which hats?", candidates, part: "hats", again: true }), answer(-1, undefined, true)]);
+    expect(r.value.shown).toBe(4);
   }, 20_000);
 
   it("reports command errors without changing anything", async () => {

@@ -5,9 +5,9 @@ import { Dropdown, DropdownContent, DropdownItem, DropdownTrigger } from "@/comp
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 import { setAgentChoices, setApiKey, useAgentChoices, useApiKey } from "@/features/agent/agent";
-import { cn } from "@/lib/cn";
 import { call, engine, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
+import { startTour } from "@/features/shell/Welcome";
 import { ChevronDown } from "lucide-react";
 
 interface AudioDevices {
@@ -278,17 +278,10 @@ function AgentSettings() {
         )}
         <div className="flex items-center gap-2 pt-1">
           <span className="flex-1 text-dim">Sounds to choose from when the agent asks you to pick</span>
-          <div className="flex gap-1">
-            {[3, 5, 7, 10].map((n) => (
-              <button key={n} type="button" onClick={() => setAgentChoices(n)}
-                className={cn("h-6 min-w-7 rounded-[4px] px-2 text-xs", choices === n ? "bg-agent text-black" : "bg-control text-dim hover:text-fg")}>
-                {n}
-              </button>
-            ))}
-          </div>
+          <div className="w-16"><Picker value={String(choices)} options={["3", "5", "7", "10", "15", "20"]} onPick={(v) => setAgentChoices(Number(v))} /></div>
         </div>
         <div className="text-2xs text-faint">
-          More choices find the right sound sooner; fewer are quicker to listen through. The agent in the sidebar uses Claude with this key; use is billed to your Anthropic account. What you ask, and what the agent
+          More choices find the right sound sooner; fewer are quicker to listen through. "Another {choices}" in the pick window asks for as many again. The agent in the sidebar uses Claude with this key; use is billed to your Anthropic account. What you ask, and what the agent
           reads of the song to do it (names, notes, mix settings, sample file paths), is sent to Anthropic.
         </div>
       </div>
@@ -322,7 +315,13 @@ function About() {
           Free software under the GNU Affero General Public License v3, with no warranty. Source code:{" "}
           <span className="text-fg select-text">{SOURCE}</span>
         </div>
-        <div><Button size="sm" className="bg-control text-fg" onClick={() => void showNotices()}>Licenses</Button></div>
+        <div className="flex gap-2">
+          <Button size="sm" className="bg-control text-fg" onClick={() => void showNotices()}>Licenses</Button>
+          <Button size="sm" className="bg-control text-fg" onClick={() => {
+            setUi({ settingsOpen: false });
+            startTour();
+          }}>Show the welcome tour</Button>
+        </div>
       </div>
       <Dialog open={notices !== undefined} onOpenChange={(o) => !o && setNotices(undefined)} title="Licenses" className="w-[760px]">
         <pre className="font-mono text-[10px] leading-snug whitespace-pre-wrap text-dim">{notices}</pre>

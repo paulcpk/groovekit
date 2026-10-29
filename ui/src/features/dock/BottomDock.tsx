@@ -9,7 +9,7 @@ export function BottomDock() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-8 shrink-0 items-center border-b border-line px-2">
+      <div className="flex h-8 shrink-0 items-center border-b border-line px-2" data-tour="dock">
         <Tabs<BottomPanel>
           value={panel}
           onChange={(p) => setUi({ bottomPanel: p })}

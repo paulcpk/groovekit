@@ -14,7 +14,7 @@ export function Sidebar() {
 
   return (
     <>
-      <div className="flex h-8 shrink-0 items-center border-b border-line px-2">
+      <div className="flex h-8 shrink-0 items-center border-b border-line px-2" data-tour="sidebar">
         <Tabs<SidebarTab>
           value={tab}
           onChange={(t) => {
@@ -25,7 +25,7 @@ export function Sidebar() {
           items={[
             { value: "browser", label: "Browser" },
             { value: "history", label: "History" },
-            { value: "activity", label: <span className="flex items-center gap-1">Agent{recording && tab !== "activity" ? <RecordingDot /> : agentChanges > 0 && <span className="h-1.5 w-1.5 rounded-full bg-agent" />}</span>,
+            { value: "activity", label: <span className="flex items-center gap-1" data-tour="agent">Agent{recording && tab !== "activity" ? <RecordingDot /> : agentChanges > 0 && <span className="h-1.5 w-1.5 rounded-full bg-agent" />}</span>,
               title: recording && tab !== "activity" ? "A voice message is being recorded" : undefined },
           ]}
         />
