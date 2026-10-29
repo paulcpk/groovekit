@@ -125,6 +125,12 @@ public:
 
     static std::optional<KeyFit> fitTo (const SampleEntry&, music::Key);
 
+    /** A loop's tempo made exact by its length: the whole bars of 4/4 (or beats, for loops under a
+        bar) it lasts at its named or heard tempo, when that's within 3 % of it; otherwise the
+        tempo as it is (a loop with a tail). Used as a layer's sourceTempo, it fits the loop to the
+        song without drifting. Empty for a sample with no tempo. */
+    static std::optional<double> loopTempo (const SampleEntry&);
+
 private:
     const std::filesystem::path indexFile;
 

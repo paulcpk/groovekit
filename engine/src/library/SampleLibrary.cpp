@@ -639,6 +639,10 @@ Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures, std::opt
 
     if (c.tempo)    j["tempo"] = *c.tempo;
 
+    if (c.loop)
+        if (auto t = loopTempo (e))
+            j["sourceTempo"] = std::round (*t * 1000) / 1000;
+
     const auto key = keyOf (e);
 
     if (key.key)
@@ -664,6 +668,31 @@ Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures, std::opt
     }
 
     return j;
+}
+
+std::optional<double> SampleLibrary::loopTempo (const SampleEntry& e)
+{
+    const auto tempo = e.classification.tempo ? e.classification.tempo : e.features.estimatedTempo;
+    const auto seconds = e.features.durationSeconds;
+
+    if (! tempo || *tempo <= 0)
+        return {};
+
+    if (seconds <= 0)
+        return tempo;
+
+    const auto beats = seconds * *tempo / 60;
+    const auto whole = beats >= 4 ? 4 * std::round (beats / 4) : std::round (beats);
+
+    if (whole >= 1)
+    {
+        const auto exact = whole * 60 / seconds;
+
+        if (std::abs (exact - *tempo) / *tempo < 0.03)
+            return exact;
+    }
+
+    return tempo;
 }
 
 //==============================================================================

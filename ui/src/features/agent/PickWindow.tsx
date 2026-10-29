@@ -134,11 +134,51 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
   };
   const sendOther = () => note.trim() && choose(-1, note.trim());
 
+  // ↑ and ↓ move through the candidates and play each from the top; Enter picks; Space plays or stops.
+  const [selected, setSelected] = useState(-1);
+  const body = useRef<HTMLDivElement>(null);
+  const rows = useRef<(HTMLDivElement | null)[]>([]);
+  useEffect(() => body.current?.focus(), [offer]);
+
+  const playCandidate = (i: number) => {
+    const c = offer!.candidates[i];
+    setSelected(i);
+
+    // A candidate tried in the song already has the song in it: the transport would play it twice, out of step.
+    if (c.alone && c.rest) {
+      if (useEngine.getState().transport.playing) void call("transport.stop");
+      play(c.audition ?? c.path, 0, { alone: c.alone, rest: c.rest, underLevel: underLevel(mix) });
+    } else {
+      play(c.audition ?? c.path);
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!offer || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
+    const count = offer.candidates.length;
+    const move = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+
+    if (move) {
+      const next = selected < 0 ? (move > 0 ? 0 : count - 1) : (selected + move + count) % count;
+      if (next !== selected || previewing !== (offer.candidates[next].audition ?? offer.candidates[next].path)) playCandidate(next);
+      rows.current[next]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && selected >= 0) {
+      choose(selected);
+    } else if (e.key === " ") {
+      playCandidate(selected < 0 ? 0 : selected);
+    } else {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   return (
     <FloatingWindow window={w} width={420} accent="var(--color-agent)"
       title={<><span className="truncate">{offer?.title ?? "A choice"}</span><span className="shrink-0 text-2xs font-normal text-faint">Pick by ear</span></>}>
       {offer ? (
-        <div className="flex flex-col gap-2 p-3">
+        <div ref={body} tabIndex={-1} onKeyDown={onKeyDown} className="flex flex-col gap-2 p-3 outline-none">
           <MixSlider value={mix} onChange={setMix} disabled={!layered} />
           {offer.reference && (
             <button type="button" onClick={() => play(offer.reference!.file, offer.reference!.from)}
@@ -154,9 +194,13 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
             const file = c.audition ?? c.path;
             const playing = previewing === file;
             return (
-              <div key={c.path} className={cn("flex items-center gap-2 rounded-[6px] px-2 py-1.5 ring-1", playing ? "bg-agent/10 ring-agent/60" : "bg-raised ring-line")}>
-                <button type="button" title={c.audition ? "Play it in the groove" : "Play it"}
-                  onClick={() => play(file, 0, c.alone && c.rest ? { alone: c.alone, rest: c.rest, underLevel: underLevel(mix) } : undefined)}
+              <div key={c.path} ref={(el) => void (rows.current[i] = el)}
+                className={cn("flex items-center gap-2 rounded-[6px] px-2 py-1.5 ring-1", playing ? "bg-agent/10" : "bg-raised", selected === i ? "ring-agent" : playing ? "ring-agent/60" : "ring-line")}>
+                <button type="button" title={c.alone ? "Play it in the song" : c.audition ? "Play it in the groove" : "Play it"}
+                  onClick={() => {
+                    playCandidate(i);
+                    body.current?.focus();
+                  }}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-control text-sm font-semibold text-fg hover:bg-hover">
                   {playing ? <Square size={11} className="text-agent" fill="currentColor" /> : LETTERS[i]}
                 </button>
@@ -191,7 +235,7 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
             </div>
           ) : (
             <div className="flex items-center gap-1 pt-1">
-              <span className="flex-1 text-2xs text-faint">Your pick counts as fitting {offer.style ?? "the style"} from now on.</span>
+              <span className="flex-1 text-2xs text-faint" title={`Your pick counts as fitting ${offer.style ?? "the style"} from now on`}>↑↓ to listen, Enter to pick</span>
               <button type="button" onClick={() => setOther(true)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Other…</button>
               <button type="button" onClick={() => choose(-1)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">None of these</button>
             </div>

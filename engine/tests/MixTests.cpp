@@ -2,6 +2,8 @@
 
 #include "api/ApiHandler.h"
 #include "effects/EqPlugin.h"
+#include "analysis/Analysis.h"
+#include "library/SampleLibrary.h"
 #include "live/SamplePreview.h"
 #include "render/Encode.h"
 #include "mixer/Slots.h"
@@ -333,4 +335,87 @@ TEST_CASE ("The preview fades a second file in sync beneath the first")
     preview.play (sound, 0.0f);
     block();
     CHECK (block() == Catch::Approx (0.25f).margin (0.01));
+}
+
+TEST_CASE ("A loop's tempo is made exact by its length")
+{
+    library::SampleEntry e;
+    e.classification.loop = true;
+
+    // Heard as 127.6, but exactly two bars at 128.
+    e.features.estimatedTempo = 127.6;
+    e.features.durationSeconds = 8 * 60.0 / 128;
+    CHECK (*library::SampleLibrary::loopTempo (e) == Catch::Approx (128).margin (1e-9));
+
+    // A named tempo wins over the heard one, and is made exact the same way.
+    e.classification.tempo = 130;
+    e.features.durationSeconds = 4 * 60.0 / 129.9;
+    CHECK (*library::SampleLibrary::loopTempo (e) == Catch::Approx (129.9).margin (1e-9));
+
+    // With a tail it isn't whole bars: the tempo stays as named.
+    e.features.durationSeconds = 4 * 60.0 / 130 + 0.4;
+    CHECK (*library::SampleLibrary::loopTempo (e) == 130);
+
+    e.classification.tempo.reset();
+    e.features.estimatedTempo.reset();
+    CHECK_FALSE (library::SampleLibrary::loopTempo (e));
+}
+
+TEST_CASE ("A loop offered on its own is tried in the song, on its grid from the same bar")
+{
+    Harness h;
+    const auto folder = test::tempDir() / "phantom";
+    std::filesystem::create_directories (folder);
+
+    // A one-bar loop at 128 BPM with a click on every 8th, a little long at the end (as files are).
+    const auto loopFile = folder / "Click Top Loop 128bpm.wav";
+    {
+        constexpr double rate = 44100;
+        const auto length = static_cast<int> (4 * 60.0 / 128 * rate) + 3;
+        juce::AudioBuffer<float> b (2, length);
+        b.clear();
+
+        for (int eighth = 0; eighth < 8; ++eighth)
+        {
+            const auto at = static_cast<int> (eighth * 30.0 / 128 * rate);
+
+            for (int i = 0; i < 200 && at + i < length; ++i)
+                for (int ch = 0; ch < 2; ++ch)
+                    b.setSample (ch, at + i, 0.8f * std::sin (i * 0.9f) * (1 - i / 200.0f));
+        }
+
+        writeAudio (b, rate, loopFile, {});
+    }
+
+    // The song: a bass at 120 BPM.
+    auto commands = Json::array ({ addChannel ("bass", "Bass", "bass_a2.wav") });
+
+    for (auto& c : playEveryBeat ({ "bass" }, 8))
+        commands.push_back (c);
+
+    h.call ("execute", { { "commands", commands } });
+
+    // Offered with no audition: the engine tries it in the song, in a phantom slot of its own.
+    auto offered = h.call ("picks.offer", { { "title", "Which top?" }, { "end", 8 * 3840 }, { "candidates", {
+        { { "path", loopFile.string() } }, { { "path", test::fixture ("hat.wav").string() } } } } });
+    REQUIRE (offered.contains ("result"));
+    auto offer = h.call ("picks.get", { { "id", offered["result"]["id"] } })["result"]["offer"];
+
+    REQUIRE (offer["candidates"][0].contains ("alone"));
+    CHECK (offer["candidates"][0].contains ("audition"));
+    CHECK_FALSE (offer["candidates"][1].contains ("alone"));      // a one-shot has no channel to play in
+
+    // Stretched to 120 BPM, its clicks fall on the song's 8ths for all eight bars: no drift.
+    const auto alone = analysis::loadAudio (offer["candidates"][0]["alone"].get<std::string>());
+    const auto onsets = analysis::detectOnsets (alone, -30.0f, 0.1);
+    REQUIRE (onsets.size() >= 60);
+
+    for (auto t : onsets)
+    {
+        const auto eighths = t / 0.25;
+        CHECK (std::abs (eighths - std::round (eighths)) * 0.25 < 0.012);
+    }
+
+    // The song stays as it was.
+    CHECK (h.session.getProject().channels.size() == 1);
 }
