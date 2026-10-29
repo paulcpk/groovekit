@@ -6,6 +6,11 @@ industrial and hard techno (music discovery, `docs/music-discovery.md`), and the
 conversation mode. Next: song maps, then the review. The full order is in "The road to excellent
 results" below.
 
+Status (2026-10-30): song maps hear the whole track (analysis 8): its arrangement, its kick, and
+now its figures, what the music and the bass play where they're loudest, two bars each on the
+16th grid, so the agent writes stabs, chords and basslines in the style's rhythms and intervals
+instead of inventing tunes (`song_maps read` gives them as a score and as notes).
+
 ## The problem
 
 The agent arranges well enough, but the songs sound bad to okay. It picks sounds without knowing the

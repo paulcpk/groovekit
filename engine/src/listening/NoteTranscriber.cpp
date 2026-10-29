@@ -20,7 +20,6 @@ namespace
     constexpr int lowestKey = 21;                           // A0
 
     constexpr float onsetThreshold = 0.5f, frameThreshold = 0.3f;
-    constexpr int minNoteFrames = 11;                       // about 128 ms
     constexpr int energyTolerance = 11;
 
     constexpr const char* modelUrl = "https://github.com/spotify/basic-pitch/raw/v0.4.0/basic_pitch/saved_models/icassp_2022/nmp.onnx";
@@ -45,7 +44,7 @@ void NoteTranscriber::ensureModel()
     session = std::make_unique<Ort::Session> (openSession (modelFile(), 2));
 }
 
-std::vector<music::HeardNote> NoteTranscriber::transcribe (const juce::AudioBuffer<float>& audio, double sampleRate)
+std::vector<music::HeardNote> NoteTranscriber::transcribe (const juce::AudioBuffer<float>& audio, double sampleRate, double minNoteSeconds)
 {
     ensureModel();
 
@@ -85,10 +84,10 @@ std::vector<music::HeardNote> NoteTranscriber::transcribe (const juce::AudioBuff
         }
     }
 
-    return notesFrom (std::move (a), times);
+    return notesFrom (std::move (a), times, std::max (1, static_cast<int> (std::lround (minNoteSeconds * rate / hopSamples))));
 }
 
-std::vector<music::HeardNote> NoteTranscriber::notesFrom (Activations a, const std::vector<double>& times)
+std::vector<music::HeardNote> NoteTranscriber::notesFrom (Activations a, const std::vector<double>& times, int minFrames)
 {
     auto& frames = a.frames;
     auto& onsets = a.onsets;
@@ -168,7 +167,7 @@ std::vector<music::HeardNote> NoteTranscriber::notesFrom (Activations a, const s
 
         t -= below;
 
-        if (t - start <= minNoteFrames)
+        if (t - start <= minFrames)
             continue;
 
         for (int i = start; i < t; ++i)
@@ -229,7 +228,7 @@ std::vector<music::HeardNote> NoteTranscriber::notesFrom (Activations a, const s
 
         const auto first = t + 1 + below;
 
-        if (last - first > minNoteFrames)
+        if (last - first > minFrames)
             addNote (first, last, peakK);
     }
 

@@ -2,8 +2,10 @@
 
 #include "EngineContext.h"
 #include "Maps.h"
+#include "NoteTranscriber.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
+#include "library/SampleLibrary.h"
 
 #include <fstream>
 #include <numeric>
@@ -17,7 +19,7 @@ using model::Json;
 namespace
 {
     constexpr int fileVersion = 1;
-    constexpr int analysisVersion = 7;      // 6: the whole track, with its arrangement; 7: its grid fitted over the whole track
+    constexpr int analysisVersion = 8;      // 6: the whole track, with its arrangement; 7: its grid fitted over the whole track; 8: figures
     constexpr int windowsPerTrack = 6;
     constexpr int windowSamples = 343980;  // one separator chunk, 7.8 s at 44.1 kHz
     constexpr float silentDb = -50.0f;
@@ -175,6 +177,39 @@ float StyleProfile::fit (Role role, const Embedding& e, std::optional<size_t> le
     return std::accumulate (similarities.begin(), similarities.begin() + static_cast<long> (k), 0.0f) / static_cast<float> (k);
 }
 
+Json StyleProfile::Track::Figure::toJson() const
+{
+    auto list = Json::array();
+
+    for (auto& n : notes)
+        list.push_back ({ { "start", n.start }, { "length", n.length }, { "key", n.key }, { "velocity", n.velocity } });
+
+    Json j { { "part", part }, { "bar", bar }, { "bars", bars }, { "section", section }, { "notes", list } };
+
+    if (key)
+        j["key"] = { { "key", music::keyName (key->key) }, { "confidence", round (key->confidence, 0.01) } };
+
+    return j;
+}
+
+StyleProfile::Track::Figure StyleProfile::Track::Figure::fromJson (const Json& j)
+{
+    Figure f;
+    f.part = j.value ("part", "");
+    f.bar = j.value ("bar", 0);
+    f.bars = j.value ("bars", 2);
+    f.section = j.value ("section", "");
+
+    for (auto& n : j.value ("notes", Json::array()))
+        f.notes.push_back ({ n.value ("start", int64_t { 0 }), n.value ("length", int64_t { 240 }), n.value ("key", 60), n.value ("velocity", 100) });
+
+    if (j.contains ("key"))
+        if (auto k = music::parseKey (j["key"].value ("key", "")))
+            f.key = music::KeyEstimate { *k, j["key"].value ("confidence", 0.0f) };
+
+    return f;
+}
+
 Json StyleProfile::Track::toJson() const
 {
     Json levelsJson = Json::object(), soundsJson = Json::object(), spectraJson = Json::object();
@@ -217,6 +252,16 @@ Json StyleProfile::Track::toJson() const
     if (kick)
         j["kick"] = { { "sound", kick->sound.toJson() }, { "bars", { kick->from, kick->to } }, { "clean", kick->clean } };
 
+    if (! figures.empty())
+    {
+        auto list = Json::array();
+
+        for (auto& f : figures)
+            list.push_back (f.toJson());
+
+        j["figures"] = list;
+    }
+
     return j;
 }
 
@@ -237,6 +282,9 @@ StyleProfile::Track StyleProfile::Track::fromJson (const Json& tj)
 
     if (tj.contains ("arrangement"))
         t.arrangement = Arrangement::fromJson (tj["arrangement"]);
+
+    for (auto& f : tj.value ("figures", Json::array()))
+        t.figures.push_back (Track::Figure::fromJson (f));
 
     if (tj.contains ("kick"))
     {
@@ -869,6 +917,7 @@ Styles::Progress Styles::getProgress() const
 void Styles::run()
 {
     std::unique_ptr<Separator> separator;
+    std::unique_ptr<NoteTranscriber> transcriber;
 
     for (;;)
     {
@@ -903,6 +952,9 @@ void Styles::run()
             if (separator == nullptr)
                 separator = std::make_unique<Separator> (models);
 
+            if (transcriber == nullptr)
+                transcriber = std::make_unique<NoteTranscriber> (models);
+
             auto track = hearTrack (*separator, clap, item.file, {}, [&] (double fraction)
             {
                 if (cancel || pausing || skipping)
@@ -915,7 +967,7 @@ void Styles::run()
 
                 notify();
                 return true;
-            }, true);
+            }, true, transcriber.get());
 
             std::error_code ec;
             track.size = static_cast<int64_t> (std::filesystem::file_size (item.file, ec));
@@ -1191,7 +1243,7 @@ static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const 
 }
 
 StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::filesystem::path& path, std::optional<double> knownTempo,
-                               const std::function<bool (double)>& progress, bool wholeTrack)
+                               const std::function<bool (double)>& progress, bool wholeTrack, NoteTranscriber* transcriber)
 {
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
@@ -1479,6 +1531,19 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
         track.arrangement = hearArrangement (full, track.tempo > 0 ? std::optional (track.tempo) : std::nullopt);
         track.kick = hearKick (*track.arrangement, wholeStems);
 
+        // What the music and the bass play. The note model may be missing or fail to download:
+        // the track is still heard, without figures.
+        if (transcriber != nullptr)
+        {
+            try
+            {
+                track.figures = hearFigures (*transcriber, *track.arrangement, wholeStems);
+            }
+            catch (const std::exception&)
+            {
+            }
+        }
+
         // Fitted over the whole track: closer than the stretches'.
         if (track.arrangement->tempo > 0)
             track.tempo = track.arrangement->tempo;
@@ -1488,6 +1553,187 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
     }
 
     return track;
+}
+
+//==============================================================================
+std::vector<StyleProfile::Track::Figure> hearFigures (NoteTranscriber& transcriber, const Arrangement& a, const Separator::Stems& stems)
+{
+    using Figure = StyleProfile::Track::Figure;
+    std::vector<Figure> figures;
+
+    if (a.bars < 2 || a.tempo <= 0)
+        return figures;
+
+    constexpr int figureBars = 2, perPart = 3, apart = 8;
+    constexpr double minNoteSeconds = 0.06;     // 16th stabs at any tempo
+    const double barSeconds = a.barSeconds(), beatSeconds = barSeconds / 4;
+    const auto sectionAt = [&] (int bar)
+    {
+        for (auto& s : a.sections)
+            if (bar >= s.start && bar < s.end)
+                return s.role;
+
+        return std::string();
+    };
+
+    const std::pair<const char*, const juce::AudioBuffer<float>*> parts[] = { { "music", &stems.other }, { "bass", &stems.bass } };
+
+    for (auto& [part, stem] : parts)
+    {
+        auto lane = a.parts.find (part);
+
+        if (lane == a.parts.end() || stem->getNumSamples() == 0)
+            continue;
+
+        // Two-bar blocks where the part plays, the loudest first; drops and grooves before the rest.
+        struct Block { int bar; float score; };
+        std::vector<Block> blocks;
+
+        for (int b = 0; b + figureBars <= a.bars; b += figureBars)
+        {
+            bool on = true;
+            float level = 0;
+
+            for (int k = 0; k < figureBars; ++k)
+            {
+                const auto i = static_cast<size_t> (b + k);
+                on = on && i < lane->second.on.size() && lane->second.on[i];
+                level += i < lane->second.level.size() ? lane->second.level[i] / figureBars : 0;
+            }
+
+            if (! on)
+                continue;
+
+            const auto role = sectionAt (b);
+            blocks.push_back ({ b, level + (role == "drop" ? 3.0f : role == "groove" ? 1.0f : 0.0f) });
+        }
+
+        std::sort (blocks.begin(), blocks.end(), [] (auto& x, auto& y) { return x.score > y.score; });
+        std::vector<int> chosen;
+
+        for (auto& block : blocks)
+        {
+            if (static_cast<int> (chosen.size()) >= perPart)
+                break;
+
+            if (std::any_of (chosen.begin(), chosen.end(), [&] (int c) { return std::abs (c - block.bar) < apart; }))
+                continue;
+
+            chosen.push_back (block.bar);
+        }
+
+        std::sort (chosen.begin(), chosen.end());
+
+        for (auto bar : chosen)
+        {
+            // The two bars, with a little after them so the last note's end is heard.
+            const auto from = static_cast<int> ((a.downbeat + bar * barSeconds) * Separator::sampleRate);
+            const auto count = std::min (stem->getNumSamples() - from, static_cast<int> ((figureBars * barSeconds + 0.15) * Separator::sampleRate));
+
+            if (from < 0 || count <= 0)
+                continue;
+
+            juce::AudioBuffer<float> audio (stem->getNumChannels(), count);
+
+            for (int c = 0; c < audio.getNumChannels(); ++c)
+                audio.copyFrom (c, 0, *stem, c, from, count);
+
+            auto heard = transcriber.transcribe (audio, Separator::sampleRate, minNoteSeconds);
+
+            if (heard.empty())
+                continue;
+
+            // Quiet notes are the model's doubts; the rest go on the 16th grid.
+            const auto loudest = std::max_element (heard.begin(), heard.end(), [] (auto& x, auto& y) { return x.level < y.level; })->level;
+            constexpr int64_t step = 240, length = figureBars * 4 * 960;
+            Figure f;
+            f.part = part;
+            f.bar = bar;
+            f.bars = figureBars;
+            f.section = sectionAt (bar);
+
+            for (auto& n : heard)
+            {
+                if (n.level < 0.25f * loudest)
+                    continue;
+
+                const auto start = std::llround (n.start / beatSeconds * 960 / step) * step;
+
+                if (start < 0 || start >= length)
+                    continue;
+
+                const auto held = std::max (step, std::llround ((n.end - n.start) / beatSeconds * 960 / step) * step);
+                music::PlacedNote note;
+                note.start = start;
+                note.length = std::min<int64_t> (held, length - start);
+                note.key = std::clamp (static_cast<int> (std::lround (n.pitch)), 0, 127);
+                note.velocity = std::clamp (static_cast<int> (std::lround (60 + 67 * n.level / loudest)), 1, 127);
+
+                // The same note twice on one step: the louder stays.
+                auto same = std::find_if (f.notes.begin(), f.notes.end(), [&] (auto& o) { return o.start == note.start && o.key == note.key; });
+
+                if (same != f.notes.end())
+                    same->velocity = std::max (same->velocity, note.velocity);
+                else
+                    f.notes.push_back (note);
+            }
+
+            if (f.notes.size() < 2)
+                continue;
+
+            std::sort (f.notes.begin(), f.notes.end(), [] (auto& x, auto& y) { return x.start != y.start ? x.start < y.start : x.key < y.key; });
+            f.key = music::keyOfNotes (heard);
+            figures.push_back (std::move (f));
+        }
+    }
+
+    return figures;
+}
+
+std::string describeFigures (const std::vector<StyleProfile::Track::Figure>& figures)
+{
+    if (figures.empty())
+        return {};
+
+    std::ostringstream out;
+    out << "Figures: what the parts play where they're loudest, two bars each in 16ths (a note name starts a note, - holds it, . is a rest; notes together joined by +; ticks in the map's figures, 240 a 16th)\n";
+
+    for (auto& f : figures)
+    {
+        out << f.part << ", bars " << f.bar + 1 << "-" << f.bar + f.bars;
+
+        if (! f.section.empty())
+            out << " (" << f.section << ")";
+
+        if (f.key)
+            out << ", " << music::keyName (f.key->key);
+
+        out << "\n  ";
+        const int steps = f.bars * 16;
+
+        for (int i = 0; i < steps; ++i)
+        {
+            if (i % 16 == 0)
+                out << "|";
+
+            std::string cell;
+            bool held = false;
+
+            for (auto& n : f.notes)
+            {
+                if (n.start == i * 240)
+                    cell += (cell.empty() ? "" : "+") + library::noteName (n.key);
+                else if (n.start < i * 240 && n.start + n.length > i * 240)
+                    held = true;
+            }
+
+            out << (cell.empty() ? (held ? "-" : ".") : cell) << (i % 16 == 15 ? "" : " ");
+        }
+
+        out << "|\n";
+    }
+
+    return out.str();
 }
 
 } // namespace gk::listening

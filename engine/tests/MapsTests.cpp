@@ -7,6 +7,7 @@
 #include "listening/Listening.h"
 #include "listening/KickSound.h"
 #include "listening/Maps.h"
+#include "listening/NoteTranscriber.h"
 #include "session/Session.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -679,4 +680,127 @@ TEST_CASE ("A kick is heard under a rumble nearly as loud as it")
     INFO (a.toJson()["parts"]["kick"].dump());
     CHECK (std::count (kick.begin(), kick.end(), true) >= a.bars - 1);
     CHECK (a.sections.front().role != "break");
+}
+
+namespace
+{
+    /** The downloaded models, when this Mac has them (CI doesn't). */
+    const Models* modelsForFigures()
+    {
+        static const Models models (Models::getDefaultFolder());
+        return models.getStatus().ready ? &models : nullptr;
+    }
+}
+
+TEST_CASE ("The figures the music and the bass play are heard from a track's stems")
+{
+    auto* models = modelsForFigures();
+
+    if (models == nullptr)
+        SKIP ("The listening models aren't downloaded");
+
+    // 48 bars at 128 BPM: kicks throughout; from bar 17 a stab on 16ths 1, 4, 7 (G3) and 11 (D4)
+    // of every bar; from bar 25 a bass note (G1) on beats 1 and 3.
+    constexpr double rate = Separator::sampleRate, tempo = 128;
+    const double beat = 60 / tempo, pi = juce::MathConstants<double>::pi;
+    const int bars = 48;
+    const auto total = static_cast<int> (bars * 4 * beat * rate);
+    Separator::Stems stems;
+
+    for (auto* b : { &stems.drums, &stems.bass, &stems.other, &stems.vocals })
+    {
+        b->setSize (2, total);
+        b->clear();
+    }
+
+    auto tone = [&] (juce::AudioBuffer<float>& into, double hz, double at, double seconds, float gain, double decay)
+    {
+        const auto start = static_cast<int> (at * rate);
+
+        for (int i = 0; i < static_cast<int> (seconds * rate) && start + i < total; ++i)
+        {
+            const double t = i / rate;
+            const auto v = static_cast<float> (gain * std::exp (-t / decay) * (std::sin (2 * pi * hz * t) + 0.3 * std::sin (4 * pi * hz * t)));
+            into.addSample (0, start + i, v);
+            into.addSample (1, start + i, v);
+        }
+    };
+
+    for (int b = 0; b < bars; ++b)
+    {
+        for (int k = 0; k < 4; ++k)
+            tone (stems.drums, 50, (b * 4 + k) * beat, 0.3, 0.8f, 0.06);
+
+        if (b >= 16)
+            for (int step : { 0, 3, 6, 10 })
+                tone (stems.other, step == 10 ? 293.66 : 196.0, b * 4 * beat + step * beat / 4, beat / 4, 0.4f, 0.08);
+
+        if (b >= 24)
+            for (int k : { 0, 2 })
+                tone (stems.bass, 49.0, (b * 4 + k) * beat, beat, 0.5f, 0.5);
+    }
+
+    TrackStems mono;
+    mono.sampleRate = rate;
+    auto take = [&] (const juce::AudioBuffer<float>& b) { return std::vector<float> (b.getReadPointer (0), b.getReadPointer (0) + total); };
+    mono.drums = take (stems.drums);
+    mono.bass = take (stems.bass);
+    mono.other = take (stems.other);
+    mono.vocals = take (stems.vocals);
+    mono.mix.resize (static_cast<size_t> (total));
+
+    for (int i = 0; i < total; ++i)
+        mono.mix[static_cast<size_t> (i)] = mono.drums[static_cast<size_t> (i)] + mono.bass[static_cast<size_t> (i)] + mono.other[static_cast<size_t> (i)];
+
+    const auto a = hearArrangement (mono, tempo);
+    REQUIRE (a.bars == bars);
+
+    NoteTranscriber transcriber (*models);
+    const auto figures = hearFigures (transcriber, a, stems);
+    INFO (describeFigures (figures));
+
+    auto of = [&] (const std::string& part)
+    {
+        std::vector<StyleProfile::Track::Figure> list;
+
+        for (auto& f : figures)
+            if (f.part == part)
+                list.push_back (f);
+
+        return list;
+    };
+
+    const auto music = of ("music"), bass = of ("bass");
+    REQUIRE (! music.empty());
+    REQUIRE (! bass.empty());
+    CHECK (music.front().bar >= 16);
+    CHECK (bass.front().bar >= 24);
+
+    // The stab's rhythm and its two notes, in the first bar of the figure.
+    auto at = [] (const StyleProfile::Track::Figure& f, int64_t tick)
+    {
+        std::vector<int> keys;
+
+        for (auto& n : f.notes)
+            if (n.start == tick)
+                keys.push_back (n.key);
+
+        return keys;
+    };
+
+    CHECK (at (music.front(), 0) == std::vector<int> { 55 });
+    CHECK (at (music.front(), 3 * 240) == std::vector<int> { 55 });
+    CHECK (at (music.front(), 6 * 240) == std::vector<int> { 55 });
+    CHECK (at (music.front(), 10 * 240) == std::vector<int> { 62 });
+    CHECK (at (music.front(), 1 * 240).empty());
+    CHECK (at (bass.front(), 0) == std::vector<int> { 31 });
+    CHECK (at (bass.front(), 2 * 960) == std::vector<int> { 31 });
+
+    // Kept in a map and read back, and described for the agent.
+    StyleProfile::Track track;
+    track.figures = figures;
+    const auto copy = StyleProfile::Track::fromJson (Json::parse (track.toJson().dump()));
+    REQUIRE (copy.figures.size() == figures.size());
+    CHECK (copy.figures.front().notes.size() == figures.front().notes.size());
+    CHECK_THAT (describeFigures (copy.figures), Catch::Matchers::ContainsSubstring ("|G3 . . G3 . . G3 . . . D4"));
 }

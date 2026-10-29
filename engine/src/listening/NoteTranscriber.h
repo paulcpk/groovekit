@@ -25,7 +25,7 @@ public:
 
     /** The notes in audio (mono or stereo, any rate), in seconds from its start. Blocks for
         about a tenth of the audio's length. Throws std::runtime_error. */
-    std::vector<music::HeardNote> transcribe (const juce::AudioBuffer<float>&, double sampleRate);
+    std::vector<music::HeardNote> transcribe (const juce::AudioBuffer<float>&, double sampleRate, double minNoteSeconds = 0.128);
 
     /** Model outputs to notes (Basic Pitch's own post-processing): frames and onsets are
         [frame][88 keys from A0] activations, about 86 frames a second. Public for testing. */
@@ -34,7 +34,7 @@ public:
         std::vector<std::array<float, 88>> frames, onsets;
     };
 
-    static std::vector<music::HeardNote> notesFrom (Activations, const std::vector<double>& frameTimes);
+    static std::vector<music::HeardNote> notesFrom (Activations, const std::vector<double>& frameTimes, int minNoteFrames = 11);
 
 private:
     const Models& models;

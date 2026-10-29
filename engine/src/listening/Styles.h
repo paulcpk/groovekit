@@ -7,6 +7,7 @@
 #include "Separator.h"
 
 #include "model/JsonIO.h"
+#include "music/Notes.h"
 
 namespace gk::listening
 {
@@ -65,6 +66,23 @@ struct StyleProfile
 
         std::optional<Kick> kick;
 
+        /** A short figure a part plays, heard from the track where the part is loudest: two bars
+            of notes on the grid (ticks from the figure's first bar, 960 a beat, on 16ths), so
+            the agent writes lines with the style's rhythms and intervals (analysis 8 on). */
+        struct Figure
+        {
+            std::string part;                       // music or bass
+            int bar = 0, bars = 2;                  // from 0
+            std::string section;                    // the section's role it's from
+            std::vector<music::PlacedNote> notes;
+            std::optional<music::KeyEstimate> key;  // the notes' key
+
+            model::Json toJson() const;
+            static Figure fromJson (const model::Json&);
+        };
+
+        std::vector<Figure> figures;
+
         model::Json toJson() const;
         static Track fromJson (const model::Json&);
     };
@@ -98,8 +116,18 @@ struct StyleProfile
     wholeTrack, the whole track is split (about a fifth of its length) and its arrangement heard
     too. Blocks for seconds to a minute or more. Throws if the file can't be read or is shorter
     than 8 seconds. progress hears how far it is (0 to 1); returning false stops it with an error. */
+class NoteTranscriber;
+
 StyleProfile::Track hearTrack (Separator&, Clap&, const std::filesystem::path&, std::optional<double> knownTempo = {},
-                               const std::function<bool (double)>& progress = {}, bool wholeTrack = false);
+                               const std::function<bool (double)>& progress = {}, bool wholeTrack = false, NoteTranscriber* = nullptr);
+
+/** The figures the music and the bass play, from a whole track's stems and its arrangement: up
+    to three two-bar stretches of each where the part is loudest (drops first), transcribed and
+    put on the grid. Blocks for a second or two. */
+std::vector<StyleProfile::Track::Figure> hearFigures (NoteTranscriber&, const Arrangement&, const Separator::Stems& wholeStems);
+
+/** The figures as text, for the agent: each as its bars of 16ths. */
+std::string describeFigures (const std::vector<StyleProfile::Track::Figure>&);
 
 /** The version of hearTrack: maps heard by an older one are used for what they have, and can be
     heard again. */
