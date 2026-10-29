@@ -1024,15 +1024,25 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
 
     if (method == "preview.play")
     {
-        auto path = std::filesystem::path (readParam<std::string> (params, "path"));
+        auto resolve = [&] (std::filesystem::path path)
+        {
+            if (path.is_relative())
+                if (auto dir = session.getProjectDir())
+                    path = *dir / path;
 
-        if (path.is_relative())
-            if (auto dir = session.getProjectDir())
-                path = *dir / path;
+            return path;
+        };
+
+        // under: a second file in sync beneath it (the rest of a song under a candidate), at underLevel.
+        std::optional<std::filesystem::path> under;
+
+        if (params.contains ("under"))
+            under = resolve (readParam<std::string> (params, "under"));
 
         try
         {
-            live->getPreview().play (path, static_cast<float> (optionalNumber (params, "gainDb").value_or (-6.0)), optionalNumber (params, "from").value_or (0.0));
+            live->getPreview().play (resolve (readParam<std::string> (params, "path")), static_cast<float> (optionalNumber (params, "gainDb").value_or (-6.0)),
+                                     optionalNumber (params, "from").value_or (0.0), under, static_cast<float> (optionalNumber (params, "underLevel").value_or (1.0)));
         }
         catch (const std::exception& e)
         {
@@ -1060,6 +1070,12 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
 
     if (method == "mixer.meter")
         return live->readEffectMeter (readParam<std::string> (params, "insert"), readParam<std::string> (params, "effect"), params);
+
+    if (method == "preview.setUnderLevel")
+    {
+        live->getPreview().setUnderLevel (static_cast<float> (readParam<double> (params, "level")));
+        return { { "level", readParam<double> (params, "level") } };
+    }
 
     if (method == "preview.stop")
     {
@@ -2738,8 +2754,26 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             const auto id = ++offerCount;
             auto offer = params;
             offer["id"] = id;
+
+            // A candidate tried in the song has the sound alone and the rest beside its audition:
+            // the window fades the rest under it.
+            for (auto& c : offer["candidates"])
+            {
+                if (! c.contains ("audition") || c.contains ("alone"))
+                    continue;
+
+                const std::filesystem::path audition = c["audition"].get<std::string>();
+                auto sibling = [&] (const char* suffix) { return audition.parent_path() / (audition.stem().string() + suffix + ".wav"); };
+
+                if (std::filesystem::exists (sibling ("-alone")) && std::filesystem::exists (sibling ("-rest")))
+                {
+                    c["alone"] = sibling ("-alone").string();
+                    c["rest"] = sibling ("-rest").string();
+                }
+            }
             offers[id] = { offer, std::nullopt };
-            broadcast (notification ("picks", offer).dump());
+            if (broadcast)
+                broadcast (notification ("picks", offer).dump());
             return { { "id", id } };
         }
 
@@ -2811,7 +2845,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             if (! note.empty())
                 chosen["note"] = note;
 
-            broadcast (notification ("picks", chosen).dump());
+            if (broadcast)
+                broadcast (notification ("picks", chosen).dump());
             return chosen;
         }
 

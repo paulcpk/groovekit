@@ -2,8 +2,11 @@
 
 #include "api/ApiHandler.h"
 #include "effects/EqPlugin.h"
+#include "live/SamplePreview.h"
+#include "render/Encode.h"
 #include "mixer/Slots.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace gk;
@@ -263,6 +266,8 @@ TEST_CASE ("Candidates are heard in the song, in the channel's place")
     for (auto& c : result["candidates"])
     {
         CHECK (std::filesystem::exists (c["file"].get<std::string>()));
+        CHECK (std::filesystem::exists (c["alone"].get<std::string>()));
+        CHECK (std::filesystem::exists (c["rest"].get<std::string>()));
         CHECK (c["fit"].get<double>() >= 0);
         CHECK (c["fit"].get<double>() <= 100);
     }
@@ -273,7 +278,59 @@ TEST_CASE ("Candidates are heard in the song, in the channel's place")
     // The same bass as the bass channel's is covered by it; a hat isn't.
     CHECK (result["candidates"][1]["fit"].get<double>() > result["candidates"][0]["fit"].get<double>());
 
+    // Offered to the user, a candidate brings its two layers, so the window can fade the song under it.
+    auto offered = h.call ("picks.offer", { { "title", "Which lead?" }, { "candidates", {
+        { { "path", result["candidates"][0]["path"] }, { "audition", result["candidates"][0]["file"] } },
+        { { "path", result["candidates"][1]["path"] } } } } });
+    auto offer = h.call ("picks.get", { { "id", offered["result"]["id"] } })["result"]["offer"];
+    CHECK (offer["candidates"][0]["alone"] == result["candidates"][0]["alone"]);
+    CHECK (offer["candidates"][0]["rest"] == result["candidates"][0]["rest"]);
+    CHECK_FALSE (offer["candidates"][1].contains ("alone"));
+
     // The song itself is unchanged.
     CHECK (std::get<model::SamplerInstrument> (h.channel ("lead").instrument).layers.front().sample == test::fixture ("beep.wav").string());
     CHECK (h.call ("mix.audition", { { "channel", "lead" }, { "paths", Json::array() } }).contains ("error"));
+}
+
+TEST_CASE ("The preview fades a second file in sync beneath the first")
+{
+    // Two constant files: the sound at 0.25, the song at 0.5.
+    auto write = [] (const char* name, float value)
+    {
+        juce::AudioBuffer<float> b (2, 48000);
+
+        for (int ch = 0; ch < 2; ++ch)
+            juce::FloatVectorOperations::fill (b.getWritePointer (ch), value, b.getNumSamples());
+
+        const auto file = test::tempDir() / name;
+        writeAudio (b, 48000, file, {});
+        return file;
+    };
+
+    const auto sound = write ("preview-sound.wav", 0.25f), song = write ("preview-song.wav", 0.5f);
+
+    SamplePreview preview;
+    juce::AudioBuffer<float> out (2, 512);
+
+    auto block = [&]
+    {
+        preview.audioDeviceIOCallbackWithContext (nullptr, 0, out.getArrayOfWritePointers(), 2, 512, {});
+        return out.getSample (0, 511);
+    };
+
+    // The song off: the sound alone (gain 0 dB).
+    preview.play (sound, 0.0f, 0, song, 0.0f);
+    block();
+    CHECK (block() == Catch::Approx (0.25f).margin (0.01));
+
+    // Faded in while playing, smoothly: all the way after 50 ms.
+    preview.setUnderLevel (1.0f);
+    for (int i = 0; i < 8; ++i)
+        block();
+    CHECK (block() == Catch::Approx (0.75f).margin (0.01));
+
+    // Without a second file, just the sound.
+    preview.play (sound, 0.0f);
+    block();
+    CHECK (block() == Catch::Approx (0.25f).margin (0.01));
 }

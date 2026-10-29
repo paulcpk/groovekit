@@ -38,8 +38,9 @@ struct MixCheckContext
 model::Json checkMix (tracktion::Engine&, const model::Project&, const CompileOptions&, const RenderOptions&,
                       const std::filesystem::path& workDir, const MixCheckContext&);
 
-/** Renders the song (the range in options) to file as it is, and the channel alone, and says how
-    the channel sits with the rest: "fit" 0-100 (100 when the bands it lives in are its own), the
+/** Renders the channel alone and the rest of the song without it (the range in options), kept
+    beside file as "-alone" and "-rest" so they can play in sync with the rest faded under the
+    channel, and the two together to file. Says how the channel sits with the rest: "fit" 0-100 (100 when the bands it lives in are its own), the
     bands where it covers the rest ("covers"), its share of each band and its level against the
     mix. For trying candidate sounds in place before choosing one. */
 model::Json placeInMix (tracktion::Engine&, const model::Project&, const model::Id& channel, const CompileOptions&,

@@ -2,6 +2,7 @@
 
 #include "Analysis.h"
 #include "mixer/Slots.h"
+#include "render/Encode.h"
 
 namespace gk::analysis
 {
@@ -465,35 +466,71 @@ Json placeInMix (tracktion::Engine& engine, const Project& project, const Id& ch
 {
     std::filesystem::create_directories (file.parent_path());
 
-    auto compiled = compileProject (engine, project, compileOptions);
-    renderToWav (compiled, project, file, renderOptions);
-    const auto mix = loadAudio (file);
+    // The channel alone and the rest without it, both kept: played in sync, the rest can be faded
+    // under the channel. The song is them together. Solos are left out: the whole song plays.
+    auto alone = project, rest = project;
 
-    auto solo = project;
-
-    for (auto& c : solo.channels)
+    for (auto& c : alone.channels)
     {
         c.mute = c.id != channel;
         c.solo = false;
     }
 
-    auto aloneFile = file;
-    aloneFile.replace_filename (file.stem().string() + "-alone.wav");
-    const auto alone = renderAudio (engine, solo, compileOptions, renderOptions, aloneFile);
+    for (auto& c : rest.channels)
+    {
+        c.mute = c.mute || c.id == channel;
+        c.solo = false;
+    }
 
-    Json result { { "file", file.string() } };
+    for (auto* p : { &alone, &rest })
+    {
+        for (auto& i : p->mixer.inserts)
+            i.solo = false;
 
-    if (peakDb (alone) < -90)
+        for (auto& r : p->playlist.rows)
+            r.solo = false;
+    }
+
+    auto sibling = [&] (const char* suffix)
+    {
+        auto f = file;
+        f.replace_filename (file.stem().string() + suffix + ".wav");
+        return f;
+    };
+
+    const auto aloneFile = sibling ("-alone"), restFile = sibling ("-rest");
+
+    for (auto [p, f] : { std::pair { &alone, aloneFile }, std::pair { &rest, restFile } })
+    {
+        auto compiled = compileProject (engine, *p, compileOptions);
+        renderToWav (compiled, *p, f, renderOptions);
+    }
+
+    const auto own = loadAudio (aloneFile);
+    const auto others = loadAudio (restFile);
+
+    Audio mix;
+    mix.sampleRate = own.sampleRate;
+    mix.buffer.makeCopyOf (own.buffer);
+
+    for (int ch = 0; ch < std::min (mix.buffer.getNumChannels(), others.buffer.getNumChannels()); ++ch)
+        mix.buffer.addFrom (ch, 0, others.buffer, ch, 0, std::min (mix.buffer.getNumSamples(), others.buffer.getNumSamples()));
+
+    writeAudio (mix.buffer, mix.sampleRate, file, {});
+
+    Json result { { "file", file.string() }, { "alone", aloneFile.string() }, { "rest", restFile.string() } };
+
+    if (peakDb (own) < -90)
     {
         result["silent"] = true;
         return result;
     }
 
-    const auto mixBands = bandEnergies (mix);
-    const auto own = bandEnergies (alone);
+    const auto ownBands = bandEnergies (own);
+    const auto restBands = bandEnergies (others);
     double total = 0;
 
-    for (auto& b : own)
+    for (auto& b : ownBands)
         total += toPower (b.db);
 
     // How much of what it plays is covered: in each band, the rest's share, weighted by how much
@@ -501,25 +538,25 @@ Json placeInMix (tracktion::Engine& engine, const Project& project, const Id& ch
     double covered = 0;
     auto covers = Json::array(), holds = Json::array();
 
-    for (size_t b = 0; b < own.size(); ++b)
+    for (size_t b = 0; b < ownBands.size(); ++b)
     {
-        const auto c = toPower (own[b].db);
-        const auto rest = std::max (0.0, toPower (mixBands[b].db) - c);
+        const auto c = toPower (ownBands[b].db);
+        const auto r = toPower (restBands[b].db);
         const auto weight = total > 0 ? c / total : 0.0;
-        const auto overlap = c + rest > 0 ? rest / (c + rest) : 0.0;
+        const auto overlap = c + r > 0 ? r / (c + r) : 0.0;
         covered += weight * overlap;
 
         if (weight >= 0.1 && overlap >= 0.5)
-            covers.push_back (bandName (mixBands[b]));
+            covers.push_back (bandName (ownBands[b]));
 
         if (weight >= 0.15)
-            holds.push_back (bandName (mixBands[b]));
+            holds.push_back (bandName (ownBands[b]));
     }
 
     result["fit"] = std::round (100 * (1 - covered));
     result["covers"] = covers;
     result["holds"] = holds;
-    result["levelDb"] = round (integratedLufs (alone) - integratedLufs (mix), 0.1);
+    result["levelDb"] = round (integratedLufs (own) - integratedLufs (mix), 0.1);
     return result;
 }
 
