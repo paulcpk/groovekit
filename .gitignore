@@ -19,3 +19,6 @@ node_modules/
 
 # Screenshots dropped into the folder while working
 Screenshot*.png
+
+# Private plans and notes, never committed.
+docs-private/

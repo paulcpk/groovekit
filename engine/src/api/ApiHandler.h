@@ -121,6 +121,9 @@ private:
     model::Json dispatch (const std::string& method, const model::Json& params, Client&);
     static model::Json errorResponse (const model::Json& id, std::exception_ptr);
 
+    model::Json callSession (const std::string& method, const model::Json& params, Client&);
+    model::Json callRender (const std::string& method, const model::Json& params, Client&);
+    model::Json callPresets (const std::string& method, const model::Json& params);
     model::Json render (const model::Json& params);
     model::Json peaks (const model::Json& params);
 

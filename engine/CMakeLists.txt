@@ -7,6 +7,13 @@ target_sources(gk_engine PRIVATE
     src/analysis/MixAnalysis.cpp
     src/api/ApiHandler.cpp
     src/api/ApiServer.cpp
+    src/api/LibraryApi.cpp
+    src/api/ListeningApi.cpp
+    src/api/LiveApi.cpp
+    src/api/MelodyApi.cpp
+    src/api/MixApi.cpp
+    src/api/ProjectApi.cpp
+    src/api/RenderApi.cpp
     src/compiler/EditCompiler.cpp
     src/compiler/EditGraveyard.cpp
     src/effects/BuiltinEffects.cpp

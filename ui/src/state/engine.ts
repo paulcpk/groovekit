@@ -4,7 +4,7 @@
 import type { Project } from "@groovekit/schema/project";
 import type { Command, PatchOp } from "@groovekit/schema/protocol";
 import { create } from "zustand";
-import { EngineClient, type Status } from "@/engine/client";
+import { EngineClient, findEngineUrl, type Status } from "@/engine/client";
 import { applyPatch, parsePointer } from "@/engine/patch";
 import { setUi } from "./ui";
 
@@ -177,14 +177,19 @@ function onNotification(method: string, params: any) {
   }
 }
 
-export const engine = new EngineClient("ui", {
-  status: (status, error) => {
+export const engine = new EngineClient({
+  url: findEngineUrl,
+  origin: "ui",
+  reconnect: true,
+  mirror: false, // the store below keeps the song, copying only what a patch changes
+  onStatus: (status, error) => {
     set({ status, error });
     // Transport notifications only come with changes; on connecting, ask where it is (mode, metronome...).
-    if (status === "connected") void engine.call<Transport>("transport.state").then((transport) => set({ transport }), () => {});
+    if (status === "connected") void engine.call("transport.state").then((transport) => set({ transport }), () => {});
   },
-  notification: onNotification,
 });
+
+engine.onAny(onNotification);
 
 /** Calls an engine method; failures are shown as a toast as well as rejected. */
 export async function call<T = any>(method: string, params: Record<string, unknown> = {}): Promise<T> {
