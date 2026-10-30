@@ -2,8 +2,6 @@
 
 #include <tracktion_engine/tracktion_engine.h>
 
-#include <deque>
-
 namespace gk::mixer
 {
 
@@ -50,7 +48,10 @@ private:
     std::vector<float> delayL, delayR, delayGain;
     int writeIndex = 0, gainIndex = 0;
     int64_t sampleCount = 0;
-    std::deque<std::pair<int64_t, float>> window;   // (sample index, required gain), increasing gains
+    /** The sliding minimum's window: (sample index, required gain) with increasing gains, in a
+        ring sized at initialise, so the sample loop allocates nothing. */
+    std::vector<std::pair<int64_t, float>> window;
+    int windowHead = 0, windowCount = 0;
     float envelope = 1.0f;
     double releaseCoefficient = 0;
     float lastReleaseMs = -1;

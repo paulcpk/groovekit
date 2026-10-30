@@ -56,6 +56,7 @@ DuckPlugin::DuckPlugin (tracktion::PluginCreationInfo creation)
 
 void DuckPlugin::initialise (const tracktion::PluginInitialisationInfo& info)
 {
+    bpm = edit.tempoSequence.getBpmAt ({});
     freePhase = 0;
     hop = MeterHistory::hopSamples (info.sampleRate);
     hopCount = 0;
@@ -70,12 +71,11 @@ void DuckPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
     const auto period = quarters[juce::jlimit (0, 4, choice (0))];
     const auto depth = value (1) / 100.0f, attack = value (2), hold = value (3), release = value (4) / 100.0f, curve = value (5) / 100.0f;
     const auto offset = value (6) / 100.0;
-    const auto bpm = edit.tempoSequence.getBpmAt (fc.editTime.getStart());
     const auto periodMs = period * 60000.0 / bpm;
     const auto step = 1.0 / (periodMs * 0.001 * sampleRate);
 
-    // On the song's beats while it plays; on its own while stopped.
-    auto phase = fc.isPlaying ? std::fmod (edit.tempoSequence.toBeats (fc.editTime.getStart()).inBeats() / period, 1.0) : freePhase;
+    // On the song's beats while it plays (one tempo, so beats are seconds times it); on its own while stopped.
+    auto phase = fc.isPlaying ? std::fmod (fc.editTime.getStart().inSeconds() * bpm / 60.0 / period, 1.0) : freePhase;
 
     auto* left = fc.destBuffer->getWritePointer (0, fc.bufferStartSample);
     auto* right = fc.destBuffer->getWritePointer (1, fc.bufferStartSample);

@@ -4,6 +4,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <unordered_set>
 #include <sstream>
 
 namespace gk::model
@@ -734,18 +735,20 @@ namespace
 
         void checkPatterns()
         {
+            // Every note names a channel: one set, not a scan of the channels per note.
+            std::unordered_set<std::string_view> channels;
+
+            for (auto& channel : project.channels)
+                channels.insert (channel.id);
+
             for (size_t i = 0; i < project.patterns.size(); ++i)
             {
                 auto& pattern = project.patterns[i];
 
                 for (size_t n = 0; n < pattern.notes.size(); ++n)
-                {
-                    auto channel = findChannel (project, pattern.notes[n].channel);
-
-                    if (channel == nullptr)
+                    if (! channels.contains (pattern.notes[n].channel))
                         issue (at (at ("/patterns", i) + "/notes", n) + "/channel",
                                "no channel \"" + pattern.notes[n].channel + "\"");
-                }
             }
         }
 

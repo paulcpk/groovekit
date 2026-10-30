@@ -327,8 +327,19 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     /** Applies a change that only moves mixer values (volume, pan, send levels, effect
-        parameters) to the playing Edit, without rebuilding it. False if it can't. */
+        parameters), notes or pattern clips to the playing Edit, without rebuilding it. False if it can't. */
     bool applyToLiveEdit (const Change&);
+
+    /** Whether the Edit can take a pattern clip's notes without a rebuild: every channel with notes
+        in its pattern has a track. */
+    bool canFillPatternClip (const model::PatternClip&) const;
+
+    /** Fills (again) the MIDI clips that play a pattern clip, at the clip's position: a clip per
+        channel with notes in the pattern, added, refilled or removed as needed. */
+    void fillPatternClip (const model::PatternClip&);
+
+    /** Takes the MIDI clips that played a playlist clip out of the Edit. */
+    void removePlaylistClip (const model::Id&);
     void stopTransport();
     bool hasAudioDevice() const;
     void requireAudioDevice();

@@ -27,7 +27,9 @@ Filter toFilter (const model::SamplerFilter& f)
 EnvelopeShape toEnvelope (const model::Envelope& e)
 {
     const auto f = [] (double v) { return static_cast<float> (v); };
-    return { f (e.delay), f (e.attack), f (e.hold), f (e.decay), f (e.sustain), f (e.release), f (e.attackCurve), f (e.decayCurve), f (e.releaseCurve) };
+    EnvelopeShape shape { f (e.delay), f (e.attack), f (e.hold), f (e.decay), f (e.sustain), f (e.release), f (e.attackCurve), f (e.decayCurve), f (e.releaseCurve) };
+    shape.prepare();
+    return shape;
 }
 
 namespace
@@ -155,21 +157,16 @@ void AudioChannelPlugin::setSettings (const model::SamplerInstrument& instrument
     made->clips = std::move (clips);
     filterControls.set (made->filter);
 
-    // The old settings are released after the lock, off the audio thread.
-    std::shared_ptr<const Settings> next = std::move (made);
-    const juce::SpinLock::ScopedLockType sl (settingsLock);
-    std::swap (settings, next);
+    // The audio thread takes them at its next block; the old ones are freed once it has moved on.
+    handoff.publish (std::move (made));
 }
 
 void AudioChannelPlugin::updateInstrument (const model::SamplerInstrument& instrument)
 {
     std::vector<Clip> clips;
-    {
-        const juce::SpinLock::ScopedLockType sl (settingsLock);
 
-        if (settings != nullptr)
-            clips = settings->clips;
-    }
+    if (auto latest = handoff.newest())
+        clips = latest->clips;
 
     setSettings (instrument, std::move (clips));
 }
@@ -184,15 +181,13 @@ void AudioChannelPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc
     if (fc.destBuffer == nullptr || fc.bufferNumSamples == 0)
         return;
 
-    std::shared_ptr<const Settings> s;
+    if (auto* next = handoff.take())
     {
-        const juce::SpinLock::ScopedTryLockType sl (settingsLock);
-
-        if (! sl.isLocked())
-            return;
-
-        s = settings;
+        handoff.release (settings);
+        settings = next;
     }
+
+    const auto* s = settings;
 
     if (s == nullptr || s->clips.empty())
         return;

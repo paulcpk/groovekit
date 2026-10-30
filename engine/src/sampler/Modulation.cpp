@@ -13,7 +13,7 @@ float EnvelopeShape::levelBeforeRelease (double since) const
     t -= delay;
 
     if (t < attack)
-        return bend (t / attack, attackCurve);
+        return bend (t / attack, attackCurve, attackBend);
 
     t -= attack;
 
@@ -23,7 +23,7 @@ float EnvelopeShape::levelBeforeRelease (double since) const
     t -= hold;
 
     if (t < decay)
-        return 1.0f - (1.0f - sustain) * bend (t / decay, decayCurve);
+        return 1.0f - (1.0f - sustain) * bend (t / decay, decayCurve, decayBend);
 
     return sustain;
 }
@@ -33,7 +33,7 @@ float EnvelopeShape::levelAt (double since, double untilEnd) const
     auto level = levelBeforeRelease (since);
 
     if (untilEnd < release)
-        level *= 1.0f - bend (1.0f - static_cast<float> (std::max (0.0, untilEnd)) / release, releaseCurve);
+        level *= 1.0f - bend (1.0f - static_cast<float> (std::max (0.0, untilEnd)) / release, releaseCurve, releaseBend);
 
     return level;
 }
@@ -62,11 +62,11 @@ float EnvelopeGenerator::levelNow() const
     switch (stage)
     {
         case Stage::delay:      return 0;
-        case Stage::attack:     return EnvelopeShape::bend (p (shape.attack), shape.attackCurve);
+        case Stage::attack:     return EnvelopeShape::bend (p (shape.attack), shape.attackCurve, shape.attackBend);
         case Stage::hold:       return 1;
-        case Stage::decay:      return 1.0f - (1.0f - shape.sustain) * EnvelopeShape::bend (p (shape.decay), shape.decayCurve);
+        case Stage::decay:      return 1.0f - (1.0f - shape.sustain) * EnvelopeShape::bend (p (shape.decay), shape.decayCurve, shape.decayBend);
         case Stage::sustain:    return shape.sustain;
-        case Stage::release:    return releaseFrom * (1.0f - EnvelopeShape::bend (p (shape.release), shape.releaseCurve));
+        case Stage::release:    return releaseFrom * (1.0f - EnvelopeShape::bend (p (shape.release), shape.releaseCurve, shape.releaseBend));
         case Stage::idle:       break;
     }
 

@@ -48,6 +48,7 @@ public:
 
 private:
     SamplerEngine samplerEngine;
+    double bpm = 120;   // the song's tempo, taken at initialise
     std::vector<SamplerEngine::MidiEvent> events;
     double tailSeconds = 0;
 

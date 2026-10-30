@@ -488,6 +488,116 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             continue;
         }
 
+        // Notes and pattern clips change the MIDI clips that play them, not the whole Edit. In
+        // pattern mode the song's clips don't play (only the pattern-mode clip does), and a
+        // pattern that changes length moves that clip's end: a rebuild.
+        if (keys.size() >= 3 && keys[0] == "patterns" && (keys[2] == "notes" || keys[2] == "length"))
+        {
+            const auto i = index (keys[1]);
+            if (! i || *i >= project.patterns.size()) return false;
+            if (playPattern && keys[2] == "length") return false;
+            const auto& patternId = project.patterns[*i].id;
+
+            for (auto& clip : projectToPlay().playlist.clips)
+                if (auto pc = std::get_if<PatternClip> (&clip); pc != nullptr && pc->pattern == patternId && ! canFillPatternClip (*pc))
+                    return false;
+
+            actions.push_back ([this, patternId]
+            {
+                for (auto& clip : projectToPlay().playlist.clips)
+                    if (auto pc = std::get_if<PatternClip> (&clip); pc != nullptr && pc->pattern == patternId)
+                        fillPatternClip (*pc);
+            });
+
+            if (! mutesQueued)
+                actions.push_back ([this] { applyMutes(); });
+
+            mutesQueued = true;
+            continue;
+        }
+
+        if (keys.size() == 1 && keys[0] == "swing")
+        {
+            actions.push_back ([this]
+            {
+                for (auto& clip : projectToPlay().playlist.clips)
+                    if (auto pc = std::get_if<PatternClip> (&clip))
+                        fillPatternClip (*pc);
+            });
+            continue;
+        }
+
+        if (keys.size() >= 3 && keys[0] == "playlist" && keys[1] == "clips")
+        {
+            // In pattern mode the song's clips aren't in the Edit; they're rebuilt when it plays again.
+            if (playPattern)
+                continue;
+
+            const auto i = index (keys[2]);
+
+            // A pattern clip's position (start, length, offset): moved and filled again; a row
+            // change can only change its mute. Audio and automation clips rebuild.
+            if (keys.size() == 4 && i && *i < project.playlist.clips.size())
+            {
+                auto pc = std::get_if<PatternClip> (&project.playlist.clips[*i]);
+                if (pc == nullptr) return false;
+
+                if (keys[3] == "row")
+                {
+                    if (! mutesQueued)
+                        actions.push_back ([this] { applyMutes(); });
+
+                    mutesQueued = true;
+                    continue;
+                }
+
+                if (keys[3] != "start" && keys[3] != "length" && keys[3] != "offset") return false;
+                if (! canFillPatternClip (*pc)) return false;
+                actions.push_back ([this, clip = *pc] { fillPatternClip (clip); });
+                continue;
+            }
+
+            // A clip added or removed (whole).
+            if (keys.size() == 3 && (keys[2] == "-" || i))
+            {
+                if (op.op == PatchOpOp::remove)
+                {
+                    actions.push_back ([this]
+                    {
+                        std::set<Id> playing;
+
+                        for (auto& clip : session.getProject().playlist.clips)
+                            playing.insert (getClipId (clip));
+
+                        std::vector<Id> gone;
+
+                        for (auto& [id, clips] : compiled.clips)
+                            if (! playing.contains (id))
+                                gone.push_back (id);
+
+                        for (auto& id : gone)
+                            removePlaylistClip (id);
+                    });
+                    continue;
+                }
+
+                if (op.op != PatchOpOp::add) return false;
+                const auto at = keys[2] == "-" ? project.playlist.clips.size() - 1 : *i;
+                if (at >= project.playlist.clips.size()) return false;
+                auto pc = std::get_if<PatternClip> (&project.playlist.clips[at]);
+                if (pc == nullptr || ! canFillPatternClip (*pc)) return false;
+                actions.push_back ([this, clip = *pc] { fillPatternClip (clip); });
+
+                if (! mutesQueued)
+                    actions.push_back ([this] { applyMutes(); });
+
+                mutesQueued = true;
+                continue;
+            }
+
+            return false;
+        }
+
         if (keys.size() < 4 || keys[0] != "mixer" || keys[1] != "inserts")
             return false;
 
@@ -561,6 +671,89 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
     }
 
     return true;
+}
+
+bool LiveEngine::canFillPatternClip (const PatternClip& pc) const
+{
+    auto pattern = findPattern (session.getProject(), pc.pattern);
+
+    if (pattern == nullptr)
+        return true;
+
+    // A channel that played no notes has no track (and its sampler isn't loaded): a rebuild.
+    for (auto& note : pattern->notes)
+        if (! compiled.channelTracks.contains (note.channel))
+            return false;
+
+    return true;
+}
+
+void LiveEngine::fillPatternClip (const PatternClip& pc)
+{
+    auto& project = session.getProject();
+    auto pattern = findPattern (project, pc.pattern);
+    auto& clips = compiled.clips[pc.id];
+    std::set<Id> channels;
+
+    if (pattern != nullptr)
+        for (auto& note : pattern->notes)
+            channels.insert (note.channel);
+
+    // The clip for each channel is named "<clip>:<channel>" (ids hold no colons).
+    const auto channelOf = [&] (const te::Clip& c) { return c.getName().toStdString().substr (pc.id.size() + 1); };
+    const te::ClipPosition position { { toTime (pc.start), toTime (pc.start + pc.length) }, {} };
+
+    for (auto it = clips.begin(); it != clips.end();)
+    {
+        auto* clip = *it;
+        const auto channel = channelOf (*clip);
+
+        if (! channels.contains (channel))
+        {
+            clip->removeFromParent();
+            it = clips.erase (it);
+            continue;
+        }
+
+        if (auto midiClip = dynamic_cast<te::MidiClip*> (clip))
+        {
+            midiClip->setPosition (position);
+            gk::fillPatternClip (*midiClip, project, *pattern, pc, channel);
+        }
+
+        channels.erase (channel);
+        ++it;
+    }
+
+    for (auto& channel : channels)
+    {
+        auto track = compiled.channelTracks.find (channel);
+
+        if (track == compiled.channelTracks.end())
+            continue;
+
+        auto midiClip = track->second->insertMIDIClip (pc.id + ":" + channel, position.time, nullptr);
+
+        if (midiClip == nullptr)
+            continue;
+
+        gk::fillPatternClip (*midiClip, project, *pattern, pc, channel);
+        midiClip->setMuted (! isClipAudible (project, Clip { pc }));
+        clips.push_back (midiClip.get());
+    }
+}
+
+void LiveEngine::removePlaylistClip (const Id& id)
+{
+    auto it = compiled.clips.find (id);
+
+    if (it == compiled.clips.end())
+        return;
+
+    for (auto clip : it->second)
+        clip->removeFromParent();
+
+    compiled.clips.erase (it);
 }
 
 std::vector<float> LiveEngine::readEffectOutput (const std::string& insert, const std::string& effect, int numSamples) const
@@ -1271,6 +1464,7 @@ LiveEngine::TransportState LiveEngine::getTransportState() const
 
 void LiveEngine::timerCallback()
 {
+    session.flushSave();
 
     // Timed recordings stop on their own; the takes are trimmed to the exact length.
     if (! recordings.empty() && recordOptions.length && getPosition() >= recordStart + *recordOptions.length)

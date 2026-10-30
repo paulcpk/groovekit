@@ -73,6 +73,7 @@ public:
 
 private:
     DelayLine lines[2];
+    double bpm = 120;   // the song's tempo, taken at initialise
     OnePole lowCuts[2], highCuts[2];
     juce::SmoothedValue<float> delaySamples;
 };
@@ -142,6 +143,13 @@ public:
 
     /** The shaper: what one input sample becomes, before tone and output. The UI draws it. */
     static float shape (int type, float x, float driveDb);
+
+private:
+    /** The crush type's number of steps for a drive. */
+    static float crushLevels (float driveDb);
+    /** With the drive gain and crush levels worked out once per block. */
+    static float shape (int type, float x, float drive, float levels);
+public:
 
     juce::String getPluginType() override               { return xmlTypeName; }
     juce::String getShortName (int) override            { return "Distortion"; }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Handoff.h"
+
 #include "SamplerEngine.h"
 #include "model/Project.h"
 
@@ -77,8 +79,8 @@ private:
         std::vector<Clip> clips;
     };
 
-    juce::SpinLock settingsLock;
-    std::shared_ptr<const Settings> settings;
+    Handoff<Settings> handoff;
+    const Settings* settings = nullptr;   // audio thread
     float filterState[2][4] {};
     FilterStages filterStages;
 

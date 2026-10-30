@@ -623,3 +623,66 @@ TEST_CASE ("Solo and mute switch the playing Edit without rebuilding it")
 
     live.stop();
 }
+
+TEST_CASE ("Notes and pattern clips change the playing Edit without rebuilding it")
+{
+    HostedAudio audio (2);
+    auto session = beepSession ("live-notes-in-place");
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "recording.json");
+    live.updateNow();
+    auto edit = live.getEdit();
+
+    const auto notesInEdit = [&]
+    {
+        int n = 0;
+
+        for (auto t : te::getAudioTracks (*live.getEdit()))
+            for (auto c : t->getClips())
+                if (auto midi = dynamic_cast<te::MidiClip*> (c))
+                    n += midi->getSequence().getNumNotes();
+
+        return n;
+    };
+
+    // Four bars of a two-note pattern: eight notes.
+    CHECK (notesInEdit() == 8);
+
+    model::Reader r;
+    model::Command command;
+    readValue (r, Json::parse (R"({ "type": "addNotes", "pattern": "p", "notes": [ { "channel": "beep", "start": 480, "length": 120 } ] })"), command);
+    session->execute ({ command });
+    live.updateNow();
+    CHECK (live.getEdit() == edit);
+    CHECK (notesInEdit() == 12);
+
+    // The clip's length changes how often the pattern repeats.
+    readValue (r, Json::parse (R"({ "type": "updateClip", "clip": "c", "changes": { "length": 7680 } })"), command);
+    session->execute ({ command });
+    live.updateNow();
+    CHECK (live.getEdit() == edit);
+    CHECK (notesInEdit() == 6);
+
+    // Another clip of the same pattern, then taken away again.
+    readValue (r, Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c2", "row": 1, "start": 7680, "length": 3840, "pattern": "p" } })"), command);
+    session->execute ({ command });
+    live.updateNow();
+    CHECK (live.getEdit() == edit);
+    CHECK (notesInEdit() == 9);
+
+    readValue (r, Json::parse (R"({ "type": "removeClip", "clip": "c2" })"), command);
+    session->execute ({ command });
+    live.updateNow();
+    CHECK (live.getEdit() == edit);
+    CHECK (notesInEdit() == 6);
+
+    // Notes for a channel that played none before need its track: that rebuilds.
+    readValue (r, Json::parse (R"({ "type": "addChannel", "channel": { "id": "hat", "instrument": { "type": "sampler", "layers": [
+                                   { "id": "l", "pitchTracking": false, "sample": ")" + test::fixture ("beep.wav").string() + R"(" } ] } } })"), command);
+    session->execute ({ command });
+    live.updateNow();
+    readValue (r, Json::parse (R"({ "type": "addNotes", "pattern": "p", "notes": [ { "channel": "hat", "start": 0, "length": 120 } ] })"), command);
+    session->execute ({ command });
+    live.updateNow();
+    CHECK (live.getEdit() != edit);
+    CHECK (notesInEdit() == 8);
+}

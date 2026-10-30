@@ -103,16 +103,7 @@ namespace
             return track != nullptr ? track->mute || (anyTrackSolo && ! track->solo) : anyTrackSolo;
         }
 
-        /** Swing: notes on an off-beat 16th move later by up to half a 16th. */
-        Ticks swung (Ticks start) const
-        {
-            constexpr Ticks sixteenth = ticksPerQuarter / 4;
-
-            if (project.swing <= 0 || start % (2 * sixteenth) != sixteenth)
-                return start;
-
-            return start + static_cast<Ticks> (std::llround (project.swing * sixteenth / 2));
-        }
+        Ticks swung (Ticks start) const     { return swungStart (project, start); }
 
         std::set<Id> audibleInserts() const     { return gk::audibleInserts (project); }
 
@@ -357,15 +348,13 @@ namespace
                     continue;
 
                 auto& pattern = *found;
-                const auto loopLength = getPatternLength (pattern, project.timeSignature);
                 const bool muted = pc->mute || isRowMuted (pc->row);
-
-                std::map<Id, std::vector<const Note*>> notesByChannel;
+                std::set<Id> channels;
 
                 for (auto& note : pattern.notes)
-                    notesByChannel[note.channel].push_back (&note);
+                    channels.insert (note.channel);
 
-                for (auto& [channelId, notes] : notesByChannel)
+                for (auto& channelId : channels)
                 {
                     auto& track = *result.channelTracks.at (channelId);
                     auto midiClip = track.insertMIDIClip (pc->id + ":" + channelId,
@@ -375,26 +364,7 @@ namespace
                     if (midiClip == nullptr)
                         throw std::runtime_error ("Couldn't create a MIDI clip for \"" + pc->id + "\"");
 
-                    auto& sequence = midiClip->getSequence();
-
-                    for (Ticks repeat = 0; repeat * loopLength - pc->offset < pc->length; ++repeat)
-                    {
-                        const auto base = repeat * loopLength - pc->offset;
-
-                        for (auto note : notes)
-                        {
-                            const auto start = base + swung (note->start);
-
-                            if (start < 0 || start >= pc->length)
-                                continue;
-
-                            const auto length = std::min (note->length, pc->length - start);
-                            sequence.addNote (note->key, toBeats (start),
-                                              te::BeatDuration::fromBeats (static_cast<double> (length) / ticksPerQuarter),
-                                              note->velocity, 0, nullptr);
-                        }
-                    }
-
+                    fillPatternClip (*midiClip, project, pattern, *pc, channelId);
                     midiClip->setMuted (muted);
                     result.clips[pc->id].push_back (midiClip.get());
                 }
@@ -917,6 +887,45 @@ bool isClipAudible (const Project& project, const Clip& clip)
     const bool anySolo = std::any_of (project.playlist.rows.begin(), project.playlist.rows.end(), [] (auto& t) { return t.solo; });
     auto track = findRow (project, getClipRow (clip));
     return track == nullptr || (! track->mute && (! anySolo || track->solo));
+}
+
+Ticks swungStart (const Project& project, Ticks start)
+{
+    constexpr Ticks sixteenth = ticksPerQuarter / 4;
+
+    if (project.swing <= 0 || start % (2 * sixteenth) != sixteenth)
+        return start;
+
+    return start + static_cast<Ticks> (std::llround (project.swing * sixteenth / 2));
+}
+
+void fillPatternClip (te::MidiClip& midiClip, const Project& project, const Pattern& pattern, const PatternClip& pc, const Id& channel)
+{
+    const auto loopLength = getPatternLength (pattern, project.timeSignature);
+    const auto toBeats = [] (Ticks ticks) { return te::BeatPosition::fromBeats (static_cast<double> (ticks) / ticksPerQuarter); };
+    auto& sequence = midiClip.getSequence();
+    sequence.clear (nullptr);
+
+    for (Ticks repeat = 0; repeat * loopLength - pc.offset < pc.length; ++repeat)
+    {
+        const auto base = repeat * loopLength - pc.offset;
+
+        for (auto& note : pattern.notes)
+        {
+            if (note.channel != channel)
+                continue;
+
+            const auto start = base + swungStart (project, note.start);
+
+            if (start < 0 || start >= pc.length)
+                continue;
+
+            const auto length = std::min (note.length, pc.length - start);
+            sequence.addNote (note.key, toBeats (start),
+                              te::BeatDuration::fromBeats (static_cast<double> (length) / ticksPerQuarter),
+                              note.velocity, 0, nullptr);
+        }
+    }
 }
 
 CompiledEdit compileProject (te::Engine& engine, const Project& project, const CompileOptions& options)

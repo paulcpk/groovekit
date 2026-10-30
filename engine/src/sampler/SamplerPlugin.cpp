@@ -171,6 +171,9 @@ double SamplerPlugin::getTailLength() const
 void SamplerPlugin::initialise (const tracktion::PluginInitialisationInfo& info)
 {
     samplerEngine.prepare (info.sampleRate, info.blockSizeSamples);
+    // One tempo per song (a change rebuilds the Edit): read here rather than per block on the
+    // audio thread, where the tempo sequence could rebuild its map.
+    bpm = edit.tempoSequence.getBpmAt ({});
 }
 
 void SamplerPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
@@ -195,7 +198,7 @@ void SamplerPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
 
     samplerEngine.setFilterControls (filterControls.cutoff->getCurrentValue(), filterControls.resonance->getCurrentValue(),
                                      filterControls.envelopeAmount->getCurrentValue());
-    samplerEngine.setTempo (edit.tempoSequence.getBpmAt (fc.editTime.getStart()));
+    samplerEngine.setTempo (bpm);
     samplerEngine.process (*fc.destBuffer, fc.bufferStartSample, fc.bufferNumSamples, events);
 }
 

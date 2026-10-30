@@ -16,14 +16,29 @@ struct EnvelopeShape
     float delay = 0, attack = 0, hold = 0, decay = 0, sustain = 1, release = 0.01f;
     float attackCurve = 0, decayCurve = 0, releaseCurve = 0;
 
-    /** How far along a segment (0..1) the level has moved at progress p (0..1). */
-    static float bend (float p, float curve)
+    /** The curves' factors (see bend), worked out once by prepare(); 0 until then. */
+    float attackBend = 0, decayBend = 0, releaseBend = 0;
+
+    /** Works the curves' factors out, so the per-sample level needs no exp2. The generator and
+        the audio clip settings do this; a shape used without it still bends right, just slower. */
+    void prepare()
+    {
+        attackBend = factor (attackCurve);
+        decayBend = factor (decayCurve);
+        releaseBend = factor (releaseCurve);
+    }
+
+    static float factor (float curve)   { return std::exp2 (-4.0f * curve); }
+
+    /** How far along a segment (0..1) the level has moved at progress p (0..1), for a curve
+        and its factor (0 when not prepared). */
+    static float bend (float p, float curve, float prepared)
     {
         if (curve == 0.0f)
             return p;
 
         // A rational curve: one division, exactly 0 and 1 at the ends.
-        const auto e = std::exp2 (-4.0f * curve);
+        const auto e = prepared > 0.0f ? prepared : factor (curve);
         return p / (p + (1.0f - p) * e);
     }
 
@@ -42,7 +57,7 @@ class EnvelopeGenerator
 {
 public:
     void setSampleRate (double sr)              { secondsPerSample = 1.0 / sr; }
-    void setShape (const EnvelopeShape& s)      { shape = s; }
+    void setShape (const EnvelopeShape& s)      { shape = s; shape.prepare(); }
 
     void noteOn()                               { stage = Stage::delay; time = 0; level = 0; skipEmptyStages(); }
     void noteOff();

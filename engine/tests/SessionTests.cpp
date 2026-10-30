@@ -383,3 +383,74 @@ TEST_CASE ("Random command sequences undo back to the start")
         CHECK (s.getDocument() == final);
     }
 }
+
+TEST_CASE ("A group undoes and redoes as one change")
+{
+    Session s (Session::createEmptyProject());
+    int changes = 0;
+    size_t ops = 0;
+    s.addListener ([&] (const Change& c) { ++changes; ops += c.ops.size(); });
+
+    run (s, { R"({ "type": "setTempo", "tempo": 100 })" });
+    run (s, { R"({ "type": "setTempo", "tempo": 110 })" }, { "agent", "request-1", {} });
+    run (s, { R"({ "type": "renameProject", "name": "Agent song" })" }, { "agent", "request-1", {} });
+    CHECK (changes == 3);
+
+    // Both entries of the group in one change: one reparse, one notification, their ops together.
+    REQUIRE (s.undo());
+    CHECK (changes == 4);
+    CHECK (ops == 5);
+    CHECK (s.getProject().tempo == 100);
+    CHECK (s.getProject().name.empty());
+
+    REQUIRE (s.redo());
+    CHECK (changes == 5);
+    CHECK (s.getProject().tempo == 110);
+    CHECK (s.getProject().name == "Agent song");
+}
+
+TEST_CASE ("The song file may lag the log by a moment and is caught up from it when reopened")
+{
+    auto dir = test::tempDir() / "session-catch-up";
+    std::filesystem::remove_all (dir);
+
+    auto s = Session::open (dir);
+    run (*s, { R"({ "type": "setTempo", "tempo": 100 })" });
+    // Right after the first write: this one is logged at once and written a little later.
+    run (*s, { R"({ "type": "setTempo", "tempo": 110 })" });
+    run (*s, { R"({ "type": "setTempo", "tempo": 120 })" });
+    s->undo (false);
+
+    // Opened again while the first session still holds its write back (as after a crash): the
+    // log's patches bring the song up to the log's head.
+    auto again = Session::open (dir);
+    CHECK (again->getProject().tempo == 110);
+    CHECK (again->getHead() == 2);
+    CHECK (again->getHistory().size() == 3);
+    REQUIRE (again->redo());
+    CHECK (again->getProject().tempo == 120);
+}
+
+TEST_CASE ("setNotes replaces a channel's notes with one op")
+{
+    Session s (Session::createEmptyProject());
+    run (s, { beepChannel,
+              R"({ "type": "addChannel", "channel": { "id": "hat", "instrument": { "type": "sampler", "layers": [ { "id": "l", "sample": "beep.wav" } ] } } })",
+              R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [
+                   { "channel": "hat", "start": 0, "length": 120 }, { "channel": "beep", "start": 0, "length": 240 }, { "channel": "beep", "start": 960, "length": 240 } ] } })" });
+
+    const auto& entry = s.execute ({ command (R"({ "type": "setNotes", "pattern": "p", "channel": "beep", "notes": [
+        { "channel": "beep", "start": 480, "length": 240 } ] })") });
+    CHECK (entry.forward.size() == 1);
+    CHECK (entry.inverse.size() == 1);
+
+    // The other channel's notes stay first, as they were.
+    auto& notes = s.getProject().patterns[0].notes;
+    REQUIRE (notes.size() == 2);
+    CHECK (notes[0].channel == "hat");
+    CHECK (notes[1].channel == "beep");
+    CHECK (notes[1].start == 480);
+
+    REQUIRE (s.undo());
+    CHECK (s.getProject().patterns[0].notes.size() == 3);
+}

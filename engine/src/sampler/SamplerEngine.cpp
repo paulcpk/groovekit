@@ -50,7 +50,6 @@ SamplerEngine::SamplerEngine()
 
 void SamplerEngine::prepare (double newSampleRate, int)
 {
-    const juce::ScopedLock sl (configLock);
     sampleRate = newSampleRate;
     stealFadeSamples = std::max (1, juce::roundToInt (stealFadeSeconds * sampleRate));
     edgeFadeSamples = std::max (1, juce::roundToInt (0.001 * sampleRate));
@@ -76,66 +75,61 @@ void SamplerEngine::setEnvelopes (Voice& v)
 
 void SamplerEngine::setConfig (std::shared_ptr<const Config> newConfig)
 {
-    // Released after the lock, off the audio thread: the configuration retired before this one.
-    std::shared_ptr<const Config> released;
+    handoff.publish (std::move (newConfig));
+}
 
+void SamplerEngine::adopt (const Config& next)
+{
+    const auto* previous = config;
+    config = &next;
+    filterCutoff = config->filter.cutoff;
+    filterResonance = config->filter.resonance;
+    filterEnvelopeAmount = config->filter.envelopeAmount;
+
+    const auto fromPrevious = [&] (const Layer* l)
     {
-        const juce::ScopedLock sl (configLock);
-        std::swap (config, newConfig);
+        return previous != nullptr && l >= previous->layers.data() && l < previous->layers.data() + previous->layers.size();
+    };
 
-        if (config != nullptr)
+    const auto samePart = [&] (const Voice& v)
+    {
+        if (v.layerIndex >= config->layers.size())
+            return false;
+
+        auto& a = *v.layer;
+        auto& b = config->layers[v.layerIndex];
+        return a.sample == b.sample && a.start == b.start && a.endFrame() == b.endFrame() && a.reverse == b.reverse && a.loop == b.loop;
+    };
+
+    for (auto& v : voices)
+    {
+        if (! v.active)
+            continue;
+
+        // Still fading out of the configuration retired before: it goes with it.
+        if (! fromPrevious (v.layer))
         {
-            filterCutoff = config->filter.cutoff;
-            filterResonance = config->filter.resonance;
-            filterEnvelopeAmount = config->filter.envelopeAmount;
+            v.active = false;
+            continue;
         }
 
-        // newConfig now holds the previous one.
-        const auto& previous = newConfig;
-        const auto fromPrevious = [&] (const Layer* l)
+        if (v.isStolen() || ! samePart (v))
         {
-            return previous != nullptr && l >= previous->layers.data() && l < previous->layers.data() + previous->layers.size();
-        };
+            // Another sample or part: fade out what was playing rather than cut it off.
+            if (! v.isStolen())
+                v.stealSamplesLeft = stealFadeSamples;
 
-        const auto samePart = [&] (const Voice& v)
-        {
-            if (config == nullptr || v.layerIndex >= config->layers.size())
-                return false;
-
-            auto& a = *v.layer;
-            auto& b = config->layers[v.layerIndex];
-            return a.sample == b.sample && a.start == b.start && a.endFrame() == b.endFrame() && a.reverse == b.reverse && a.loop == b.loop;
-        };
-
-        for (auto& v : voices)
-        {
-            if (! v.active)
-                continue;
-
-            // Still fading out of the configuration retired before: it goes with it.
-            if (! fromPrevious (v.layer))
-            {
-                v.active = false;
-                continue;
-            }
-
-            if (v.isStolen() || ! samePart (v))
-            {
-                // Another sample or part: fade out what was playing rather than cut it off.
-                if (! v.isStolen())
-                    v.stealSamplesLeft = stealFadeSamples;
-
-                continue;
-            }
-
-            v.layer = &config->layers[v.layerIndex];
-            setEnvelopes (v);
-            v.samplesToControls = 0;
+            continue;
         }
 
-        released = std::move (retired);
-        retired = std::move (newConfig);
+        v.layer = &config->layers[v.layerIndex];
+        setEnvelopes (v);
+        v.samplesToControls = 0;
     }
+
+    // No voice reads the configuration retired before this one any more.
+    handoff.release (retired);
+    retired = previous;
 }
 
 void SamplerEngine::allNotesOff()
@@ -159,9 +153,10 @@ int SamplerEngine::getNumActiveVoices() const
 void SamplerEngine::process (juce::AudioBuffer<float>& buffer, int startSample, int numSamples,
                              const std::vector<MidiEvent>& events)
 {
-    const juce::ScopedTryLock sl (configLock);
+    if (auto* next = handoff.take())
+        adopt (*next);
 
-    if (! sl.isLocked() || config == nullptr)
+    if (config == nullptr)
         return;
 
     int position = 0;
@@ -209,6 +204,7 @@ void SamplerEngine::noteOff (int note)
 
 void SamplerEngine::startVoice (const Layer& layer, int note, int velocity)
 {
+    // Whatever the voice played before, its filter is set up anew for this note.
     const auto sounding = std::count_if (voices.begin(), voices.end(),
                                          [] (const Voice& v) { return v.active && ! v.isStolen(); });
 
@@ -333,7 +329,16 @@ void SamplerEngine::updateControls (Voice& v)
     {
         const auto octaves = filterEnvelopeAmount * filterLevel + lfo[cutoffLfo] * Modulation::cutoffOctaves;
         const auto resonance = juce::jlimit (0.0f, 1.0f, filterResonance + m.resonance.amount * resonanceLevel + lfo[resonanceLfo]);
-        v.filter.setup (config->filter.type, filterCutoff * std::exp2 (octaves), resonance, sampleRate);
+        const auto cutoff = octaves == 0.0f ? filterCutoff : filterCutoff * std::exp2 (octaves);
+
+        // Coefficients only when something moved: without a filter envelope or LFO, never after the first time.
+        if (cutoff != v.filterCutoffSet || resonance != v.filterResonanceSet || config->filter.type != v.filterTypeSet)
+        {
+            v.filter.setup (config->filter.type, cutoff, resonance, sampleRate);
+            v.filterCutoffSet = cutoff;
+            v.filterResonanceSet = resonance;
+            v.filterTypeSet = config->filter.type;
+        }
     }
 
     const auto semitones = (m.pitch.amount * pitchLevel + lfo[pitchLfo]) * Modulation::pitchSemitones;

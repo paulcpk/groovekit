@@ -51,8 +51,16 @@ public:
     const model::Project& getProject() const        { return project; }
     const std::optional<std::filesystem::path>& getProjectDir() const { return projectDir; }
 
+    ~Session();
+
     /** Applies commands atomically and returns the new history entry. Throws CommandError. */
     const model::HistoryEntry& execute (const std::vector<model::Command>&, const ExecuteOptions& = {});
+
+    /** Every change is logged as it's made; song.json is rewritten at most every few hundred
+        milliseconds, so a burst of small edits (a fader drag) doesn't rewrite the whole song each
+        time. This writes a pending one when it's due (call it regularly, e.g. from a timer),
+        or at once with force (before copying the folder, or closing). */
+    void flushSave (bool force = false);
 
     /** Steps back one entry, or every consecutive entry of the same group. Returns false at the start. */
     bool undo (bool wholeGroup = true);
@@ -92,6 +100,12 @@ private:
     std::vector<model::HistoryEntry> entries;   // entry id n is at index n - 1
     std::optional<int64_t> head, savedHead;
 
+    /** The head song.json on disk holds, from the log's doc records; and whether the document
+        has changed since it was written. */
+    std::optional<int64_t> writtenHead;
+    bool documentDirty = false;
+    int64_t lastWriteMs = 0;
+
     std::map<int, Listener> listeners;
     int nextListenerId = 1;
 
@@ -100,7 +114,10 @@ private:
     const model::HistoryEntry& getEntry (int64_t id) const     { return entries.at (static_cast<size_t> (id - 1)); }
     std::optional<int64_t> findRedoTarget() const;
     std::vector<int64_t> pathToRoot (std::optional<int64_t> from) const;
-    void step (const model::HistoryEntry&, bool forward);
+    /** Applies entries' patches (their inverses when going back) as one change: one reparse,
+        one log record, one write, one notification. */
+    void step (const std::vector<const model::HistoryEntry*>&, bool forward);
+    void catchUpDocument();
     void reparse();
     void notify (const Change&);
 

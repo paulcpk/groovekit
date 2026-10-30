@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Handoff.h"
 #include "Modulation.h"
 #include "SampleCache.h"
 
@@ -204,10 +205,11 @@ public:
 
     void prepare (double sampleRate, int maxBlockSize);
 
-    /** Swaps the playing configuration. A voice keeps playing when its layer still plays the
-        same part of the same sample (so envelopes and the filter can change while a note
-        sounds); otherwise it fades out like a stolen voice, from the previous configuration,
-        which is kept until the next swap. Call off the audio thread. */
+    /** Hands over a new configuration, which the audio thread takes at the start of its next
+        block. A voice keeps playing when its layer still plays the same part of the same sample
+        (so envelopes and the filter can change while a note sounds); otherwise it fades out like
+        a stolen voice, from the previous configuration, which is kept until the next swap. Call
+        off the audio thread; the audio thread never waits for it. */
     void setConfig (std::shared_ptr<const Config>);
 
     /** Adds this block's output to the first two channels of buffer. Events must be sorted by offset. */
@@ -256,6 +258,8 @@ private:
         double since = 0;           // seconds since the note started
         float filterState[2][4] {}; // per channel: two integrators for each of two stages
         FilterStages filter;
+        float filterCutoffSet = -1, filterResonanceSet = -1;   // what the filter is set up for
+        Filter::Type filterTypeSet = Filter::Type::off;
         int samplesToControls = 0;
         bool controlsSet = false;
         int edgeFadeIn = 0, edgeFadeOut = 0;
@@ -280,10 +284,10 @@ private:
         }
     };
 
-    juce::CriticalSection configLock;
-    std::shared_ptr<const Config> config;
+    Handoff<Config> handoff;
+    const Config* config = nullptr;
     /** The configuration before, which voices fading out of it still read. */
-    std::shared_ptr<const Config> retired;
+    const Config* retired = nullptr;
     std::vector<Voice> voices;
     double sampleRate = 48000;
     int stealFadeSamples = 144;
@@ -294,6 +298,8 @@ private:
     /** The phases of LFOs that don't restart with each note. */
     double sharedPhase[numLfos] {};
 
+    /** Audio thread: makes a published configuration the one that plays. */
+    void adopt (const Config& next);
     void noteOn (int note, int velocity);
     void noteOff (int note);
     void startVoice (const Layer&, int note, int velocity);

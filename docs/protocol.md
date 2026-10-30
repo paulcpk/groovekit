@@ -157,7 +157,7 @@ Commands add, update or remove channels, sampler layers, patterns, notes, clips,
 
 Each `execute` creates one history entry: the commands, the forward ops and the inverse ops. Entries form a tree: undo moves to the parent, and a change after an undo starts a new branch. Redo follows the newest branch. Entries sharing a `group` undo and redo together. The MCP server uses this so one agent request undoes in one step.
 
-The project folder holds `song.json` (rewritten after every change) and `history.jsonl` (appended), so a restarted engine continues where it left off.
+The project folder holds `history.jsonl` (appended with every change, at once) and `song.json` (rewritten at most every few hundred milliseconds, and when the project is saved, copied or closed; a `doc` record in the log says which entry the file holds, so after a crash the engine brings the file up to the log's head from the log's own patches), so a restarted engine continues where it left off.
 
 ## Error codes
 

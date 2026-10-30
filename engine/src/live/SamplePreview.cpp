@@ -3,22 +3,26 @@
 namespace gk
 {
 
-/** One file, read and resampled to the device's rate. */
+/** One file, resampled to the device's rate: short ones decoded into memory when the preview
+    starts, long ones read ahead on a background thread, so the device callback never touches the
+    disk (a cold read from an external drive would stall every sound the engine plays). */
 struct SamplePreview::Track
 {
-    std::unique_ptr<juce::AudioFormatReaderSource> reader;
+    static constexpr double decodeUpToSeconds = 30;
+
+    std::unique_ptr<juce::PositionableAudioSource> source;   // in memory, or buffered from the file
     juce::ResamplingAudioSource resampler;
     int channels;
 
-    Track (std::unique_ptr<juce::AudioFormatReaderSource> r, double ratio, int numChannels)
-        : reader (std::move (r)), resampler (reader.get(), false, 2), channels (numChannels)
+    Track (std::unique_ptr<juce::PositionableAudioSource> s, double ratio, int numChannels)
+        : source (std::move (s)), resampler (source.get(), false, 2), channels (numChannels)
     {
         resampler.setResamplingRatio (ratio);
     }
 
     bool finished() const
     {
-        return reader->getNextReadPosition() >= reader->getTotalLength();
+        return source->getNextReadPosition() >= source->getTotalLength();
     }
 
     /** Fills the first two channels of buffer (a mono file plays on both). */
@@ -48,6 +52,7 @@ struct SamplePreview::Voice
 SamplePreview::SamplePreview()
 {
     formats.registerBasicFormats();
+    readAhead.startThread (juce::Thread::Priority::normal);
 }
 
 SamplePreview::~SamplePreview() = default;
@@ -63,9 +68,43 @@ void SamplePreview::play (const std::filesystem::path& file, float gainDb, doubl
             throw std::runtime_error ("Can't read \"" + f.string() + "\"");
 
         const auto ratio = reader->sampleRate / deviceRate;
+        const auto rate = reader->sampleRate;
         const auto channels = static_cast<int> (reader->numChannels);
-        const auto from = static_cast<juce::int64> (std::max (0.0, fromSeconds) * reader->sampleRate);
-        auto source = std::make_unique<juce::AudioFormatReaderSource> (reader.release(), true);
+        const auto length = reader->lengthInSamples;
+        const auto from = std::min (length, static_cast<juce::int64> (std::max (0.0, fromSeconds) * rate));
+        std::unique_ptr<juce::PositionableAudioSource> source;
+
+        if (length <= static_cast<juce::int64> (Track::decodeUpToSeconds * rate))
+        {
+            auto audio = std::make_unique<juce::AudioBuffer<float>> (std::max (1, channels), static_cast<int> (std::max<juce::int64> (1, length)));
+            reader->read (audio.get(), 0, static_cast<int> (length), 0, true, channels > 1);
+            auto memory = std::make_unique<juce::MemoryAudioSource> (*audio, false, false);
+            // The source keeps the buffer alive by reading from it; it goes with the track.
+            struct Owning : juce::PositionableAudioSource
+            {
+                std::unique_ptr<juce::AudioBuffer<float>> buffer;
+                std::unique_ptr<juce::MemoryAudioSource> inner;
+                void prepareToPlay (int n, double sr) override                  { inner->prepareToPlay (n, sr); }
+                void releaseResources() override                                 { inner->releaseResources(); }
+                void getNextAudioBlock (const juce::AudioSourceChannelInfo& i) override { inner->getNextAudioBlock (i); }
+                void setNextReadPosition (juce::int64 p) override                { inner->setNextReadPosition (p); }
+                juce::int64 getNextReadPosition() const override                 { return inner->getNextReadPosition(); }
+                juce::int64 getTotalLength() const override                      { return inner->getTotalLength(); }
+                bool isLooping() const override                                  { return false; }
+            };
+            auto owning = std::make_unique<Owning>();
+            owning->buffer = std::move (audio);
+            owning->inner = std::move (memory);
+            source = std::move (owning);
+        }
+        else
+        {
+            auto file = std::make_unique<juce::AudioFormatReaderSource> (reader.release(), true);
+            // Four seconds ahead; the thread fills the first stretch before this returns.
+            auto buffered = std::make_unique<juce::BufferingAudioSource> (file.release(), readAhead, true, static_cast<int> (rate * 4), channels);
+            source = std::move (buffered);
+        }
+
         source->setNextReadPosition (from);
         auto track = std::make_unique<Track> (std::move (source), ratio, channels);
         track->resampler.prepareToPlay (blockSize, deviceRate);

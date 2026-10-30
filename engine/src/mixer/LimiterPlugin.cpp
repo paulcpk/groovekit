@@ -44,6 +44,8 @@ void LimiterPlugin::initialise (const tracktion::PluginInitialisationInfo& info)
     delayL.assign (static_cast<size_t> (lookahead + detectorDelay + 1), 0.0f);
     delayR.assign (static_cast<size_t> (lookahead + detectorDelay + 1), 0.0f);
     delayGain.assign (static_cast<size_t> (lookahead + 1), 1.0f);
+    // The window never holds more entries than the gain window spans, plus the one being added.
+    window.assign (static_cast<size_t> (lookahead + 3), {});
     lastReleaseMs = -1;
     reset();
 }
@@ -53,7 +55,8 @@ void LimiterPlugin::reset()
     std::fill (delayL.begin(), delayL.end(), 0.0f);
     std::fill (delayR.begin(), delayR.end(), 0.0f);
     std::fill (delayGain.begin(), delayGain.end(), 1.0f);
-    window.clear();
+    windowHead = 0;
+    windowCount = 0;
     writeIndex = 0;
     gainIndex = 0;
     sampleCount = 0;
@@ -106,15 +109,22 @@ void LimiterPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
         const auto required = level > ceiling ? ceiling / level : 1.0f;
 
         // Sliding minimum of the required gain over the lookahead window.
-        while (! window.empty() && window.back().second >= required)
-            window.pop_back();
+        const auto ring = static_cast<int> (window.size());
+        const auto slot = [&] (int i) -> std::pair<int64_t, float>& { return window[static_cast<size_t> ((windowHead + i) % ring)]; };
 
-        window.emplace_back (sampleCount, required);
+        while (windowCount > 0 && slot (windowCount - 1).second >= required)
+            --windowCount;
 
-        while (window.front().first <= sampleCount - gainSize)
-            window.pop_front();
+        slot (windowCount) = { sampleCount, required };
+        ++windowCount;
 
-        const auto windowMin = window.front().second;
+        while (slot (0).first <= sampleCount - gainSize)
+        {
+            windowHead = (windowHead + 1) % ring;
+            --windowCount;
+        }
+
+        const auto windowMin = slot (0).second;
 
         // Averaging the windowed minimum ramps the gain down ahead of each peak and never above what it needs.
         averageSum += windowMin - delayGain[static_cast<size_t> (gainIndex)];

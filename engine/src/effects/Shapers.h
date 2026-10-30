@@ -33,6 +33,7 @@ public:
 
 private:
     double freePhase = 0;
+    double bpm = 120;   // the song's tempo, taken at initialise
     MeterHistory meter { 2 };
     int hop = 240, hopCount = 0;
 };

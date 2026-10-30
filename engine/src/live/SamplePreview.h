@@ -36,6 +36,9 @@ private:
     struct Voice;
 
     juce::AudioFormatManager formats;
+    /** Reads ahead for long files (a whole song under a sound), so the device callback never
+        waits for the disk. */
+    juce::TimeSliceThread readAhead { "Preview read-ahead" };
     std::atomic<float> underLevel { 1.0f };
     juce::CriticalSection lock;
     std::unique_ptr<Voice> voice;

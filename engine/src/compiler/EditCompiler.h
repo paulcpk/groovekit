@@ -93,4 +93,11 @@ bool isClipAudible (const model::Project&, const model::Clip&);
 /** Validates the project and builds the Edit. Throws std::runtime_error on invalid input or missing files. */
 CompiledEdit compileProject (tracktion::Engine&, const model::Project&, const CompileOptions&);
 
+/** Fills a MIDI clip with the notes one channel plays in a pattern clip: the pattern repeated to
+    fill the clip from its offset, swung by the song. Whatever the clip held is replaced. */
+void fillPatternClip (tracktion::MidiClip&, const model::Project&, const model::Pattern&, const model::PatternClip&, const model::Id& channel);
+
+/** The swing applied to a note's start: notes on an off-beat 16th move later by up to half a 16th. */
+model::Ticks swungStart (const model::Project&, model::Ticks start);
+
 } // namespace gk

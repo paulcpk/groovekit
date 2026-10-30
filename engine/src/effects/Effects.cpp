@@ -27,6 +27,8 @@ DelayPlugin::DelayPlugin (tracktion::PluginCreationInfo creation)
 
 void DelayPlugin::initialise (const tracktion::PluginInitialisationInfo& info)
 {
+    bpm = edit.tempoSequence.getBpmAt ({});
+
     for (auto& line : lines)
         line.prepare (static_cast<int> (info.sampleRate * 4.1));
 
@@ -44,7 +46,7 @@ void DelayPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
 
     // Synced to the tempo where the block starts.
     const auto quarters = syncQuarters (choice (0));
-    const auto seconds = quarters > 0 ? quarters * 60.0 / edit.tempoSequence.getBpmAt (fc.editTime.getStart()) : value (1) / 1000.0;
+    const auto seconds = quarters > 0 ? quarters * 60.0 / bpm : value (1) / 1000.0;
     delaySamples.setTargetValue (static_cast<float> (std::min (4.0, seconds) * sampleRate));
 
     const auto feedback = value (2) / 100.0f;
@@ -283,7 +285,17 @@ const std::vector<const char*>& DistortionPlugin::typeNames()
 
 float DistortionPlugin::shape (int type, float x, float driveDb)
 {
-    const auto drive = juce::Decibels::decibelsToGain (driveDb);
+    return shape (type, x, juce::Decibels::decibelsToGain (driveDb), crushLevels (driveDb));
+}
+
+float DistortionPlugin::crushLevels (float driveDb)
+{
+    // Fewer steps the harder it's driven: 2^12 down to 2^2.
+    return std::exp2 (juce::jmap (driveDb, 0.0f, 48.0f, 12.0f, 2.0f));
+}
+
+float DistortionPlugin::shape (int type, float x, float drive, float levels)
+{
     const auto in = x * drive;
 
     switch (type)
@@ -291,12 +303,7 @@ float DistortionPlugin::shape (int type, float x, float driveDb)
         case 1:     return juce::jlimit (-1.0f, 1.0f, in);
         case 2:     return std::tanh (in + 0.25f) - std::tanh (0.25f);   // asymmetric, for even harmonics
         case 3:     return std::sin (juce::MathConstants<float>::halfPi * in);                                   // folds back past full scale
-        case 4:
-        {
-            // Fewer steps the harder it's driven: 2^12 down to 2^2.
-            const auto levels = std::exp2 (juce::jmap (driveDb, 0.0f, 48.0f, 12.0f, 2.0f));
-            return std::round (juce::jlimit (-1.0f, 1.0f, x) * levels) / levels;
-        }
+        case 4:     return std::round (juce::jlimit (-1.0f, 1.0f, x) * levels) / levels;
         default:    return std::tanh (in);
     }
 }
@@ -328,6 +335,8 @@ void DistortionPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
 
     const auto type = choice (0);
     const auto driveDb = value (1);
+    const auto drive = juce::Decibels::decibelsToGain (driveDb);
+    const auto levels = crushLevels (driveDb);
     const auto output = juce::Decibels::decibelsToGain (value (3));
 
     for (auto& t : tone)
@@ -347,7 +356,7 @@ void DistortionPlugin::applyToBuffer (const tracktion::PluginRenderContext& fc)
             auto* d = up.getChannelPointer (ch);
 
             for (size_t i = 0; i < up.getNumSamples(); ++i)
-                d[i] = shape (type, d[i], driveDb);
+                d[i] = shape (type, d[i], drive, levels);
         }
 
         oversampling->processSamplesDown (block);

@@ -2,6 +2,7 @@
 
 #include "Commands.h"
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <set>
@@ -204,21 +205,37 @@ const HistoryEntry& Session::execute (const std::vector<Command>& commands, cons
     head = entries.back().id;
 
     appendToLog ({ { "entry", toJson (entries.back()) } });
+    // Logged, and never read again in memory: the patches are what undo and redo replay.
+    entries.back().commands.clear();
+    entries.back().commands.shrink_to_fit();
     saveDocument();
     notify ({ Change::Kind::execute, entries.back().forward, entries.back().id, head });
 
     return entries.back();
 }
 
-void Session::step (const HistoryEntry& entry, bool forward)
+void Session::step (const std::vector<const HistoryEntry*>& steps, bool forward)
 {
-    applyPatch (document, forward ? entry.forward : entry.inverse);
-    head = forward ? std::optional (entry.id) : entry.parent;
+    if (steps.empty())
+        return;
+
+    Change change { forward ? Change::Kind::redo : Change::Kind::undo, {}, 0, {} };
+
+    for (auto entry : steps)
+    {
+        const auto& ops = forward ? entry->forward : entry->inverse;
+        applyPatch (document, ops);
+        change.ops.insert (change.ops.end(), ops.begin(), ops.end());
+        change.entry = entry->id;
+        head = forward ? std::optional (entry->id) : entry->parent;
+    }
+
     reparse();
 
     appendToLog ({ { "head", head ? Json (*head) : Json() } });
     saveDocument();
-    notify ({ forward ? Change::Kind::redo : Change::Kind::undo, forward ? entry.forward : entry.inverse, entry.id, head });
+    change.head = head;
+    notify (change);
 }
 
 bool Session::undo (bool wholeGroup)
@@ -226,12 +243,20 @@ bool Session::undo (bool wholeGroup)
     if (! head)
         return false;
 
+    // The whole group at once: one reparse and one write for a fader gesture of thirty entries.
+    std::vector<const HistoryEntry*> steps;
     const auto group = getEntry (*head).group;
-    step (getEntry (*head), false);
+    auto at = head;
 
-    while (wholeGroup && group && head && getEntry (*head).group == group)
-        step (getEntry (*head), false);
+    do
+    {
+        auto& entry = getEntry (*at);
+        steps.push_back (&entry);
+        at = entry.parent;
+    }
+    while (wholeGroup && group && at && getEntry (*at).group == group);
 
+    step (steps, false);
     return true;
 }
 
@@ -253,19 +278,30 @@ bool Session::redo (bool wholeGroup)
     if (! target)
         return false;
 
+    std::vector<const HistoryEntry*> steps;
     const auto group = getEntry (*target).group;
-    step (getEntry (*target), true);
 
-    while (wholeGroup && group)
+    while (target)
     {
-        target = findRedoTarget();
+        steps.push_back (&getEntry (*target));
 
-        if (! target || getEntry (*target).group != group)
+        if (! wholeGroup || ! group)
             break;
 
-        step (getEntry (*target), true);
+        // The most recent branch on from here, as findRedoTarget would find it with head there.
+        std::optional<int64_t> next;
+
+        for (auto& e : entries)
+            if (e.parent == target)
+                next = e.id;
+
+        if (! next || getEntry (*next).group != group)
+            break;
+
+        target = next;
     }
 
+    step (steps, true);
     return true;
 }
 
@@ -282,7 +318,13 @@ std::vector<int64_t> Session::pathToRoot (std::optional<int64_t> from) const
 void Session::markSaved()
 {
     savedHead = head;
+    flushSave (true);
     appendToLog ({ { "saved", head ? Json (*head) : Json() } });
+}
+
+Session::~Session()
+{
+    flushSave (true);
 }
 
 void Session::markCopySaved (const std::filesystem::path& dir) const
@@ -298,26 +340,31 @@ void Session::revertToSaved()
     const auto fromSaved = pathToRoot (savedHead);
     const std::set<int64_t> onSavedPath (fromSaved.begin(), fromSaved.end());
 
+    std::vector<const HistoryEntry*> back;
+
     for (auto id : fromHead)
     {
         if (onSavedPath.contains (id))
             break;
 
-        step (getEntry (id), false);
+        back.push_back (&getEntry (id));
     }
 
-    std::vector<int64_t> forward;
+    step (back, false);
+
+    std::vector<const HistoryEntry*> forward;
 
     for (auto id : fromSaved)
     {
         if (id == head)
             break;
 
-        forward.push_back (id);
+        forward.push_back (&getEntry (id));
     }
 
-    for (auto it = forward.rbegin(); it != forward.rend(); ++it)
-        step (getEntry (*it), true);
+    std::reverse (forward.begin(), forward.end());
+    step (forward, true);
+    flushSave (true);
 }
 
 void Session::reparse()
@@ -356,7 +403,7 @@ void Session::loadHistory()
 
     std::string line;
     int lineNumber = 0;
-    bool savedMarked = false;
+    bool savedMarked = false, docMarked = false;
 
     while (std::getline (in, line))
     {
@@ -390,6 +437,11 @@ void Session::loadHistory()
                 savedHead = record["saved"].is_null() ? std::nullopt : std::optional (record["saved"].get<int64_t>());
                 savedMarked = true;
             }
+            else if (record.contains ("doc"))
+            {
+                writtenHead = record["doc"].is_null() ? std::nullopt : std::optional (record["doc"].get<int64_t>());
+                docMarked = true;
+            }
         }
         catch (const std::exception& e)
         {
@@ -402,6 +454,51 @@ void Session::loadHistory()
 
     if (! savedMarked || (savedHead && *savedHead > static_cast<int64_t> (entries.size())))
         savedHead = head;
+
+    // Logs from before documents were marked wrote song.json with every entry.
+    if (! docMarked || (writtenHead && *writtenHead > static_cast<int64_t> (entries.size())))
+        writtenHead = head;
+
+    catchUpDocument();
+}
+
+void Session::catchUpDocument()
+{
+    // song.json is written a little after the log (flushSave): after a crash it can be a few
+    // entries behind the log's head. The patches between the two bring it up to date.
+    if (writtenHead == head)
+        return;
+
+    const auto fromWritten = pathToRoot (writtenHead);
+    const auto fromHead = pathToRoot (head);
+    const std::set<int64_t> onHeadPath (fromHead.begin(), fromHead.end());
+
+    for (auto id : fromWritten)
+    {
+        if (onHeadPath.contains (id))
+            break;
+
+        applyPatch (document, getEntry (id).inverse);
+    }
+
+    const auto shared = std::find_if (fromWritten.begin(), fromWritten.end(), [&] (auto id) { return onHeadPath.contains (id); });
+    const std::optional<int64_t> common = shared != fromWritten.end() ? std::optional (*shared) : std::nullopt;
+    std::vector<int64_t> forward;
+
+    for (auto id : fromHead)
+    {
+        if (common && id == *common)
+            break;
+
+        forward.push_back (id);
+    }
+
+    for (auto it = forward.rbegin(); it != forward.rend(); ++it)
+        applyPatch (document, getEntry (*it).forward);
+
+    reparse();
+    documentDirty = true;
+    flushSave (true);
 }
 
 void Session::appendToLog (const Json& record)
@@ -415,8 +512,33 @@ void Session::appendToLog (const Json& record)
 
 void Session::saveDocument()
 {
-    if (projectDir)
-        writeFileAtomically (*projectDir / songFileName, document.dump (2) + "\n");
+    if (! projectDir)
+        return;
+
+    documentDirty = true;
+    flushSave (false);
+}
+
+void Session::flushSave (bool force)
+{
+    constexpr int64_t writeEveryMs = 300;
+
+    if (! projectDir || ! documentDirty)
+        return;
+
+    const auto now = nowMs();
+
+    if (! force && now - lastWriteMs < writeEveryMs)
+        return;
+
+    writeFileAtomically (*projectDir / songFileName, document.dump (2) + "\n");
+    documentDirty = false;
+    lastWriteMs = now;
+
+    // Which head the file holds, so a crash between writes is caught up from the log (a log
+    // without any such record is from before writes were deferred: its file is current).
+    writtenHead = head;
+    appendToLog ({ { "doc", head ? Json (*head) : Json() } });
 }
 
 } // namespace gk

@@ -7,6 +7,8 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <algorithm>
+#include <cstring>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -133,6 +135,22 @@ public:
 
     void checkPattern (const std::string& value, const char* pattern)
     {
+        // Every id shares one pattern: matched by hand, since a regex per note's channel id is
+        // most of what parsing a song costs, and a song is parsed after every change.
+        if (std::strcmp (pattern, "^[A-Za-z0-9_.-]{1,64}$") == 0)
+        {
+            const auto idCharacter = [] (char c)
+            {
+                return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-';
+            };
+
+            if (value.empty() || value.size() > 64 || ! std::all_of (value.begin(), value.end(), idCharacter))
+                fail ("\"" + value + "\" does not match " + pattern);
+
+            return;
+        }
+
+        // Patterns are string literals, so their addresses identify them.
         auto it = patterns.find (pattern);
 
         if (it == patterns.end())
@@ -153,7 +171,7 @@ public:
 
 private:
     std::vector<std::string> path;
-    std::unordered_map<std::string, std::regex> patterns;
+    std::unordered_map<const char*, std::regex> patterns;
 
     static std::string format (double v)
     {

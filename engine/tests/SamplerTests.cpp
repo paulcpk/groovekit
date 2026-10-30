@@ -4,6 +4,10 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 using namespace gk::sampler;
 using Catch::Approx;
 
@@ -842,4 +846,41 @@ TEST_CASE ("Processing works effects into the sample")
         CHECK (faded->audio.getRMSLevel (0, 0, 4800) > 10 * faded->audio.getRMSLevel (1, 0, 4800));
         CHECK (faded->audio.getRMSLevel (1, 43200, 4800) > 10 * faded->audio.getRMSLevel (0, 43200, 4800));
     }
+}
+
+TEST_CASE ("A new configuration while playing never drops a block or the note")
+{
+    // A long one-shot held across many blocks, while the message thread keeps replacing the
+    // configuration with an equal one (as a knob drag does): every block must have sound, and
+    // the voice must play on as the same voice.
+    Config config;
+    config.layers.push_back (layer (constantSample (static_cast<int> (rate * 12), 0.5f)));
+    config.layers.back().oneShot = true;
+    Harness h (config);
+
+    std::atomic<bool> stop { false };
+    std::thread publisher ([&]
+    {
+        while (! stop)
+        {
+            h.engine.setConfig (std::make_shared<Config> (config));
+            std::this_thread::sleep_for (std::chrono::microseconds (50));
+        }
+    });
+
+    h.run (256, { Harness::on (0, 60) });
+    int silentBlocks = 0;
+
+    for (int block = 0; block < 2000; ++block)
+    {
+        h.run (256);
+
+        if (h.out.getMagnitude (0, 0, 256) < 0.1f)
+            ++silentBlocks;
+    }
+
+    stop = true;
+    publisher.join();
+    CHECK (silentBlocks == 0);
+    CHECK (h.engine.getNumActiveVoices() == 1);
 }

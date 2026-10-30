@@ -142,10 +142,11 @@ namespace
         template <typename Predicate>
         void removeWhere (const std::string& arrayPath, Predicate&& matches)
         {
+            // Removing an item keeps the array (and the items before it) where they are.
             auto& items = array (arrayPath);
 
             for (auto i = items.size(); i-- > 0;)
-                if (matches (array (arrayPath)[i]))
+                if (matches (items[i]))
                     tx.remove (join (arrayPath, i));
         }
 
@@ -333,11 +334,23 @@ namespace
                 if (note.channel != c.channel)
                     throw CommandError ("setNotes for channel \"" + c.channel + "\" got a note for \"" + note.channel + "\"");
 
-            auto notes = e.patternPath (c.pattern) + "/notes";
-            e.removeWhere (notes, [&] (const Json& note) { return note.value ("channel", "") == c.channel; });
+            // The whole array once (the other channels' notes as they are, this channel's new
+            // ones after them): two copies of the array in the history, not two ops per note.
+            auto path = e.patternPath (c.pattern) + "/notes";
+            auto notes = Json::array();
+
+            if (e.has (path))
+                for (auto& note : e.array (path))
+                    if (note.value ("channel", "") != c.channel)
+                        notes.push_back (note);
 
             for (auto& note : c.notes)
-                e.insertAt (notes, toJson (note), {});
+                notes.push_back (toJson (note));
+
+            if (e.has (path))
+                e.tx.replace (path, std::move (notes));
+            else
+                e.tx.add (path, std::move (notes));
         }
 
         /** Moves the clips in rows from `from` down by `by` (up when negative). */
