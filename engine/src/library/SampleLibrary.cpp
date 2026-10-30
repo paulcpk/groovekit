@@ -23,10 +23,19 @@ namespace
         return ext == ".wav" || ext == ".aif" || ext == ".aiff" || ext == ".flac" || ext == ".mp3" || ext == ".ogg" || ext == ".m4a";
     }
 
-    /** Index keys are canonical, so /var/... and /private/var/... are the same file. */
+    /** Index keys are canonical, so /var/... and /private/var/... are the same file. This takes
+        a few system calls per path component, so it's for paths users give; a scan derives keys
+        from the folders, which are canonical already. */
     std::string key (const fs::path& p)
     {
         return fs::weakly_canonical (fs::absolute (p)).string();
+    }
+
+    /** Fills what searches read on every entry, once. */
+    void prepare (SampleEntry& e)
+    {
+        e.nameWords = tokenize (fs::path (e.path).stem().string());
+        e.namedKey = e.classification.key ? music::parseKey (*e.classification.key) : std::nullopt;
     }
 
     int64_t modifiedTime (const fs::path& p)
@@ -90,8 +99,15 @@ namespace
         return c;
     }
 
+    /** An entry as the index file keeps it. */
+    std::string entryJson (const SampleEntry& e)
+    {
+        return Json { { "path", e.path }, { "size", e.size }, { "modified", e.modified },
+                      { "features", library::toJson (e.features) }, { "classification", classificationToJson (e.classification) } }.dump();
+    }
+
     /** A sentence for agents: "kick one-shot, 0.30 s, pitched A1 (+12 c), fast attack, dark". */
-    std::string describe (const SampleEntry& e)
+    std::string describe (const SampleEntry& e, const SampleLibrary::SampleKey& key)
     {
         auto& f = e.features;
         auto& c = e.classification;
@@ -102,7 +118,6 @@ namespace
         s += duration;
 
         if (c.tempo)    s += ", " + juce::String (*c.tempo, 1).toStdString() + " BPM";
-        const auto key = SampleLibrary::keyOf (e);
 
         if (key.key)
             s += ", " + music::keyName (*key.key) + (key.source == "sound" ? " (heard)" : key.heard ? " (sounds like " + music::keyName (*key.heard) + ")" : "");
@@ -128,10 +143,24 @@ namespace
         return s;
     }
 
-    bool keysMatch (const std::optional<music::Key>& entryKey, const std::string& wanted)
+    bool keysMatch (const std::optional<music::Key>& entryKey, const std::optional<music::Key>& wanted)
     {
-        const auto key = music::parseKey (wanted);
-        return entryKey && key && entryKey->relativeMajor() == key->relativeMajor();
+        return entryKey && wanted && entryKey->relativeMajor() == wanted->relativeMajor();
+    }
+
+    /** How a key (or a root) goes with a song's key: see SampleLibrary::fitTo. */
+    std::optional<SampleLibrary::KeyFit> fitOf (const SampleLibrary::SampleKey& k, music::Key songKey)
+    {
+        if (k.key)
+            return SampleLibrary::KeyFit { music::compatible (*k.key, songKey), music::semitonesBetween (*k.key, songKey) };
+
+        if (k.root)
+        {
+            auto toTonic = ((songKey.tonic - *k.root) % 12 + 12) % 12;
+            return SampleLibrary::KeyFit { songKey.contains (*k.root % 12), toTonic > 6 ? toTonic - 12 : toTonic };
+        }
+
+        return {};
     }
 }
 
@@ -192,10 +221,12 @@ void SampleLibrary::addFolder (const fs::path& folder)
     if (! fs::is_directory (absolute))
         throw std::runtime_error ("Not a folder: " + absolute.string());
 
-    std::lock_guard lock (mutex);
+    {
+        std::lock_guard lock (mutex);
 
-    if (std::find (folders.begin(), folders.end(), absolute) == folders.end())
-        folders.push_back (absolute);
+        if (std::find (folders.begin(), folders.end(), absolute) == folders.end())
+            folders.push_back (absolute);
+    }
 
     save();
 }
@@ -204,11 +235,13 @@ void SampleLibrary::removeFolder (const fs::path& folder)
 {
     auto absolute = key (folder);
 
-    std::lock_guard lock (mutex);
-    folders.erase (std::remove (folders.begin(), folders.end(), fs::path (absolute)), folders.end());
+    {
+        std::lock_guard lock (mutex);
+        folders.erase (std::remove (folders.begin(), folders.end(), fs::path (absolute)), folders.end());
 
-    for (auto it = entries.begin(); it != entries.end();)
-        it = it->first.starts_with (absolute + "/") ? entries.erase (it) : std::next (it);
+        for (auto it = entries.begin(); it != entries.end();)
+            it = it->first.starts_with (absolute + "/") ? entries.erase (it) : std::next (it);
+    }
 
     save();
 }
@@ -256,7 +289,10 @@ void SampleLibrary::scan (ProgressCallback callback)
             callback (p);
     };
 
-    std::vector<fs::path> files;
+    // The folders are canonical (addFolder), so a file's key is its path below one made normal:
+    // no system calls per file, where weakly_canonical would take one per path component.
+    struct Found { fs::path path; std::string key; };
+    std::vector<Found> files;
 
     for (auto& folder : getFolders())
     {
@@ -269,35 +305,66 @@ void SampleLibrary::scan (ProgressCallback callback)
                 break;
 
             if (it->is_regular_file (ec) && isAudioFile (it->path()) && ! it->path().filename().string().starts_with ("._"))
-                files.push_back (it->path());
+                files.push_back ({ it->path(), it->path().lexically_normal().string() });
         }
     }
+
+    std::set<std::string> present;
+
+    for (auto& f : files)
+        present.insert (f.key);
 
     {
         std::lock_guard lock (mutex);
         progress.filesFound = static_cast<int> (files.size());
 
         // Forget files that no longer exist.
-        std::set<std::string> present;
-        for (auto& f : files) present.insert (key (f));
-
         for (auto it = entries.begin(); it != entries.end();)
             it = present.contains (it->first) ? std::next (it) : entries.erase (it);
     }
 
     report (true);
 
-    // Analysis is independent per file: spread it over the cores, saving now and then so an
-    // interrupted first scan of a big library isn't lost.
+    // Analysis is independent per file: spread it over the cores. Each worker merges what it
+    // analysed into the index in batches, so searches and the other workers rarely wait on the
+    // lock, and the index is saved now and then so an interrupted first scan of a big library
+    // isn't lost.
     std::atomic<size_t> next { 0 };
     std::atomic<int> sinceSave { 0 };
-    constexpr int saveEvery = 2000;
+    constexpr int saveEvery = 2000, mergeEvery = 200;
 
     auto work = [&]
     {
+        std::vector<Stored> batch;
+
+        auto merge = [&]
+        {
+            if (batch.empty())
+                return;
+
+            {
+                std::lock_guard lock (mutex);
+
+                for (auto& s : batch)
+                {
+                    auto path = s.entry.path;
+                    entries.insert_or_assign (std::move (path), std::move (s));
+                }
+            }
+
+            const auto count = static_cast<int> (batch.size());
+            batch.clear();
+
+            if (sinceSave.fetch_add (count) + count >= saveEvery)
+            {
+                sinceSave = 0;
+                save();
+            }
+        };
+
         for (size_t i; ! cancelScan && (i = next++) < files.size();)
         {
-            auto& file = files[i];
+            auto& [file, fileKey] = files[i];
             std::error_code ec;
             const auto size = static_cast<int64_t> (fs::file_size (file, ec));
             const auto modified = modifiedTime (file);
@@ -305,8 +372,8 @@ void SampleLibrary::scan (ProgressCallback callback)
             {
                 std::lock_guard lock (mutex);
 
-                if (auto it = entries.find (key (file)); it != entries.end() && it->second.size == size && it->second.modified == modified
-                                                         && it->second.features.version >= SampleFeatures::currentVersion)
+                if (auto it = entries.find (fileKey); it != entries.end() && it->second.entry.size == size && it->second.entry.modified == modified
+                                                      && it->second.entry.features.version >= SampleFeatures::currentVersion)
                 {
                     ++progress.unchanged;
                     continue;
@@ -315,16 +382,11 @@ void SampleLibrary::scan (ProgressCallback callback)
 
             try
             {
-                auto entry = analyseFile (file);
+                auto entry = analyseEntry (file, fileKey);
+                auto json = entryJson (entry);
+                batch.push_back ({ std::move (entry), std::move (json) });
                 std::lock_guard lock (mutex);
-                entries[entry.path] = std::move (entry);
                 ++progress.analysed;
-
-                if (++sinceSave >= saveEvery)
-                {
-                    sinceSave = 0;
-                    save();
-                }
             }
             catch (const std::exception&)
             {
@@ -332,8 +394,13 @@ void SampleLibrary::scan (ProgressCallback callback)
                 ++progress.failed;
             }
 
+            if (batch.size() >= mergeEvery)
+                merge();
+
             report (false);
         }
+
+        merge();
     };
 
     const auto threads = std::max (1u, std::min (8u, std::thread::hardware_concurrency()));
@@ -350,30 +417,43 @@ void SampleLibrary::scan (ProgressCallback callback)
     {
         std::lock_guard lock (mutex);
         progress.running = false;
-        save();
     }
 
+    save();
     report (true);
 }
 
 SampleEntry SampleLibrary::analyseFile (const fs::path& file)
 {
+    return analyseEntry (file, key (file));
+}
+
+SampleEntry SampleLibrary::analyseEntry (const fs::path& file, std::string fileKey)
+{
     SampleEntry e;
-    e.path = key (file);
+    e.path = std::move (fileKey);
     e.size = static_cast<int64_t> (fs::file_size (file));
     e.modified = modifiedTime (file);
 
-    auto audio = analysis::loadAudio (file, analysedSeconds);
-    e.features = analyseSample (audio, analysedSeconds);
-
-    // The analysis may only cover the start; keep the real length.
+    // One reader for the analysed stretch and the file's real length (the analysis may only
+    // cover the start).
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (e.path)));
 
-    if (std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (e.path))); reader != nullptr)
-        e.features.durationSeconds = static_cast<double> (reader->lengthInSamples) / reader->sampleRate;
+    if (reader == nullptr)
+        throw std::runtime_error ("Can't read audio file " + e.path);
 
+    const auto length = std::min (reader->lengthInSamples, static_cast<juce::int64> (analysedSeconds * reader->sampleRate));
+    analysis::Audio audio;
+    audio.sampleRate = reader->sampleRate;
+    audio.buffer.setSize (static_cast<int> (reader->numChannels), static_cast<int> (length));
+    reader->read (&audio.buffer, 0, static_cast<int> (length), 0, true, true);
+
+    e.features = analyseSample (audio, analysedSeconds);
+    e.features.durationSeconds = static_cast<double> (reader->lengthInSamples) / reader->sampleRate;
     e.classification = classify (file, e.features);
+    prepare (e);
     return e;
 }
 
@@ -390,18 +470,31 @@ std::vector<SampleEntry> SampleLibrary::getSamples() const
     std::vector<SampleEntry> samples;
     samples.reserve (entries.size());
 
-    for (auto& [path, e] : entries)
-        samples.push_back (e);
+    for (auto& [path, s] : entries)
+        samples.push_back (s.entry);
 
     return samples;
 }
 
-std::optional<SampleEntry> SampleLibrary::find (const fs::path& path) const
+void SampleLibrary::forEach (const std::function<void (const SampleEntry&)>& f) const
 {
     std::lock_guard lock (mutex);
 
-    if (auto it = entries.find (key (path)); it != entries.end())
-        return it->second;
+    for (auto& [path, s] : entries)
+        f (s.entry);
+}
+
+std::optional<SampleEntry> SampleLibrary::find (const fs::path& path) const
+{
+    return findByKey (key (path));
+}
+
+std::optional<SampleEntry> SampleLibrary::findByKey (const std::string& pathKey) const
+{
+    std::lock_guard lock (mutex);
+
+    if (auto it = entries.find (pathKey); it != entries.end())
+        return it->second.entry;
 
     return {};
 }
@@ -458,7 +551,7 @@ SampleLibrary::Listing SampleLibrary::list (const std::filesystem::path& folder)
                 subfolders.emplace (name, 1);
         }
         else
-            listing.samples.push_back (it->second);
+            listing.samples.push_back (it->second.entry);
     }
 
     for (auto& [name, count] : subfolders)
@@ -480,12 +573,14 @@ SampleLibrary::Listing SampleLibrary::list (const std::filesystem::path& folder)
 std::vector<SampleEntry> SampleLibrary::search (const SampleQuery& q) const
 {
     const auto words = tokenize (q.text);
+    const auto wantedKey = q.key ? music::parseKey (*q.key) : std::nullopt;
     std::vector<std::pair<int, const SampleEntry*>> scored;
 
     std::lock_guard lock (mutex);
 
-    for (auto& [path, e] : entries)
+    for (auto& [path, s] : entries)
     {
+        auto& e = s.entry;
         auto& c = e.classification;
         auto& f = e.features;
 
@@ -493,7 +588,7 @@ std::vector<SampleEntry> SampleLibrary::search (const SampleQuery& q) const
         if (q.loop && c.loop != *q.loop)                                continue;
         if (q.minDuration && f.durationSeconds < *q.minDuration)        continue;
         if (q.maxDuration && f.durationSeconds > *q.maxDuration)        continue;
-        if (q.key && ! keysMatch (keyOf (e).key, *q.key))               continue;
+        if (q.key && ! keysMatch (keyOf (e).key, wantedKey))            continue;
 
         if (q.fitsKey)
             if (auto fit = fitTo (e, *q.fitsKey); ! fit || ! fit->fits)
@@ -510,7 +605,7 @@ std::vector<SampleEntry> SampleLibrary::search (const SampleQuery& q) const
                 continue;
         }
 
-        const auto nameWords = tokenize (fs::path (path).stem().string());
+        const auto& nameWords = e.nameWords;
         int score = 0;
         bool all = true;
 
@@ -534,15 +629,16 @@ std::vector<SampleEntry> SampleLibrary::search (const SampleQuery& q) const
 
     // Among equally good matches, alternate between packs (the first folder below the library
     // folder) so one pack doesn't fill every result.
-    auto packOf = [this] (const std::string& path)
-    {
-        for (auto& folder : folders)
-        {
-            const auto root = folder.string() + "/";
+    std::vector<std::string> roots;
 
+    for (auto& folder : folders)
+        roots.push_back (folder.string() + "/");
+
+    auto packOf = [&roots] (const std::string& path)
+    {
+        for (auto& root : roots)
             if (path.starts_with (root))
                 return path.substr (root.size(), path.find ('/', root.size()) - root.size());
-        }
 
         return std::string();
     };
@@ -579,7 +675,8 @@ SampleLibrary::SampleKey SampleLibrary::keyOf (const SampleEntry& e)
     auto& c = e.classification;
     SampleKey k;
 
-    const auto named = c.key ? music::parseKey (*c.key) : std::nullopt;
+    // The name's key, parsed once by the library; entries made by hand haven't been through it.
+    const auto named = ! c.key ? std::nullopt : e.namedKey ? e.namedKey : music::parseKey (*c.key);
 
     // A key is heard in what has harmony or a line to it; a drum hit's "key" is its root, and a
     // drum loop's only counts when it's very clear (tuned toms, a pitched perc line).
@@ -610,28 +707,18 @@ SampleLibrary::SampleKey SampleLibrary::keyOf (const SampleEntry& e)
 
 std::optional<SampleLibrary::KeyFit> SampleLibrary::fitTo (const SampleEntry& e, music::Key songKey)
 {
-    const auto k = keyOf (e);
-
-    if (k.key)
-        return KeyFit { music::compatible (*k.key, songKey), music::semitonesBetween (*k.key, songKey) };
-
-    if (k.root)
-    {
-        auto toTonic = ((songKey.tonic - *k.root) % 12 + 12) % 12;
-        return KeyFit { songKey.contains (*k.root % 12), toTonic > 6 ? toTonic - 12 : toTonic };
-    }
-
-    return {};
+    return fitOf (keyOf (e), songKey);
 }
 
 Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures, std::optional<music::Key> songKey)
 {
     auto& f = e.features;
     auto& c = e.classification;
+    const auto key = keyOf (e);
 
     Json j {
         { "path", e.path },
-        { "description", describe (e) },
+        { "description", describe (e, key) },
         { "category", c.category },
         { "loop", c.loop },
         { "durationSeconds", std::round (f.durationSeconds * 1000.0) / 1000.0 },
@@ -642,8 +729,6 @@ Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures, std::opt
     if (c.loop)
         if (auto t = loopTempo (e))
             j["sourceTempo"] = std::round (*t * 1000) / 1000;
-
-    const auto key = keyOf (e);
 
     if (key.key)
     {
@@ -658,7 +743,7 @@ Json SampleLibrary::toJson (const SampleEntry& e, bool includeFeatures, std::opt
         j["rootKey"] = *key.root;
 
     if (songKey)
-        if (auto fit = fitTo (e, *songKey))
+        if (auto fit = fitOf (key, *songKey))
             j["keyFit"] = { { "fits", fit->fits }, { "transpose", fit->transpose } };
 
     if (includeFeatures)
@@ -738,8 +823,9 @@ void SampleLibrary::load()
 
         for (auto& e : loaded)
         {
+            prepare (e);
             auto path = e.path;
-            entries.emplace (std::move (path), std::move (e));
+            entries.emplace (std::move (path), Stored { std::move (e), {} });
         }
     }
     catch (const std::exception&)
@@ -752,10 +838,36 @@ void SampleLibrary::load()
 
 void SampleLibrary::save() const
 {
-    auto folderList = Json::array();
+    // One writer at a time: a save that waits for another writes the later state, so nothing
+    // is lost, and the two never write the same temporary file.
+    std::lock_guard writing (saveMutex);
 
-    for (auto& f : folders)
-        folderList.push_back (f.string());
+    std::string header;
+    std::vector<std::string> lines;
+    std::vector<std::pair<size_t, SampleEntry>> unserialised;   // loaded entries: serialised on the first save
+
+    {
+        std::lock_guard lock (mutex);
+        auto folderList = Json::array();
+
+        for (auto& f : folders)
+            folderList.push_back (f.string());
+
+        header = "{\"version\":" + std::to_string (indexVersion) + ",\"autoScan\":" + (autoScan ? "true" : "false")
+               + ",\"folders\":" + folderList.dump() + ",\"samples\":[";
+        lines.reserve (entries.size());
+
+        for (auto& [path, s] : entries)
+        {
+            if (s.json.empty())
+                unserialised.emplace_back (lines.size(), s.entry);
+
+            lines.push_back (s.json);
+        }
+    }
+
+    for (auto& [i, e] : unserialised)
+        lines[i] = entryJson (e);
 
     fs::create_directories (indexFile.parent_path());
     auto temp = indexFile;
@@ -764,16 +876,12 @@ void SampleLibrary::save() const
     {
         // Written a sample at a time, for the same reason load() reads it that way.
         std::ofstream out (temp, std::ios::trunc);
-        out << "{\"version\":" << indexVersion << ",\"autoScan\":" << (autoScan ? "true" : "false")
-            << ",\"folders\":" << folderList.dump() << ",\"samples\":[";
-
+        out << header;
         bool first = true;
 
-        for (auto& [path, e] : entries)
+        for (auto& line : lines)
         {
-            out << (first ? "" : ",")
-                << Json { { "path", e.path }, { "size", e.size }, { "modified", e.modified },
-                          { "features", library::toJson (e.features) }, { "classification", classificationToJson (e.classification) } }.dump();
+            out << (first ? "" : ",") << line;
             first = false;
         }
 
@@ -781,6 +889,17 @@ void SampleLibrary::save() const
     }
 
     fs::rename (temp, indexFile);
+
+    // Keep what was serialised for the next save, where the entry is still the same one.
+    if (! unserialised.empty())
+    {
+        std::lock_guard lock (mutex);
+
+        for (auto& [i, e] : unserialised)
+            if (auto it = entries.find (e.path); it != entries.end() && it->second.json.empty()
+                                                 && it->second.entry.size == e.size && it->second.entry.modified == e.modified)
+                it->second.json = std::move (lines[i]);
+    }
 }
 
 bool SampleLibrary::getAutoScan() const
@@ -791,8 +910,11 @@ bool SampleLibrary::getAutoScan() const
 
 void SampleLibrary::setAutoScan (bool enabled)
 {
-    std::lock_guard lock (mutex);
-    autoScan = enabled;
+    {
+        std::lock_guard lock (mutex);
+        autoScan = enabled;
+    }
+
     save();
 }
 

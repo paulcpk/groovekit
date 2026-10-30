@@ -16,6 +16,11 @@ struct SampleEntry
     int64_t modified = 0;   // file time, as a count since the filesystem clock's epoch
     SampleFeatures features;
     Classification classification;
+
+    /** Worked out from the above once, by the library, so a search doesn't redo it for every
+        entry (not in the index file): the file name's words, and the key the name gives. */
+    std::vector<std::string> nameWords;
+    std::optional<music::Key> namedKey;
 };
 
 struct SampleQuery
@@ -78,6 +83,10 @@ public:
     /** Every indexed sample, sorted by path. */
     std::vector<SampleEntry> getSamples() const;
 
+    /** Calls f for every indexed sample, sorted by path, with the lock held (so f must be quick
+        and not call the library): a walk without copying every entry. */
+    void forEach (const std::function<void (const SampleEntry&)>& f) const;
+
     struct Listing
     {
         struct Folder
@@ -93,7 +102,14 @@ public:
     /** The indexed subfolders and samples directly in a folder, in the order the Finder shows
         them. With an empty path, the library's folders. */
     Listing list (const std::filesystem::path& folder) const;
+
+    /** The entry of a file, given any spelling of its path (made canonical, which takes a few
+        system calls). */
     std::optional<SampleEntry> find (const std::filesystem::path&) const;
+
+    /** The entry whose index key this is (the path as an entry or a search result gives it):
+        a map lookup, for callers that already hold library keys. */
+    std::optional<SampleEntry> findByKey (const std::string& key) const;
 
     /** Analyses one file now, whether or not it's in a library folder. */
     static SampleEntry analyseFile (const std::filesystem::path&);
@@ -134,17 +150,32 @@ public:
 private:
     const std::filesystem::path indexFile;
 
+    /** An entry with its line of the index file, serialised when it was analysed (or on the
+        first save after loading), so a save copies strings under the lock instead of building
+        JSON for every entry there. */
+    struct Stored
+    {
+        SampleEntry entry;
+        mutable std::string json;   // a cache: save() fills it for loaded entries
+    };
+
     mutable std::mutex mutex;
     std::vector<std::filesystem::path> folders;
-    std::map<std::string, SampleEntry> entries;
+    std::map<std::string, Stored> entries;
     bool autoScan = true;
     Progress progress;
     std::thread scanThread;
     std::atomic<bool> cancelScan { false };
+    mutable std::mutex saveMutex;   // one writer of the index file at a time
 
     void scan (ProgressCallback);
     void load();
-    void save() const; // with the mutex held
+
+    /** Writes the index: takes the mutex only to snapshot it, so it mustn't be held. */
+    void save() const;
+
+    /** analyseFile, for a file whose index key is known. */
+    static SampleEntry analyseEntry (const std::filesystem::path&, std::string key);
 };
 
 /** MIDI note names: 33 -> "A1". */
