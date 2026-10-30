@@ -77,6 +77,7 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 | `project.collectSamples` | | `{ copied, updated }`; copies every sample from outside the project into `samples/` and points the song at the copies (one undoable change) |
 | `project.recent` | | `{ projects: [{ path, name, modified }], current }`: project folders opened lately, most recent first (`modified` in ms since 1970) |
 | `project.open` | `path` | `{ project }`; switches the engine (and every client) to that project folder, which must hold a song.json. Refused if another engine serves it |
+| `project.browse` | `folder?` | `{ folder, projects: [{ path, name, modified }], current? }`: the projects (folders with a song.json) in a folder, by default the open project's parent (or ~/Music/GrooveKit) |
 | `project.new` | `path` | `{ project }`; creates a project in a new or empty folder and switches to it |
 | `project.saveAs` | `path` | `{ project }`; copies the project folder (song, history, recordings, plugin states) to a new or empty folder and switches to the copy, saved |
 | `project.save` | | `{ saved, head }`; every change is already written to song.json as it's made: saving marks the history entry the song was saved at. Every client gets a `saved` notification with the same fields; the `snapshot` carries `saved` too, and the song has unsaved changes while `head` differs from it |

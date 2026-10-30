@@ -9,7 +9,7 @@ import { previewSample, stopPreview } from "@/features/shell/actions";
 import { engine, useEngine } from "@/state/engine";
 
 import { canListen, rateSample, useListeningStatus } from "./listening";
-import { FolderTree } from "./FolderTree";
+import { BrowserTree } from "./BrowserTree";
 import { LibraryFolders } from "./LibraryFolders";
 import { Listening } from "./ListeningPanel";
 import { Sample, SampleRow, shortKey } from "./SampleRow";
@@ -206,7 +206,7 @@ export function Browser() {
       </div>
 
       {!filtering ? (
-        <FolderTree playing={playing} preview={preview} autoPlay={autoPlay} />
+        <BrowserTree playing={playing} preview={preview} autoPlay={autoPlay} />
       ) : (
         <div ref={resultsBox} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto py-1 outline-none"
           onKeyDown={(e) => {

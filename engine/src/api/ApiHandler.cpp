@@ -1669,6 +1669,42 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
         return result;
     }
 
+    // The projects in a folder (those with a song.json): the open project's neighbours unless one is named.
+    if (method == "project.browse")
+    {
+        std::filesystem::path folder;
+
+        if (params.contains ("folder"))
+            folder = params["folder"].get<std::string>();
+        else if (auto dir = session.getProjectDir())
+            folder = dir->parent_path();
+        else
+            folder = std::filesystem::path (juce::File::getSpecialLocation (juce::File::userMusicDirectory).getFullPathName().toStdString()) / "GrooveKit";
+
+        auto list = Json::array();
+        std::error_code ec;
+        std::vector<std::filesystem::directory_entry> entries;
+
+        for (auto& entry : std::filesystem::directory_iterator (folder, ec))
+            if (entry.is_directory (ec) && std::filesystem::exists (entry.path() / "song.json", ec))
+                entries.push_back (entry);
+
+        std::sort (entries.begin(), entries.end(), [] (auto& a, auto& b) { return a.path().filename() < b.path().filename(); });
+
+        for (auto& entry : entries)
+        {
+            const juce::File song ((entry.path() / "song.json").string());
+            list.push_back ({ { "path", entry.path().string() }, { "name", entry.path().filename().string() }, { "modified", song.getLastModificationTime().toMilliseconds() } });
+        }
+
+        Json result { { "folder", folder.string() }, { "projects", list } };
+
+        if (auto dir = session.getProjectDir())
+            result["current"] = dir->string();
+
+        return result;
+    }
+
     if (method == "project.importFile" || method == "project.importData" || method == "project.collectSamples")
         return importIntoProject (method, params);
 
