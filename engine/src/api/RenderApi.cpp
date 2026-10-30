@@ -278,7 +278,7 @@ Json ApiHandler::render (const Json& params)
         std::optional<float> gain;
         std::optional<CompiledEdit> compiled;
         model::Project project;
-        analysis::Audio mix;
+        Json analysis;
         Json result, stems = Json::array();
     };
 
@@ -286,7 +286,30 @@ Json ApiHandler::render (const Json& params)
     auto steps = std::make_shared<Steps>();
     auto& engine = context.getEngine();
 
-    auto addRender = [&, run, steps, projectDir, options, encode, silenceBefore, silenceAfter, normalize] (const std::filesystem::path& file, bool isMix, std::optional<model::Id> soloInsert)
+    // With a progress id, how far the export is goes out as renderProgress notifications: the
+    // mix and each stem are a part, rendering most of a part's share and writing the rest.
+    const auto progressId = params.value ("progress", std::string());
+    const auto withStems = params.value ("stems", false);
+    const auto parts = 1 + (withStems ? static_cast<int> (session.getProject().mixer.inserts.size()) - 1 : 0);
+    const auto formatName = encode.format == "mp3" ? std::string ("MP3") : encode.format == "flac" ? std::string ("FLAC") : std::string ("WAV");
+
+    auto report = [this, alive = alive, progressId, parts] (int part, float within, const std::string& stage)
+    {
+        if (progressId.empty())
+            return;
+
+        Json params { { "id", progressId }, { "progress", std::round ((part + within) / parts * 1000) / 1000 }, { "stage", stage } };
+
+        // Called on the pool: broadcast from the message thread.
+        juce::MessageManager::callAsync ([this, alive, params]
+        {
+            if (*alive && broadcast)
+                broadcast (notification ("renderProgress", params).dump());
+        });
+    };
+
+    auto addRender = [&, run, steps, projectDir, options, encode, silenceBefore, silenceAfter, normalize, report, formatName]
+                     (const std::filesystem::path& file, bool isMix, std::optional<model::Id> soloInsert, int part, const std::string& name)
     {
         steps->here ([run, &engine, projectDir, soloInsert, file, this]
         {
@@ -309,10 +332,14 @@ Json ApiHandler::render (const Json& params)
             run->compiled.emplace (compileProject (engine, run->project, { projectDir, tracktion::Edit::forRendering }));
         });
 
-        steps->pooled ([run, file, isMix, options, encode, silenceBefore, silenceAfter, normalize]
+        steps->pooled ([run, file, isMix, options, encode, silenceBefore, silenceAfter, normalize, report, formatName, part, name]
         {
             const auto temp = file.parent_path() / ("." + file.stem().string() + ".render.wav");
-            renderToWav (*run->compiled, run->project, temp, options);
+            const auto rendering = "Rendering " + name;
+            auto withProgress = options;
+            withProgress.progress = [&] (float p) { report (part, p * 0.8f, rendering); };
+            report (part, 0, rendering);
+            renderToWav (*run->compiled, run->project, temp, withProgress);
 
             auto audio = analysis::loadAudio (temp);
             std::error_code ec;
@@ -341,22 +368,27 @@ Json ApiHandler::render (const Json& params)
             if (run->gain)
                 audio.buffer.applyGain (*run->gain);
 
-            writeAudio (audio.buffer, audio.sampleRate, file, encode);
-
+            // Measured before it's written, so the file appears when the export is all but done.
             if (isMix)
-                run->mix = std::move (audio);
+            {
+                report (part, 0.8f, "Measuring the mix");
+                run->analysis = analysis::analyse (audio, true);
+            }
+
+            report (part, isMix ? 0.9f : 0.8f, "Writing the " + formatName + (isMix ? "" : " of " + name));
+            writeAudio (audio.buffer, audio.sampleRate, file, encode);
         });
 
         // The Edit goes on the message thread, as Edits must.
         steps->here ([run] { run->compiled.reset(); });
     };
 
-    addRender (output, true, std::nullopt);
+    addRender (output, true, std::nullopt, 0, "the mix");
 
-    steps->pooled ([run, output, encode]
+    steps->here ([run, output, encode]
     {
         run->result = { { "path", std::filesystem::absolute (output).string() }, { "format", encode.format },
-                        { "analysis", analysis::analyse (run->mix, true) } };
+                        { "analysis", std::move (run->analysis) } };
 
         if (run->gain)
             run->result["gainDb"] = std::round (juce::Decibels::gainToDecibels (*run->gain) * 10) / 10;
@@ -364,15 +396,19 @@ Json ApiHandler::render (const Json& params)
 
     // Stems: each insert but master on its own (soloed, so it's heard through what it feeds),
     // over the same range, next to the mix as <name>-<insert>.<format>.
-    if (params.value ("stems", false))
+    if (withStems)
     {
+        int part = 0;
+
         for (auto& insert : session.getProject().mixer.inserts)
         {
             if (insert.id == model::masterInsertId)
                 continue;
 
+            ++part;
             auto stem = output.parent_path() / (output.stem().string() + "-" + insert.id + "." + extension);
-            addRender (stem, false, insert.id);
+            addRender (stem, false, insert.id, part,
+                       "stem " + std::to_string (part) + " of " + std::to_string (parts - 1) + " (" + (insert.name.empty() ? insert.id : insert.name) + ")");
             steps->here ([run, id = insert.id, stem] { run->stems.push_back ({ { "insert", id }, { "path", std::filesystem::absolute (stem).string() } }); });
         }
 

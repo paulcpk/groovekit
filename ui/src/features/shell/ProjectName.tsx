@@ -30,7 +30,7 @@ export function ProjectName() {
 
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <div className="max-w-[200px] cursor-text truncate text-sm text-dim hover:text-fg" title={folder} onDoubleClick={() => setEditing(true)}>
+      <div className="max-w-[200px] cursor-text truncate text-sm text-dim hover:text-fg" title={`${folder ?? ""}\nDouble-click to rename`} onDoubleClick={() => setEditing(true)}>
         {shown}
       </div>
       {unsaved && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-dim" title="Unsaved changes (⌘S saves)" />}

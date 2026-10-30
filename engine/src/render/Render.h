@@ -16,6 +16,9 @@ struct RenderOptions
 
     /** Extra seconds after the end, for release tails, reverbs and delays. */
     double tailSeconds = 0;
+
+    /** Hears how far the render is (0 to 1), on the rendering thread, every percent or so. */
+    std::function<void (float)> progress;
 };
 
 /** Renders a compiled project to a stereo WAV file, blocking; plugin latency is compensated. Throws on failure. */

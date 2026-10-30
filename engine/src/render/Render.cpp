@@ -75,8 +75,9 @@ void renderToWav (const CompiledEdit& compiled, const model::Project& project, c
     if (task.errorMessage.isNotEmpty())
         throw std::runtime_error ("Render failed: " + task.errorMessage.toStdString());
 
-    while (task.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
-    {}
+    for (float told = 0; task.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain;)
+        if (options.progress && progress.load() >= told + 0.01f)
+            options.progress (told = progress.load());
 
     te::Renderer::turnOffAllPlugins (edit);
 

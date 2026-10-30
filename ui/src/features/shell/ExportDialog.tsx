@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, DragNumber } from "@/components/controls";
 import { Dialog } from "@/components/dialog";
 import { inDesktopApp } from "@/engine/client";
 import { formatDb, songEnd, ticksPerBar } from "@/lib/model";
 import { cn } from "@/lib/cn";
-import { call, toast, useEngine } from "@/state/engine";
+import { call, listen, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
 type Range = "song" | "loop" | "bars";
@@ -81,6 +81,7 @@ export function ExportDialog() {
   const [toBar, setToBar] = useState(9);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ id: string; progress: number; stage: string } | null>(null);
   const bar = ticksPerBar(doc);
   const inserts = (doc?.mixer.inserts.length ?? 1) - 1;
   const row = "grid grid-cols-[100px_1fr] items-center gap-3 text-xs";
@@ -100,6 +101,11 @@ export function ExportDialog() {
       // Remembered for this time only.
     }
   };
+
+  // How far this dialog's export is, from the engine's renderProgress notifications.
+  useEffect(() => listen("renderProgress", (p: { id: string; progress: number; stage: string }) => {
+    setProgress((current) => (current && current.id === p.id ? p : current));
+  }), []);
 
   const barSeconds = doc ? (bar / 960) * (60 / doc.tempo) : 2;
 
@@ -123,11 +129,13 @@ export function ExportDialog() {
       path = picked;
     }
 
+    const id = `export-${Date.now()}`;
     setBusy(true);
-    toast(s.stems ? `Exporting the mix and ${inserts} stems…` : "Exporting…");
+    setProgress({ id, progress: 0, stage: "Starting" });
 
     try {
       const r = await call("render", {
+        progress: id,
         start, end, tailSeconds: s.tail, sampleRate: s.sampleRate, format: s.format, stems: s.stems,
         ...(s.format === "mp3" ? { bitrate: s.bitrate } : { bitDepth: s.bitDepth, dither: s.dither }),
         ...(s.silenceBefore ? { silenceBefore: s.silenceBars * barSeconds } : {}),
@@ -139,14 +147,16 @@ export function ExportDialog() {
       setUi({ exportOpen: false });
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
   const rates = s.format === "mp3" ? [44100, 48000] : [44100, 48000, 88200, 96000];
 
   return (
-    <Dialog open={open} onOpenChange={(o) => setUi({ exportOpen: o })} title="Export" className="w-[500px]">
-      <div className="flex flex-col gap-3">
+    <Dialog open={open} onOpenChange={(o) => setUi({ exportOpen: o })} title={busy ? "Exporting…" : "Export"}
+      className={cn("w-[500px]", busy && "border-accent")}>
+      <fieldset disabled={busy} className={cn("flex flex-col gap-3", busy && "pointer-events-none opacity-60")}>
         <div className={row}>
           <span className="text-dim">Range</span>
           <Choice<Range> value={range} onChange={setRange} options={[
@@ -231,12 +241,25 @@ export function ExportDialog() {
           </Check>
         </div>
         {!inDesktopApp && <div className="text-2xs text-faint">Files go to the project's renders folder.</div>}
-        <div className="flex justify-end gap-2">
-          <Button size="sm" onClick={() => set(DEFAULTS)}>Defaults</Button>
-          <div className="flex-1" />
-          <Button size="sm" onClick={() => setUi({ exportOpen: false })}>Cancel</Button>
-          <Button size="sm" active tone="accent" disabled={busy} onClick={() => void run()}>{busy ? "Exporting…" : "Export"}</Button>
+      </fieldset>
+      {progress && (
+        <div className="mt-3 flex flex-col gap-1">
+          <div className="h-1.5 overflow-hidden rounded-full bg-control">
+            <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.max(2, progress.progress * 100)}%` }} />
+          </div>
+          <div className="flex text-2xs text-dim">
+            <span className="flex-1">{progress.stage}…</span>
+            <span className="tabular-nums">{Math.round(progress.progress * 100)}%</span>
+          </div>
         </div>
+      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <Button size="sm" disabled={busy} onClick={() => set(DEFAULTS)}>Defaults</Button>
+        <div className="flex-1" />
+        <Button size="sm" onClick={() => setUi({ exportOpen: false })} title={busy ? "The export goes on; a message says when it's done" : undefined}>
+          {busy ? "Hide" : "Cancel"}
+        </Button>
+        <Button size="sm" active tone="accent" disabled={busy} onClick={() => void run()}>{busy ? "Exporting…" : "Export"}</Button>
       </div>
     </Dialog>
   );
