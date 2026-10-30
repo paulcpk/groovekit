@@ -190,6 +190,75 @@ gives each part its own band, which is what producers do first:
 The agent's process: one part at a time; choose it in the song; check the mix and fix the worst
 problem before the next part.
 
+### Voices (how the melodic parts talk to each other)
+
+The figures are a start, but a melody alone doesn't make a track. What separates a good producer
+from a mid-tier one is how several melodic parts work together: a bassline, a simple stab on top of
+it, a second synth that answers the stab (call and response, shout and echo), a pad or atmosphere
+underneath, sometimes a kick pitched up and down. Push and pull between parts that seem to talk to
+each other. Until the agent hears and writes that, its songs stay mid-tier, however good the sounds
+and the mix are.
+
+**Goal.** From the ticked references of a style (about 40 tracks), a library of how the style's
+melodic parts play: which voices exist, what each plays (notes and rhythm), how they evolve through
+the track, and how they fit together. The agent writes new parts from it: never the same notes,
+but in the song's key, with related rhythms, the right number of voices, and parts that answer each
+other. Styles can be crossed ("hard techno with a house melodic groove": the rhythms and voices of
+one, the sounds and energy of the other).
+
+**1. Hearing every voice in a track.** The separation gives drums, bass and the rest (all synths,
+pads and chords together), so the voices have to be pulled apart again from the notes:
+
+- Transcribe the whole bass and music stems, not two bars of each: the transcriber takes about a
+  tenth of the audio's length, and the stems already exist from the whole-track hearing.
+- Split the music stem's notes into voices by what they have in common: register (low, mid,
+  high), length (stabs, plucks, held notes, pads), onsets together (a chord is one voice), timbre
+  at each note's start (the sound embedding of a short slice, so two synths in the same register
+  still come apart), and repetition (a voice repeats its figure every bar, two or four).
+- Name each voice's role: bass, sub, stab, lead, arp, chords, pad, atmosphere, pitched kick (the
+  kick's pitch from the drums' low end where it moves), with how sure the split is.
+
+**2. Each voice through the track.** On the arrangement's bar grid: where the voice plays, its
+figure (rhythm on 16ths with accents, and notes as scale degrees as well as absolute keys), and
+how it changes: notes changing under a kept rhythm, a figure growing or thinning, a filter opening,
+a transposition, a drop-out before a section. Repeats fold together ("figure A bars 17-48, the last
+note up a fifth every 8th bar").
+
+**3. How the voices fit together.** Measured per section, per pair of voices:
+
+- Interlock: on which 16ths both play, one plays, or neither (complementary rhythms leave each
+  other's gaps; doubled ones play together).
+- Call and response: one voice's phrase followed by another's in its gap, with the delay in 16ths.
+- Against the kick: on the beat, off it, between.
+- Register and intervals: how far apart they sit, the intervals between their notes when they
+  meet (a stab on the bass's root, a fifth over it, a third), who holds the root.
+- Density: notes per bar of each, and of all together; the number of voices at once.
+
+**4. The style's library.** From all ticked maps of a style: the voices it uses and how often
+(how many at once, per section role), a vocabulary of figures per role (rhythms clustered into
+families with their variants, interval shapes as degrees), the usual pairings and how they
+interlock, and how voices evolve over a track. Stored with the maps (`Maps/<style>/voices.json`),
+built again when ticks change, shareable like the maps; exact notes stay out of an export unless
+asked for.
+
+**5. Writing with it.** A tool that turns the library into notes for the song: a voice for a role
+in the song's key and scale, from a figure family, varied (transposed, displaced, thinned or filled,
+notes swapped within the scale, the rhythm by analogy rather than copied), and a partner voice
+for one already there, built to interlock with it or answer it. A style mix takes the rhythms
+and pairings of one style and the voices and register of another. The agent picks; the user
+hears it in the song (as with `audition_in_song`) and chooses.
+
+**6. Checking it.** The review compares the song's voices with the style's library like
+`check_mix` compares the mix: too many voices, two voices doubling where the style interlocks, a
+stab with no answer, nothing changing for 64 bars, a voice outside the key.
+
+**Accuracy first.** Transcribing dense, distorted techno is hard, and everything above depends on
+it. Before building the library: render songs whose notes are known (GrooveKit songs with several
+synths, at the styles' tempos and with their distortion), hear them like references, and measure
+how many notes and voices come back right. Then listen with the user to a few maps of reference
+tracks they know. Curated references matter more here than anywhere: experimental tracks in a
+style's folder teach the wrong voices, so the user's ticks decide what goes into the library.
+
 ### 3. A review (the ears)
 
 A `review` tool (engine `song.review`) that checks the song against its guide and returns a ranked
@@ -251,6 +320,9 @@ In this order; each step is judged by the test round (6) before the next.
    the references" (the old step 5).
 3. **Sound matching** (built for the kick and rumble; see "Sound matching" above). This takes in
    "Sound choice from the references".
+3b. **Voices** (see "Voices" above; the figures are built). Every melodic voice of a reference
+   heard through the track, how they fit together, a library per style, and writing new voices
+   and partners from it. Starts with the accuracy test on songs whose notes are known.
 4. **The review** (the mix half is built: mix slots and `check_mix`, see "Mix slots" above; the
    arrangement half and the guide's targets are next). Measures the song against its guide and the user's
    reference folders and returns ranked, concrete problems ("the clap is 2 dB under the kick; your
