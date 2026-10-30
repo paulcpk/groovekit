@@ -1010,7 +1010,8 @@ Json ApiHandler::callLibrary (const std::string& method, const Json& params)
             throw RpcError (operationFailed, "listening isn't available");
 
         const auto path = readParam<std::string> (params, "path");
-        const auto key = library->find (path) ? library->find (path)->path : path;
+        const auto known = library->find (path);
+        const auto key = known ? known->path : path;
         std::optional<bool> fits;
 
         if (params.contains ("fits") && ! params["fits"].is_null())
@@ -1769,6 +1770,8 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
             if (! current)
                 throw RpcError (operationFailed, "this session has no project folder to copy");
 
+            // The copy takes the song as it is now, not as it was last written.
+            session.flushSave (true);
             ec = copyProjectFolder (*current, dir);
 
             if (ec)
@@ -2889,6 +2892,11 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             }
 
             offers[id] = { offer, std::nullopt };
+
+            // Answered offers aren't asked for again after a while: keep the last few dozen.
+            while (offers.size() > 24 && offers.begin()->second.choice)
+                offers.erase (offers.begin());
+
             if (broadcast)
                 broadcast (notification ("picks", offer).dump());
             return { { "id", id } };
@@ -2961,7 +2969,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
                     if (path.empty())
                         continue;       // an instrument: no sample to rate
 
-                    const auto key = library != nullptr && library->find (path) ? library->find (path)->path : path;
+                    const auto known = library != nullptr ? library->find (path) : std::nullopt;
+                    const auto key = known ? known->path : path;
 
                     if (choice == i)
                         listening->getTaste().rate (key, style, true);
@@ -3064,7 +3073,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
 
         listening->getKicks().forEach ([&] (const std::string& path, const listening::KickSound& sound)
         {
-            const auto entry = library->find (path);
+            // The kick index holds library keys: no canonicalising per kick.
+            const auto entry = library->findByKey (path);
 
             if (! entry || (loops && entry->classification.loop != *loops))
                 return;
@@ -3080,7 +3090,7 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
                     float best = -1;
 
                     for (auto& p : prints)
-                        best = std::max (best, std::inner_product (e->begin(), e->end(), p.begin(), 0.0f));
+                        best = std::max (best, listening::similarity (*e, p));
 
                     print = std::clamp ((best - 0.3f) / 0.5f, 0.0f, 1.0f) * 100;
                 }
@@ -3096,7 +3106,7 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
         for (size_t i = 0; i < found.size() && static_cast<int> (results.size()) < limit; ++i)
         {
             const auto& f = found[i];
-            const auto entry = library->find (f.path);
+            const auto entry = library->findByKey (f.path);
 
             // The same sound in several folders (or under another name), once.
             if (! seen.insert (std::filesystem::path (f.path).filename().string() + "@" + std::to_string (entry->size)).second

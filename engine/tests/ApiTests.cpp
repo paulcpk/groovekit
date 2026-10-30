@@ -641,6 +641,7 @@ TEST_CASE ("The agent's conversations are kept, listed, reopened and deleted")
     // Saving again keeps when it was created; the whole transcript comes back.
     auto again = chat ("first", "/songs/b");
     again["created"] = first["created"];
+    juce::Thread::sleep (5);   // the list is ordered by when a chat was last saved, in milliseconds
     h.call ("chats.save", { { "chat", again } });
     auto loaded = h.call ("chats.get", { { "id", "first" } })["result"];
     CHECK (loaded["project"] == "/songs/b");

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <exception>
 #include <filesystem>
+#include <functional>
 #include <memory>
 
 namespace tracktion { inline namespace engine { class Engine; } }
@@ -31,6 +33,16 @@ public:
     static void runPluginScanChildIfRequested (int argc, char* argv[]);
 
     tracktion::Engine& getEngine();
+
+    /** Runs work that takes long (a render, a hearing) on one of a few pool threads, and brings
+        what it returns back to the message thread with done (its result, or the exception the
+        work threw), so the message thread serves other requests meanwhile. The work must not
+        touch the Session or create Edits (message thread only); it may render Edits made for it.
+        done, and everything it captured, go on the message thread. Jobs still running when the
+        context goes are waited for. */
+    using Job = std::function<std::shared_ptr<void>()>;
+    using Done = std::function<void (std::shared_ptr<void> result, std::exception_ptr error)>;
+    void runJob (Job work, Done done);
 
     /** ~/Library/Application Support/GrooveKit: settings, the sample library index, the plugin list. */
     static std::filesystem::path getAppDataFolder();

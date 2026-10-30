@@ -65,6 +65,8 @@ struct EngineContext::Impl
 
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     tracktion::Engine engine;
+    /** Two at a time: a render uses several cores itself. */
+    juce::ThreadPool jobs { juce::ThreadPoolOptions().withNumberOfThreads (2).withThreadName ("GrooveKit jobs") };
 };
 
 void EngineContext::runPluginScanChildIfRequested (int argc, char* argv[])
@@ -114,8 +116,31 @@ EngineContext::EngineContext (Options options) : impl (std::make_unique<Impl> (o
 }
 EngineContext::~EngineContext()
 {
-    // Discarded Edits must go before the Engine they belong to.
+    // Jobs may still hold Edits: they finish first, then the discarded Edits go, before the Engine
+    // they belong to.
+    impl->jobs.removeAllJobs (false, 600000);
     EditGraveyard::getInstance().flush();
+}
+
+void EngineContext::runJob (Job work, Done done)
+{
+    impl->jobs.addJob ([work = std::move (work), done = std::move (done)]
+    {
+        std::shared_ptr<void> result;
+        std::exception_ptr error;
+
+        try
+        {
+            result = work();
+        }
+        catch (...)
+        {
+            error = std::current_exception();
+        }
+
+        // The result and done, and whatever they hold, are released on the message thread.
+        juce::MessageManager::callAsync ([done, result = std::move (result), error] { done (result, error); });
+    });
 }
 
 std::filesystem::path EngineContext::getAppDataFolder()

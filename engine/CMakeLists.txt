@@ -68,6 +68,7 @@ target_sources(gk_engine PRIVATE
     src/session/Presets.cpp
     src/session/RecentProjects.cpp
     src/session/Session.cpp
+    src/session/Steps.cpp
     src/session/Summary.cpp
     src/session/Transaction.cpp
     src/voice/Transcriber.cpp)
