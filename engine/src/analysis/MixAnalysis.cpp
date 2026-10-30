@@ -13,33 +13,60 @@ namespace
 {
     constexpr float maskingShare = 0.25f;
 
-    struct Source
+    /** The channels heard on their own: every unmuted one (audio channels carry the audio clips). */
+    std::vector<Id> findSources (const Project& project)
     {
-        std::string id;                 // the channel
-        std::function<void (Project&)> isolate;
-    };
-
-    /** Every channel heard on its own; audio channels carry the audio clips. */
-    std::vector<Source> findSources (const Project& project)
-    {
-        std::vector<Source> sources;
+        std::vector<Id> sources;
 
         for (auto& c : project.channels)
-        {
-            if (c.mute)
-                continue;
-
-            sources.push_back ({ c.id, [id = c.id] (Project& p)
-            {
-                for (auto& other : p.channels)
-                {
-                    other.mute = other.id != id;
-                    other.solo = false;
-                }
-            } });
-        }
+            if (! c.mute)
+                sources.push_back (c.id);
 
         return sources;
+    }
+
+    /** The channels with something that can sound before a point: a heard note or audio clip
+        starting before it. What starts earlier can still ring into the range (one-shots play
+        out, releases tail), so only channels whose first sound comes later are ruled out. */
+    std::set<Id> channelsSoundingBefore (const Project& project, Ticks end)
+    {
+        std::set<Id> sounding;
+
+        for (auto& clip : project.playlist.clips)
+        {
+            const auto start = getClipStart (clip);
+
+            if (start >= end || ! isClipAudible (project, clip))
+                continue;
+
+            const auto clipEnd = std::min (end, start + getClipLength (clip));
+
+            if (auto* audio = std::get_if<AudioClip> (&clip))
+            {
+                sounding.insert (audio->channel);
+            }
+            else if (auto* pc = std::get_if<PatternClip> (&clip))
+            {
+                const auto* pattern = findPattern (project, pc->pattern);
+
+                if (pattern == nullptr)
+                    continue;
+
+                // The pattern repeats from the clip's start (less its offset) until the clip ends.
+                const auto length = std::max<TickLength> (1, getPatternLength (*pattern, project.timeSignature));
+
+                for (auto round = start - pc->offset; round < clipEnd; round += length)
+                    for (auto& note : pattern->notes)
+                    {
+                        const auto at = round + note.start;
+
+                        if (at >= start && at < clipEnd)
+                            sounding.insert (note.channel);
+                    }
+            }
+        }
+
+        return sounding;
     }
 
     std::string bandName (const SpectrumBand& b)
@@ -73,14 +100,13 @@ namespace
     struct Renders
     {
         Audio mix;
+        Measurements mixMeasured;      // measured once, for every report
         std::vector<SpectrumBand> mixBands;
         std::vector<Stem> stems;       // the sources that play in the range
     };
 
-    Audio renderAudio (tracktion::Engine& engine, const Project& p, const CompileOptions& compileOptions,
-                       const RenderOptions& renderOptions, const std::filesystem::path& file)
+    Audio renderAudio (const CompiledEdit& compiled, const Project& p, const RenderOptions& renderOptions, const std::filesystem::path& file)
     {
-        auto compiled = compileProject (engine, p, compileOptions);
         renderToWav (compiled, p, file, renderOptions);
         auto audio = loadAudio (file);
         std::filesystem::remove (file);
@@ -96,22 +122,51 @@ namespace
 
         struct Cleanup { std::filesystem::path dir; ~Cleanup() { std::error_code e; std::filesystem::remove_all (dir, e); } } cleanup { dir };
 
+        // The mix and every stem come from one Edit, so instruments and effects are made once:
+        // a stem is the channel's tracks alone unmuted (every channel solo cleared), as compiling
+        // the song with every other channel muted would set them.
+        auto compiled = compileProject (engine, project, compileOptions);
+
         Renders r;
-        r.mix = renderAudio (engine, project, compileOptions, renderOptions, dir / "mix.wav");
-        r.mixBands = bandEnergies (r.mix);
+        r.mix = renderAudio (compiled, project, renderOptions, dir / "mix.wav");
+        r.mixMeasured = measure (r.mix);
+        r.mixBands = r.mixMeasured.bands.energies;
+
+        auto tracksOf = [&] (const Id& channel)
+        {
+            std::vector<tracktion::AudioTrack*> tracks;
+
+            if (auto it = compiled.channelTracks.find (channel); it != compiled.channelTracks.end())
+                tracks.push_back (it->second);
+
+            if (auto it = compiled.audioChannelTracks.find (channel); it != compiled.audioChannelTracks.end())
+                tracks.insert (tracks.end(), it->second.begin(), it->second.end());
+
+            return tracks;
+        };
+
+        // Channels with nothing before the range's end (plus the tail) can't be heard in it.
+        const auto rangeEnd = renderOptions.end.value_or (getSongEnd (project))
+                              + static_cast<Ticks> (std::ceil (renderOptions.tailSeconds * project.tempo / 60.0 * ticksPerQuarter));
+        const auto sounding = channelsSoundingBefore (project, rangeEnd);
         int index = 0;
 
         for (auto& source : findSources (project))
         {
-            auto isolated = project;
-            source.isolate (isolated);
-            auto audio = renderAudio (engine, isolated, compileOptions, renderOptions, dir / ("stem-" + std::to_string (index++) + ".wav"));
+            if (! sounding.contains (source))
+                continue;
+
+            for (auto& c : project.channels)
+                for (auto* track : tracksOf (c.id))
+                    track->setMute (c.id != source);
+
+            auto audio = renderAudio (compiled, project, renderOptions, dir / ("stem-" + std::to_string (index++) + ".wav"));
             const auto peak = peakDb (audio);
 
             if (peak < -90)
                 continue; // the source doesn't play in this range
 
-            r.stems.push_back ({ source.id, bandEnergies (audio), integratedLufs (audio), peak });
+            r.stems.push_back ({ source, bandEnergies (audio), integratedLufs (audio), peak });
         }
 
         return r;
@@ -204,7 +259,7 @@ Json analyseMix (tracktion::Engine& engine, const Project& project, const Compil
         bandNames.push_back (bandName (b));
 
     return {
-        { "mix", analyse (r.mix, true) },
+        { "mix", analyse (r.mix, r.mixMeasured) },
         { "bands", bandNames },
         { "stems", stemJson },
         { "masking", masking },
@@ -355,7 +410,7 @@ Json checkMix (tracktion::Engine& engine, const Project& project, const CompileO
     const auto haveReferences = context.referenceBalance.size() == bandCount;
     std::vector<float> balance;
 
-    for (auto& b : spectralBalance (r.mix))
+    for (auto& b : r.mixMeasured.bands.balance)
         balance.push_back (b.db);
 
     if (haveReferences && balance.size() == bandCount)
@@ -456,7 +511,7 @@ Json checkMix (tracktion::Engine& engine, const Project& project, const CompileO
     return {
         { "problems", problems },
         { "channels", channels },
-        { "mix", { { "integratedLufs", round (integratedLufs (r.mix), 0.1) }, { "truePeakDb", round (truePeakDb (r.mix), 0.1) } } },
+        { "mix", { { "integratedLufs", round (r.mixMeasured.loudness.integrated, 0.1) }, { "truePeakDb", round (r.mixMeasured.truePeakDb, 0.1) } } },
         { "references", haveReferences },
     };
 }

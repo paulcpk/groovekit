@@ -147,88 +147,131 @@ float rmsDb (const Audio& audio, Range range)
     return toDb (std::sqrt (sum / (static_cast<double> (r.getLength()) * channels)));
 }
 
-LoudnessStats measureLoudness (const Audio& audio)
+namespace
 {
-    LoudnessStats stats;
-    const auto channels = audio.buffer.getNumChannels();
-    const auto numSamples = audio.buffer.getNumSamples();
-    const auto sr = audio.sampleRate;
-
-    if (channels == 0 || numSamples < static_cast<int> (0.4 * sr))
-        return stats;
-
-    // Running sum of the K-weighted power over channels (all weights are 1 for up to stereo).
-    std::vector<double> cumulative (static_cast<size_t> (numSamples) + 1, 0.0);
-    std::vector<double> power (static_cast<size_t> (numSamples), 0.0);
-
-    for (int ch = 0; ch < std::min (channels, 2); ++ch)
+    /** The K-weighted power of each 100 ms block, summed over channels (all weights are 1 for up
+        to stereo). BS.1770's windows hop by one block, so each is a sum of whole blocks: 4 for
+        the 400 ms momentary window, 30 for the 3 s short-term one. */
+    struct BlockPowers
     {
-        auto [shelf, highPass] = makeKWeighting (sr);
-        auto* d = audio.buffer.getReadPointer (ch);
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const auto y = highPass.process (shelf.process (d[i]));
-            power[static_cast<size_t> (i)] += y * y;
-        }
-    }
-
-    for (size_t i = 0; i < power.size(); ++i)
-        cumulative[i + 1] = cumulative[i] + power[i];
-
-    auto meanSquares = [&] (double windowSeconds)
-    {
-        const auto window = static_cast<size_t> (std::llround (windowSeconds * sr));
-        const auto hop = static_cast<size_t> (std::llround (0.1 * sr));
-        std::vector<double> values;
-
-        for (size_t start = 0; start + window <= power.size(); start += hop)
-            values.push_back ((cumulative[start + window] - cumulative[start]) / static_cast<double> (window));
-
-        return values;
+        std::vector<double> blocks;
+        size_t hop = 0;         // samples per block
     };
 
-    auto loudness = [] (double meanSquare) { return meanSquare > 0 ? -0.691 + 10.0 * std::log10 (meanSquare) : -1000.0; };
+    BlockPowers kWeightedBlocks (const Audio& audio)
+    {
+        BlockPowers result;
+        const auto channels = audio.buffer.getNumChannels();
+        const auto sr = audio.sampleRate;
+        result.hop = static_cast<size_t> (std::max<long long> (0, std::llround (0.1 * sr)));
 
-    auto gatedMean = [&] (const std::vector<double>& blocks, double threshold) -> std::optional<double>
+        if (channels == 0 || result.hop == 0)
+            return result;
+
+        const auto count = static_cast<size_t> (audio.buffer.getNumSamples()) / result.hop;
+        result.blocks.assign (count, 0.0);
+
+        for (int ch = 0; ch < std::min (channels, 2); ++ch)
+        {
+            auto [shelf, highPass] = makeKWeighting (sr);
+            auto* d = audio.buffer.getReadPointer (ch);
+
+            for (size_t b = 0; b < count; ++b)
+            {
+                double sum = 0;
+
+                for (size_t i = b * result.hop; i < (b + 1) * result.hop; ++i)
+                {
+                    const auto y = highPass.process (shelf.process (d[i]));
+                    sum += y * y;
+                }
+
+                result.blocks[b] += sum;
+            }
+        }
+
+        return result;
+    }
+
+    /** The mean square of every window of n blocks, hopping by one block. */
+    std::vector<double> windowMeans (const BlockPowers& p, size_t n)
+    {
+        std::vector<double> values;
+
+        if (n == 0 || p.blocks.size() < n)
+            return values;
+
+        const auto window = static_cast<double> (n * p.hop);
+
+        for (size_t start = 0; start + n <= p.blocks.size(); ++start)
+        {
+            double sum = 0;
+
+            for (size_t k = 0; k < n; ++k)
+                sum += p.blocks[start + k];
+
+            values.push_back (sum / window);
+        }
+
+        return values;
+    }
+
+    double loudnessOf (double meanSquare)
+    {
+        return meanSquare > 0 ? -0.691 + 10.0 * std::log10 (meanSquare) : -1000.0;
+    }
+
+    std::optional<double> gatedMean (const std::vector<double>& blocks, double threshold)
     {
         double sum = 0;
         int count = 0;
 
         for (auto z : blocks)
-            if (loudness (z) > threshold)
+            if (loudnessOf (z) > threshold)
             {
                 sum += z;
                 ++count;
             }
 
         return count > 0 ? std::optional (sum / count) : std::nullopt;
-    };
+    }
 
-    // Integrated (BS.1770-4): 400 ms blocks, absolute gate -70 LUFS, relative gate -10 LU.
-    const auto momentary = meanSquares (0.4);
+    /** Integrated (BS.1770-4): 400 ms blocks, absolute gate -70 LUFS, relative gate -10 LU. */
+    void measureIntegrated (const BlockPowers& powers, LoudnessStats& stats)
+    {
+        const auto momentary = windowMeans (powers, 4);
 
-    for (auto z : momentary)
-        stats.momentaryMax = std::max (stats.momentaryMax, static_cast<float> (loudness (z)));
+        for (auto z : momentary)
+            stats.momentaryMax = std::max (stats.momentaryMax, static_cast<float> (loudnessOf (z)));
 
-    if (auto absolute = gatedMean (momentary, -70.0))
-        if (auto relative = gatedMean (momentary, loudness (*absolute) - 10.0))
-            stats.integrated = static_cast<float> (loudness (*relative));
+        if (auto absolute = gatedMean (momentary, -70.0))
+            if (auto relative = gatedMean (momentary, loudnessOf (*absolute) - 10.0))
+                stats.integrated = static_cast<float> (loudnessOf (*relative));
+
+        if (stats.momentaryMax < -200) stats.momentaryMax = silenceDb;
+    }
+}
+
+LoudnessStats measureLoudness (const Audio& audio)
+{
+    LoudnessStats stats;
+    const auto powers = kWeightedBlocks (audio);
+    measureIntegrated (powers, stats);
 
     // Short-term (3 s) and loudness range (EBU Tech 3342): relative gate -20 LU, 10th to 95th percentile.
-    const auto shortTerm = meanSquares (3.0);
+    const auto shortTerm = windowMeans (powers, 30);
     std::vector<double> gated;
 
     for (auto z : shortTerm)
-        stats.shortTermMax = std::max (stats.shortTermMax, static_cast<float> (loudness (z)));
+        stats.shortTermMax = std::max (stats.shortTermMax, static_cast<float> (loudnessOf (z)));
 
     if (auto absolute = gatedMean (shortTerm, -70.0))
     {
-        const auto threshold = loudness (*absolute) - 20.0;
+        const auto threshold = loudnessOf (*absolute) - 20.0;
 
         for (auto z : shortTerm)
-            if (loudness (z) > threshold)
-                gated.push_back (loudness (z));
+            if (loudnessOf (z) > threshold)
+                gated.push_back (loudnessOf (z));
     }
 
     if (gated.size() >= 2)
@@ -238,7 +281,6 @@ LoudnessStats measureLoudness (const Audio& audio)
         stats.range = static_cast<float> (percentile (0.95) - percentile (0.10));
     }
 
-    if (stats.momentaryMax < -200) stats.momentaryMax = silenceDb;
     if (stats.shortTermMax < -200) stats.shortTermMax = silenceDb;
 
     return stats;
@@ -246,7 +288,9 @@ LoudnessStats measureLoudness (const Audio& audio)
 
 float integratedLufs (const Audio& audio)
 {
-    return measureLoudness (audio).integrated;
+    LoudnessStats stats;
+    measureIntegrated (kWeightedBlocks (audio), stats);
+    return stats.integrated;
 }
 
 float truePeakDb (const Audio& audio)
@@ -278,11 +322,9 @@ float truePeakDb (const Audio& audio)
     return toDb (peak);
 }
 
-namespace
+/** Band power summed over the whole file: absolute, and as a share of the total. */
+Bands measureBands (const Audio& audio)
 {
-    /** Band power summed over the whole file: absolute, or as a share of the total. */
-    std::vector<SpectrumBand> measureBands (const Audio& audio, bool relative)
-    {
     const auto& edges = bandEdges();
 
     constexpr int order = 12, size = 1 << order, hop = size / 2;
@@ -327,18 +369,22 @@ namespace
             }
     }
 
-    std::vector<SpectrumBand> bands;
+    Bands bands;
     const auto frames = std::max (1.0, static_cast<double> (n) / hop);
+
+    auto band = [&] (size_t b, double reference)
+    {
+        return SpectrumBand { edges[b].first, edges[b].second,
+                              reference > 0 && bandPower[b] > 0 ? static_cast<float> (10.0 * std::log10 (bandPower[b] / reference)) : silenceDb };
+    };
 
     for (size_t b = 0; b < edges.size(); ++b)
     {
-        const auto reference = relative ? total : frames * size;
-        bands.push_back ({ edges[b].first, edges[b].second,
-                           reference > 0 && bandPower[b] > 0 ? static_cast<float> (10.0 * std::log10 (bandPower[b] / reference)) : silenceDb });
+        bands.energies.push_back (band (b, frames * size));
+        bands.balance.push_back (band (b, total));
     }
 
     return bands;
-    }
 }
 
 const std::vector<std::pair<double, double>>& bandEdges()
@@ -353,12 +399,17 @@ const std::vector<std::pair<double, double>>& bandEdges()
 
 std::vector<SpectrumBand> spectralBalance (const Audio& audio)
 {
-    return measureBands (audio, true);
+    return measureBands (audio).balance;
 }
 
 std::vector<SpectrumBand> bandEnergies (const Audio& audio)
 {
-    return measureBands (audio, false);
+    return measureBands (audio).energies;
+}
+
+Measurements measure (const Audio& audio)
+{
+    return { measureLoudness (audio), truePeakDb (audio), measureBands (audio) };
 }
 
 StereoStats measureStereo (const Audio& audio)
@@ -428,52 +479,71 @@ std::vector<double> detectOnsets (const Audio& audio, float thresholdDb, double 
     return onsets;
 }
 
-model::Json analyse (const Audio& audio, bool detailed)
+namespace
 {
     // Dividing by a whole number gives the closest double to the rounded decimal (e.g. -6.02, not -6.0200000000000005).
-    auto round = [] (double v, double step) { const auto k = std::round (1.0 / step); return std::round (v * k) / k; };
+    double roundTo (double v, double step)
+    {
+        const auto k = std::round (1.0 / step);
+        return std::round (v * k) / k;
+    }
 
-    auto onsets = model::Json::array();
+    /** The summary every analysis gives, with the peak and RMS it measured on the way. */
+    model::Json summarise (const Audio& audio, float integratedLufs, float& peak, float& rms)
+    {
+        auto onsets = model::Json::array();
 
-    for (auto t : detectOnsets (audio))
-        onsets.push_back (round (t, 0.0001));
+        for (auto t : detectOnsets (audio))
+            onsets.push_back (roundTo (t, 0.0001));
 
-    const auto loudness = measureLoudness (audio);
-    const auto peak = peakDb (audio);
-    const auto rms = rmsDb (audio);
+        peak = peakDb (audio);
+        rms = rmsDb (audio);
 
-    model::Json result {
-        { "sampleRate", audio.sampleRate },
-        { "channels", audio.buffer.getNumChannels() },
-        { "durationSeconds", round (audio.getDurationSeconds(), 0.0001) },
-        { "peakDb", round (peak, 0.01) },
-        { "rmsDb", round (rms, 0.01) },
-        { "integratedLufs", round (loudness.integrated, 0.01) },
-        { "onsets", onsets },
-    };
+        return {
+            { "sampleRate", audio.sampleRate },
+            { "channels", audio.buffer.getNumChannels() },
+            { "durationSeconds", roundTo (audio.getDurationSeconds(), 0.0001) },
+            { "peakDb", roundTo (peak, 0.01) },
+            { "rmsDb", roundTo (rms, 0.01) },
+            { "integratedLufs", roundTo (integratedLufs, 0.01) },
+            { "onsets", onsets },
+        };
+    }
+}
 
-    if (! detailed)
-        return result;
+model::Json analyse (const Audio& audio, bool detailed)
+{
+    if (detailed)
+        return analyse (audio, measure (audio));
 
-    result["truePeakDb"] = round (truePeakDb (audio), 0.01);
-    result["crestDb"] = round (peak - rms, 0.1);
-    result["momentaryMaxLufs"] = round (loudness.momentaryMax, 0.1);
-    result["shortTermMaxLufs"] = round (loudness.shortTermMax, 0.1);
-    result["loudnessRangeLu"] = round (loudness.range, 0.1);
+    float peak, rms;
+    return summarise (audio, integratedLufs (audio), peak, rms);
+}
+
+model::Json analyse (const Audio& audio, const Measurements& measured)
+{
+    float peak, rms;
+    auto result = summarise (audio, measured.loudness.integrated, peak, rms);
+
+    result["truePeakDb"] = roundTo (measured.truePeakDb, 0.01);
+    result["crestDb"] = roundTo (peak - rms, 0.1);
+    result["momentaryMaxLufs"] = roundTo (measured.loudness.momentaryMax, 0.1);
+    result["shortTermMaxLufs"] = roundTo (measured.loudness.shortTermMax, 0.1);
+    result["loudnessRangeLu"] = roundTo (measured.loudness.range, 0.1);
 
     auto spectrum = model::Json::array();
 
-    for (auto& band : spectralBalance (audio))
-        spectrum.push_back ({ { "fromHz", band.fromHz }, { "toHz", band.toHz }, { "db", round (band.db, 0.1) } });
+    for (auto& band : measured.bands.balance)
+        spectrum.push_back ({ { "fromHz", band.fromHz }, { "toHz", band.toHz }, { "db", roundTo (band.db, 0.1) } });
 
     result["spectrum"] = spectrum;
 
     if (audio.buffer.getNumChannels() >= 2)
     {
         auto stereo = measureStereo (audio);
-        result["stereo"] = { { "correlation", round (stereo.correlation, 0.01) },
-                             { "lowCorrelation", round (stereo.lowCorrelation, 0.01) },
-                             { "sideToMidDb", round (stereo.sideToMidDb, 0.1) } };
+        result["stereo"] = { { "correlation", roundTo (stereo.correlation, 0.01) },
+                             { "lowCorrelation", roundTo (stereo.lowCorrelation, 0.01) },
+                             { "sideToMidDb", roundTo (stereo.sideToMidDb, 0.1) } };
     }
 
     return result;

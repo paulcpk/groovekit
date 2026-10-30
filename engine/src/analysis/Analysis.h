@@ -50,7 +50,8 @@ struct LoudnessStats
 
 LoudnessStats measureLoudness (const Audio&);
 
-/** Integrated loudness per ITU-R BS.1770-4 / EBU R128, in LUFS. Returns silenceDb if everything is gated. */
+/** Integrated loudness per ITU-R BS.1770-4 / EBU R128, in LUFS. Returns silenceDb if everything is
+    gated. Cheaper than measureLoudness when the other statistics aren't needed. */
 float integratedLufs (const Audio&);
 
 /** Peak including inter-sample peaks (4x oversampled), in dBTP. */
@@ -71,6 +72,25 @@ std::vector<SpectrumBand> spectralBalance (const Audio&);
 /** The same bands as absolute energy (mean power in dB), so different files can be compared. */
 std::vector<SpectrumBand> bandEnergies (const Audio&);
 
+/** Both band measurements from one pass over the file. */
+struct Bands
+{
+    std::vector<SpectrumBand> energies;     // as bandEnergies gives them
+    std::vector<SpectrumBand> balance;      // as spectralBalance gives them
+};
+
+Bands measureBands (const Audio&);
+
+/** What a detailed analysis measures, for callers that need the numbers as well as the report. */
+struct Measurements
+{
+    LoudnessStats loudness;
+    float truePeakDb = silenceDb;
+    Bands bands;
+};
+
+Measurements measure (const Audio&);
+
 struct StereoStats
 {
     float correlation = 1;      // 1 mono, 0 unrelated, negative out of phase
@@ -86,5 +106,8 @@ std::vector<double> detectOnsets (const Audio&, float thresholdDb = -40.0f, doub
 /** Summary used by the CLI, the API and the render tests. Detailed adds true peak, loudness
     statistics, spectral balance and stereo measurements. */
 model::Json analyse (const Audio&, bool detailed = false);
+
+/** The detailed summary from measurements taken already. */
+model::Json analyse (const Audio&, const Measurements&);
 
 } // namespace gk::analysis
