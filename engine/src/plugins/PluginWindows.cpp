@@ -1,5 +1,7 @@
 #include "PluginWindows.h"
 
+#include "WindowOrder.h"
+
 namespace gk
 {
 
@@ -561,11 +563,17 @@ std::unique_ptr<juce::Component> PluginWindowBehaviour::createPluginWindow (te::
     if (! window->hasEditor())
         return {};
 
-    // The engine is a background process; bring the window to the front of the desktop.
-    juce::Process::makeForegroundProcess();
-    window->setVisible (true);
-    window->toFront (true);
+    bringToFront (*window);
     return window;
+}
+
+void PluginWindowBehaviour::bringToFront (juce::Component& window)
+{
+    window.setVisible (true);
+    window.toFront (false);
+
+    if (auto* peer = window.getPeer())
+        orderFrontRegardless (peer->getNativeHandle());
 }
 
 void PluginWindowBehaviour::recreatePluginWindowContentAsync (te::Plugin& plugin)

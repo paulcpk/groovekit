@@ -4,6 +4,7 @@
 #include "live/AudioDevices.h"
 #include "compiler/EditGraveyard.h"
 #include "live/MidiClockPlugin.h"
+#include "plugins/PluginWindows.h"
 #include "mixer/EffectMix.h"
 #include "mixer/FaderPlugin.h"
 #include "analysis/Analysis.h"
@@ -795,7 +796,13 @@ bool LiveEngine::showPluginWindow (const std::string& key, bool show)
         return false;
 
     if (show)
+    {
         external->windowState->showWindowExplicitly();
+
+        // A window already open may be behind the UI's, which is another app's.
+        if (auto* window = external->windowState->pluginWindow.get())
+            PluginWindowBehaviour::bringToFront (*window);
+    }
     else
         external->windowState->closeWindowExplicitly();
 

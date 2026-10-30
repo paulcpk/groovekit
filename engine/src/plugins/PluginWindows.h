@@ -38,6 +38,9 @@ public:
     std::unique_ptr<juce::Component> createPluginWindow (tracktion::PluginWindowState&) override;
     void recreatePluginWindowContentAsync (tracktion::Plugin&) override;
 
+    /** Shows a plugin's window in front of every app's windows, the UI's too (see orderFrontRegardless). */
+    static void bringToFront (juce::Component& window);
+
     /** Called on the message thread after the user closes a plugin's window. */
     static inline std::function<void (tracktion::Plugin&)> onWindowClosed;
 

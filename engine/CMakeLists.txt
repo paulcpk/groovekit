@@ -57,6 +57,7 @@ target_sources(gk_engine PRIVATE
     src/model/Project.cpp
     src/plugins/PluginCatalog.cpp
     src/plugins/PluginWindows.cpp
+    src/plugins/WindowOrder.mm
     src/render/Encode.cpp
     src/render/Render.cpp
     src/render/Stretch.cpp
@@ -96,7 +97,7 @@ target_include_directories(gk_engine SYSTEM PUBLIC "${onnxruntime_SOURCE_DIR}/in
 target_sources(gk_engine PRIVATE "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
 target_include_directories(gk_engine PRIVATE "${rubberband_SOURCE_DIR}")
 set_source_files_properties("${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp" PROPERTIES COMPILE_OPTIONS "-w")
-set_source_files_properties("${guides_cpp}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+set_source_files_properties("${guides_cpp}" src/plugins/WindowOrder.mm PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 gk_optimise_third_party()
 
 # The heavy headers every engine file includes, compiled once: Tracktion (with JUCE) and JSON.
