@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
-import { engine, useEngine } from "@/state/engine";
+import { engine, listen, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
 /** When a note played from here (the typing keyboard, or pressing a sampler's wave) last started
@@ -37,7 +37,8 @@ function keyFor(key: string, octave: number) {
   return undefined;
 }
 
-/** With the typing keyboard on, letter keys play notes instead of shortcuts; - and = shift the octave. */
+/** With the typing keyboard on, letter keys play notes instead of shortcuts; - and = shift the octave.
+    Keys typed in a plugin's window come from the engine, whose window that is. */
 export function useTypingKeyboard() {
   const on = useUi((s) => s.typingKeyboard);
 
@@ -50,31 +51,25 @@ export function useTypingKeyboard() {
       return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
     };
 
-    const down = (e: KeyboardEvent) => {
-      if (typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
-      const k = e.key.toLowerCase();
+    /** Whether the key is the typing keyboard's (then it's used up). */
+    const press = (k: string, repeat: boolean) => {
       const octave = useUi.getState().typingOctave;
 
       if (k === "-" || k === "=") {
-        e.preventDefault();
-        e.stopImmediatePropagation();
         setUi({ typingOctave: Math.max(0, Math.min(8, octave + (k === "=" ? 1 : -1))) });
-        return;
+        return true;
       }
 
       const note = keyFor(k, octave);
-      if (note === undefined) return;
-      // Ahead of the shortcuts (registered for the bubbling phase), which never see these keys.
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (e.repeat || held.has(k)) return;
+      if (note === undefined) return false;
+      if (repeat || held.has(k)) return true;
       held.set(k, note);
       notePlayed(true);
       void engine.call("live.noteOn", { key: note, velocity: 100 }).catch(() => {});
+      return true;
     };
 
-    const up = (e: KeyboardEvent) => {
-      const k = e.key.toLowerCase();
+    const lift = (k: string) => {
       const note = held.get(k);
       if (note === undefined) return;
       held.delete(k);
@@ -82,16 +77,35 @@ export function useTypingKeyboard() {
       void engine.call("live.noteOff", { key: note }).catch(() => {});
     };
 
+    const down = (e: KeyboardEvent) => {
+      if (typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Ahead of the shortcuts (registered for the bubbling phase), which never see these keys.
+      if (press(e.key.toLowerCase(), e.repeat)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    };
+
+    const up = (e: KeyboardEvent) => lift(e.key.toLowerCase());
+
     const release = () => {
+      if (!held.size) return;
       for (const note of held.values()) void engine.call("live.noteOff", { key: note }).catch(() => {});
       held.clear();
+      notePlayed(false);
     };
+
+    const stopListening = listen("typingKey", ({ key, down }: { key: string; down: boolean }) => {
+      if (down) press(key, false);
+      else lift(key);
+    });
 
     window.addEventListener("keydown", down, true);
     window.addEventListener("keyup", up, true);
     window.addEventListener("blur", release);
     return () => {
       release();
+      stopListening();
       window.removeEventListener("keydown", down, true);
       window.removeEventListener("keyup", up, true);
       window.removeEventListener("blur", release);

@@ -20,6 +20,10 @@ struct PluginWindowHost
 
     /** Asks the UI to make an automation clip for a parameter, starting at a value. */
     std::function<void (const model::AutomationTarget&, double value)> createAutomation;
+
+    /** A key typed in a plugin's window, pressed or released, for the UI's typing keyboard: the
+        window is the engine's, so the UI's own window never sees these keys. */
+    std::function<void (const std::string& key, bool down)> typedKey;
 };
 
 /** Opens hosted plugins' own editors in native windows (Tracktion asks its UIBehaviour for them),

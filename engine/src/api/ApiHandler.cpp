@@ -162,6 +162,11 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
                 if (broadcast)
                     broadcast (notification ("createAutomation", { { "target", model::toJson (target) }, { "value", value } }).dump());
             },
+            .typedKey = [this] (const std::string& key, bool down)
+            {
+                if (broadcast)
+                    broadcast (notification ("typingKey", { { "key", key }, { "down", down } }).dump());
+            },
         };
 
     listenerId = session.addListener ([this] (const Change& change)

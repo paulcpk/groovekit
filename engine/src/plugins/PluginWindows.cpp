@@ -428,6 +428,7 @@ namespace
 
         ~PluginWindow() override
         {
+            releaseKeys (true);
             trackBounds = false;
             plugin.edit.flushPluginStateIfNeeded (plugin);
             setEditor (nullptr);
@@ -441,10 +442,66 @@ namespace
 
         bool hasEditor() const { return frame != nullptr && frame->editor != nullptr; }
 
+        // Keys nothing in the window used (a text field keeps its own) go to the typing keyboard,
+        // which plays the selected channel as it does in the UI's window.
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            const auto mods = key.getModifiers();
+            const auto c = juce::CharacterFunctions::toLowerCase (key.getTextCharacter());
+
+            if (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown() || c <= ' ' || c > '~' || ! PluginWindowBehaviour::host.typedKey)
+                return false;
+
+            const auto code = key.getKeyCode();
+
+            if (std::find_if (held.begin(), held.end(), [code] (auto& h) { return h.first == code; }) == held.end())
+            {
+                held.push_back ({ code, std::string (1, static_cast<char> (c)) });
+                PluginWindowBehaviour::host.typedKey (held.back().second, true);
+            }
+
+            return true;
+        }
+
+        bool keyStateChanged (bool isKeyDown) override
+        {
+            if (! isKeyDown)
+                releaseKeys (false);
+
+            return false;
+        }
+
+        void activeWindowStatusChanged() override
+        {
+            DocumentWindow::activeWindowStatusChanged();
+
+            if (! isActiveWindow())
+                releaseKeys (true);
+        }
+
     private:
         te::Plugin& plugin;
         std::unique_ptr<Frame> frame;
         bool trackBounds = false;
+        std::vector<std::pair<int, std::string>> held;     // key codes typed here, and their characters
+
+        void releaseKeys (bool all)
+        {
+            for (auto it = held.begin(); it != held.end();)
+            {
+                if (all || ! juce::KeyPress::isKeyCurrentlyDown (it->first))
+                {
+                    if (PluginWindowBehaviour::host.typedKey)
+                        PluginWindowBehaviour::host.typedKey (it->second, false);
+
+                    it = held.erase (it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+        }
 
         void setEditor (std::unique_ptr<te::Plugin::EditorComponent> e)
         {

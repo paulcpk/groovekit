@@ -19,7 +19,7 @@ On connect the engine sends a `snapshot` notification with the full document. Af
 
 While the listening models download, the library is heard or reference songs are heard into maps (and when a map or a choice changes), `listening` notifications carry the same status as `listening.status`.
 
-While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second. While there's signal, `levels` notifications (`{ inserts: { id: [left, right] }, channels: { id: peak } }`, linear peaks since the last one) arrive at the same rate, and once more when it stops. When "Automate" is pressed in the bar above a plugin's window, a `createAutomation` notification (`{ target, value }`) asks the UI to make the automation clip.
+While playing, `transport` notifications (`{ playing, recording, position, seconds }`) arrive about 30 times a second. While there's signal, `levels` notifications (`{ inserts: { id: [left, right] }, channels: { id: peak } }`, linear peaks since the last one) arrive at the same rate, and once more when it stops. When "Automate" is pressed in the bar above a plugin's window, a `createAutomation` notification (`{ target, value }`) asks the UI to make the automation clip. Keys typed in a plugin's window (which the UI's window never sees) arrive as `typingKey` notifications (`{ key, down }`, the key's character in lower case) for the UI's typing keyboard.
 
 A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<pid>.json` (`{ url, port, pid, project }`, rewritten when it opens another project), so other clients can connect to it rather than start another engine on the same project; an engine refuses to serve a project another one serves.
 

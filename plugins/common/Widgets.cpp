@@ -227,6 +227,9 @@ Keyboard::Keyboard (juce::MidiKeyboardState& state, const Theme& t) : MidiKeyboa
     setColour (mouseOverKeyOverlayColourId, juce::Colours::transparentBlack);
     setColour (keyDownOverlayColourId, juce::Colours::transparentBlack);
     setScrollButtonsVisible (false);
+
+    // Played with the mouse; typed keys are left to the host (and its own typing keyboard).
+    setWantsKeyboardFocus (false);
 }
 
 void Keyboard::drawWhiteNote (int note, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver, juce::Colour, juce::Colour)
