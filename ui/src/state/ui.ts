@@ -36,9 +36,9 @@ export interface UiState {
   recordOpen: boolean;
   projectDialog?: "new" | "open" | "saveAs";
   exportOpen: boolean;
-  /** The computer keyboard plays the selected channel (Z row from C of this octave, Q row an octave up). */
+  /** The computer keyboard plays the selected channel (Z row from C of this octave, Q row an octave up; 3 by default, so Z is C3). */
   typingKeyboard: boolean;
-  keyboardOctave: number;
+  typingOctave: number;
   /** Recorded notes snap to this grid (ticks); 0 keeps them as played. */
   recordQuantize: number;
   /** How a loop dropped onto the playlist fits the song (one-shots play as recorded). */
@@ -76,7 +76,7 @@ export const useUi = create<UiState>(() => ({
   recordOpen: false,
   exportOpen: false,
   typingKeyboard: false,
-  keyboardOctave: 4,
+  typingOctave: 3,
   recordQuantize: 0,
   looping: false,
   loopDrop: "stretch",
@@ -85,7 +85,7 @@ export const useUi = create<UiState>(() => ({
 
 const persisted: (keyof UiState)[] = [
   "sidebarTab", "sidebarOpen", "bottomPanel", "bottomOpen", "bottomHeight", "sidebarWidth",
-  "rackView", "playlistZoom", "rowHeight", "snap", "pianoZoom", "pianoKeyHeight", "pianoSnap", "followPlayhead", "typingKeyboard", "keyboardOctave", "recordQuantize", "loopDrop",
+  "rackView", "playlistZoom", "rowHeight", "snap", "pianoZoom", "pianoKeyHeight", "pianoSnap", "followPlayhead", "typingKeyboard", "typingOctave", "recordQuantize", "loopDrop",
 ];
 
 function save(state: UiState) {

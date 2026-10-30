@@ -68,8 +68,8 @@ function TransportButtons() {
   // Only what the buttons show: the transport reports its position thirty times a second.
   const { playing, recording, mode, metronome, countInBars = 0 } = useEngine(useShallow((s) =>
     ({ playing: s.transport.playing, recording: s.transport.recording, mode: s.transport.mode, metronome: s.transport.metronome, countInBars: s.transport.countInBars })));
-  const { looping, typingKeyboard, keyboardOctave, recordQuantize } = useUi(useShallow((s) =>
-    ({ looping: s.looping, typingKeyboard: s.typingKeyboard, keyboardOctave: s.keyboardOctave, recordQuantize: s.recordQuantize })));
+  const { looping, typingKeyboard, typingOctave, recordQuantize } = useUi(useShallow((s) =>
+    ({ looping: s.looping, typingKeyboard: s.typingKeyboard, typingOctave: s.typingOctave, recordQuantize: s.recordQuantize })));
 
   return (
     <div className="flex items-center gap-0.5" data-tour="transport">
@@ -105,7 +105,7 @@ function TransportButtons() {
           ))}
         </DropdownContent>
       </Dropdown>
-      <IconButton title={typingKeyboard ? `Typing keyboard on (octave ${keyboardOctave}; - and = change it): letters play the selected channel` : "Typing keyboard: play the selected channel with the letter keys"}
+      <IconButton title={typingKeyboard ? `Typing keyboard on (octave ${typingOctave}; - and = change it): letters play the selected channel` : "Typing keyboard: play the selected channel with the letter keys"}
         active={typingKeyboard} tone="accent" onClick={() => setUi({ typingKeyboard: !typingKeyboard })}>
         <KeyboardMusic size={14} />
       </IconButton>

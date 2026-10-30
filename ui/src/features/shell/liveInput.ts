@@ -53,12 +53,12 @@ export function useTypingKeyboard() {
     const down = (e: KeyboardEvent) => {
       if (typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
-      const octave = useUi.getState().keyboardOctave;
+      const octave = useUi.getState().typingOctave;
 
       if (k === "-" || k === "=") {
         e.preventDefault();
         e.stopImmediatePropagation();
-        setUi({ keyboardOctave: Math.max(0, Math.min(8, octave + (k === "=" ? 1 : -1))) });
+        setUi({ typingOctave: Math.max(0, Math.min(8, octave + (k === "=" ? 1 : -1))) });
         return;
       }
 
