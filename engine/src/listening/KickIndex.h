@@ -64,7 +64,10 @@ private:
     std::atomic<bool> cancel { false };
 
     void load();
-    void save() const;  // with the mutex held
+
+    /** Writes the file: takes the mutex only to snapshot the entries, so it mustn't be held
+        (only the measuring thread saves, so two saves never overlap). */
+    void save() const;
 };
 
 } // namespace gk::listening

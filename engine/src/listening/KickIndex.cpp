@@ -45,9 +45,9 @@ void KickIndex::load()
         if (j.value ("version", 0) != fileVersion)
             return;
 
-        const auto samples = j.value ("samples", Json::object());
+        const auto samples = j.value ("samples", Json::array());
 
-        for (auto& [path, e] : samples.items())
+        auto add = [&] (const std::string& path, const Json& e)
         {
             Entry entry { e.value ("size", int64_t { 0 }), e.value ("modified", int64_t { 0 }), {} };
 
@@ -55,6 +55,18 @@ void KickIndex::load()
                 entry.sound = KickSound::fromJson (e["sound"]);
 
             entries[path] = std::move (entry);
+        };
+
+        // A list of entries with their paths; files written before that keyed an object by path.
+        if (samples.is_array())
+        {
+            for (auto& e : samples)
+                add (e.value ("path", ""), e);
+        }
+        else
+        {
+            for (auto& [path, e] : samples.items())
+                add (path, e);
         }
     }
     catch (const std::exception&)
@@ -65,16 +77,22 @@ void KickIndex::load()
 
 void KickIndex::save() const
 {
-    Json samples = Json::object();
+    // Written as a list: adding a key to a JSON object that keeps its order looks through every
+    // key it has, which over thousands of samples took longer than measuring them.
+    Json samples = Json::array();
 
-    for (auto& [path, e] : entries)
     {
-        Json j { { "size", e.size }, { "modified", e.modified } };
+        std::lock_guard lock (mutex);
 
-        if (e.sound)
-            j["sound"] = e.sound->toJson();
+        for (auto& [path, e] : entries)
+        {
+            Json j { { "path", path }, { "size", e.size }, { "modified", e.modified } };
 
-        samples[path] = std::move (j);
+            if (e.sound)
+                j["sound"] = e.sound->toJson();
+
+            samples.push_back (std::move (j));
+        }
     }
 
     try
@@ -83,7 +101,7 @@ void KickIndex::save() const
         const auto temp = file.string() + ".tmp";
         {
             std::ofstream out (temp, std::ios::trunc);
-            out << Json { { "version", fileVersion }, { "samples", samples } }.dump();
+            out << Json { { "version", fileVersion }, { "samples", std::move (samples) } }.dump();
         }
         std::filesystem::rename (temp, file);
     }
@@ -194,24 +212,22 @@ void KickIndex::start (std::function<void (const Progress&)> onProgress)
                 entries[todo[i].path] = { todo[i].size, todo[i].modified, sound };
                 ++progress.measured;
                 progress.failed += failed ? 1 : 0;
-
-                if (progress.measured % 200 == 0)
-                    save();
-
                 now = progress;
             }
+
+            if (now.measured % 200 == 0)
+                save();
 
             if (onProgress && (now.measured % 25 == 0 || now.measured == now.total))
                 onProgress (now);
         }
 
+        if (getProgress().measured > 0)
+            save();
+
         Progress now;
         {
             std::lock_guard lock (mutex);
-
-            if (progress.measured > 0)
-                save();
-
             progress.running = false;
             now = progress;
         }
