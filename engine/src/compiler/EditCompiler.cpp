@@ -616,7 +616,8 @@ namespace
             return latency;
         }
 
-        /** A hosted plugin's parameter, by id first, then by name. */
+        /** A hosted plugin's parameter, by id first, then by name: for one lookup, as an
+            automation target's. */
         static te::AutomatableParameter::Ptr findHostedParam (te::Plugin& plugin, const std::string& key)
         {
             for (int pass = 0; pass < 2; ++pass)
@@ -627,6 +628,36 @@ namespace
 
             return {};
         }
+
+        /** The same by id and by name (the first of each where two share one), read once for a
+            plugin's whole list of values: a plugin can have thousands of parameters, and each
+            name is built on request. */
+        struct HostedParams
+        {
+            std::map<std::string, te::AutomatableParameter::Ptr> byId, byName;
+
+            explicit HostedParams (te::Plugin& plugin)
+            {
+                for (int i = 0; i < plugin.getNumAutomatableParameters(); ++i)
+                    if (auto p = plugin.getAutomatableParameter (i))
+                    {
+                        byId.try_emplace (p->paramID.toStdString(), p);
+                        byName.try_emplace (p->getParameterName().toStdString(), p);
+                    }
+            }
+
+            /** By id first, then by name. */
+            te::AutomatableParameter::Ptr find (const std::string& key) const
+            {
+                if (auto it = byId.find (key); it != byId.end())
+                    return it->second;
+
+                if (auto it = byName.find (key); it != byName.end())
+                    return it->second;
+
+                return {};
+            }
+        };
 
         /** Loads a VST3 or AU plugin, then its saved state, then its parameter values. */
         te::Plugin::Ptr createHostedPlugin (const PluginRef& ref, const std::string& owner)
@@ -679,9 +710,11 @@ namespace
                 instance->setCurrentProgram (found);
             }
 
+            const std::optional<HostedParams> hosted = ref.params.empty() ? std::nullopt : std::optional<HostedParams> (*external);
+
             for (auto& [key, value] : ref.params)
             {
-                auto param = findHostedParam (*external, key);
+                auto param = hosted->find (key);
 
                 if (param == nullptr)
                     throw std::runtime_error (owner + ": \"" + ref.name + "\" has no parameter \"" + key + "\"");
