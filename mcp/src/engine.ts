@@ -12,7 +12,18 @@ export class EngineError extends Error {
   }
 }
 
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
+/** How long a call may take before it fails: renders and hearings take a while; nothing takes longer than this. */
+export const DEFAULT_CALL_TIMEOUT_MS = 600_000;
+
+export interface CallOptions {
+  /** Fails the call after this long; the engine keeps working on it. */
+  timeoutMs?: number;
+  /** Fails the call when aborted (the client gave up on the tool), so nothing waits on it. */
+  signal?: AbortSignal;
+}
+
+type Pending = { method: string; resolve: (v: unknown) => void; reject: (e: Error) => void; done: () => void };
+type Listener = (params: any) => void;
 
 export class EngineClient {
   readonly url: string;
@@ -23,6 +34,7 @@ export class EngineClient {
   private connecting: Promise<void> | undefined;
   private nextId = 1;
   private pending = new Map<number, Pending>();
+  private listeners = new Map<string, Set<Listener>>();
 
   constructor(url: string, origin = "agent") {
     this.url = url;
@@ -37,6 +49,7 @@ export class EngineClient {
     this.connecting = new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(this.url);
       let ready = false;
+      const cannot = () => new Error(`Can't connect to the GrooveKit engine at ${this.url}. Is \`groovekit-engine serve\` running?`);
 
       socket.onmessage = (event) => {
         const message = JSON.parse(String(event.data));
@@ -46,27 +59,38 @@ export class EngineClient {
           if (!ready) {
             ready = true;
             this.socket = socket;
-            this.request("hello", { origin: this.origin }).then(() => resolve(), reject);
+            this.request("hello", { origin: this.origin }, {}).then(() => resolve(), reject);
           }
         } else if (message.method === "patch") {
           if (this.document) applyPatch(this.document, message.params.ops);
+        } else if (message.method !== undefined) {
+          for (const listener of this.listeners.get(message.method) ?? []) listener(message.params);
         } else if (message.id !== undefined) {
           const p = this.pending.get(message.id);
           this.pending.delete(message.id);
           if (!p) return;
+          p.done();
           if (message.error) p.reject(new EngineError(message.error.code, message.error.message));
           else p.resolve(message.result);
         }
       };
 
       socket.onerror = () => {
-        if (!ready) reject(new Error(`Can't connect to the GrooveKit engine at ${this.url}. Is \`groovekit-engine serve\` running?`));
+        if (!ready) reject(cannot());
       };
 
       socket.onclose = () => {
-        this.socket = undefined;
-        this.document = undefined;
-        for (const p of this.pending.values()) p.reject(new Error("The engine connection closed"));
+        // Closed before the snapshot (the engine refused or died while starting): the connect fails
+        // instead of leaving every later call waiting on it.
+        if (!ready) reject(cannot());
+        if (this.socket === socket) {
+          this.socket = undefined;
+          this.document = undefined;
+        }
+        for (const p of this.pending.values()) {
+          p.done();
+          p.reject(new Error("The engine connection closed"));
+        }
         this.pending.clear();
       };
     }).finally(() => {
@@ -76,19 +100,49 @@ export class EngineClient {
     return this.connecting;
   }
 
-  async call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  async call<T = unknown>(method: string, params: Record<string, unknown> = {}, options: CallOptions = {}): Promise<T> {
     await this.connect();
-    return this.request(method, params) as Promise<T>;
+    return this.request(method, params, options) as Promise<T>;
+  }
+
+  /** Listens to the engine's notifications of one kind (docs/protocol.md), e.g. "picks"; returns the unsubscribe. */
+  on(method: string, listener: Listener): () => void {
+    let set = this.listeners.get(method);
+    if (!set) this.listeners.set(method, (set = new Set()));
+    set.add(listener);
+    return () => {
+      set.delete(listener);
+    };
   }
 
   close() {
     this.socket?.close();
   }
 
-  private request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private request(method: string, params: Record<string, unknown>, options: CallOptions): Promise<unknown> {
     const id = this.nextId++;
+    const { timeoutMs = DEFAULT_CALL_TIMEOUT_MS, signal } = options;
+
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const fail = (error: Error) => {
+        if (!this.pending.delete(id)) return;
+        done();
+        reject(error);
+      };
+      const onAbort = () => fail(new Error(`${method} was cancelled`));
+      const timer = setTimeout(() => fail(new Error(`The engine didn't answer ${method} within ${Math.round(timeoutMs / 1000)} s`)), timeoutMs);
+      const done = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+      };
+
+      if (signal?.aborted) {
+        clearTimeout(timer);
+        reject(new Error(`${method} was cancelled`));
+        return;
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.pending.set(id, { method, resolve, reject, done });
       this.socket!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
     });
   }

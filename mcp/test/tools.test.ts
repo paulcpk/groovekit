@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { applyPatch, EngineClient } from "../src/engine.ts";
 import { fileReference } from "../src/reference-files.ts";
 import { GroupTracker, instructions, registerTools } from "../src/tools.ts";
+import { bounded } from "../src/tools/shared.ts";
 
 const repo = resolve(import.meta.dirname, "..", "..");
 const enginePath = process.env.GROOVEKIT_ENGINE ?? join(repo, "build", "dev", "engine", "groovekit-engine");
@@ -189,5 +190,16 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     const schema = await client.callTool({ name: "get_schema", arguments: {} });
     expect((schema as any).content[0].text).toContain("export interface Channel");
     expect((await call("list_effects")).value.compressor.params.thresholdDb.unit).toBe("dB");
+  });
+});
+
+describe("bounded", () => {
+  it("cuts long arrays anywhere and says how to read on", () => {
+    const notes = Array.from({ length: 5 }, (_, i) => ({ start: i }));
+    const doc = { patterns: [{ id: "a", notes }], tempo: 128 };
+    const cut = bounded(doc, "", 0, 2) as any;
+    expect(cut.tempo).toBe(128);
+    expect(cut.patterns[0].notes).toEqual([{ start: 0 }, { start: 1 }, { truncated: 3, next: "get_project path /patterns/0/notes offset 2" }]);
+    expect(bounded(notes, "/patterns/0/notes", 3, 2)).toEqual([{ start: 3 }, { start: 4 }]);
   });
 });

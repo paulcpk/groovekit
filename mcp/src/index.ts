@@ -81,6 +81,7 @@ if (!sharedUrl) {
   engineProcess = spawn(enginePath, ["serve", project, "--port", port, "--parent-pid", String(process.pid)],
                         { stdio: ["ignore", "pipe", "inherit"] });
   engineProcess.stdout?.pipe(process.stderr);
+  engineProcess.on("error", (e) => console.error(`groovekit-engine couldn't start from ${enginePath}: ${e.message}`));
   engineProcess.on("exit", (code) => console.error(`groovekit-engine exited (${code})`));
 }
 
@@ -89,7 +90,7 @@ const engine = new EngineClient(url, "agent");
 
 if (engineProcess) {
   // Give the engine time to start listening (loading a large sample library index takes a few seconds).
-  for (let i = 0; i < 300; i++) {
+  for (let i = 0; i < 300 && engineProcess.exitCode === null; i++) {
     try {
       await engine.connect();
       break;
