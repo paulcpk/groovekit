@@ -23,10 +23,7 @@ struct ApiServer::Impl
             ws->setOnMessageCallback ([this, alive, weak, id = state->getId()] (const ix::WebSocketMessagePtr& msg)
             {
                 // Runs on a network thread: hand the work to the message thread.
-                auto type = msg->type;
-                auto text = msg->str;
-
-                juce::MessageManager::callAsync ([this, alive, weak, id, type, text]
+                juce::MessageManager::callAsync ([this, alive, weak, id, type = msg->type, text = std::move (msg->str)]
                 {
                     if (*alive)
                         handle (weak, id, type, text);
@@ -40,7 +37,9 @@ struct ApiServer::Impl
     ~Impl()
     {
         *alive = false;
-        handler->setBroadcast ({});
+
+        if (handler != nullptr)
+            handler->setBroadcast ({});
     }
 
     void attach()
@@ -73,12 +72,15 @@ struct ApiServer::Impl
                     if (auto ws = weak.lock())
                         ws->sendText (message);
                 };
-                client.send (handler->getSnapshotMessage());
+
+                if (handler != nullptr)
+                    client.send (handler->getSnapshotMessage());
+
                 break;
             }
 
             case ix::WebSocketMessageType::Message:
-                if (auto it = clients.find (id); it != clients.end())
+                if (auto it = clients.find (id); it != clients.end() && handler != nullptr)
                     handler->handleMessage (text, it->second);
 
                 break;
@@ -111,6 +113,11 @@ ApiServer::~ApiServer()
 void ApiServer::setHandler (ApiHandler& handler)
 {
     impl->setHandler (handler);
+}
+
+void ApiServer::detachHandler()
+{
+    impl->handler = nullptr;
 }
 
 void ApiServer::start()

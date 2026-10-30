@@ -1,5 +1,6 @@
 #pragma once
 
+#include "library/SampleLibrary.h"
 #include "session/Session.h"
 
 namespace gk
@@ -8,7 +9,8 @@ namespace gk
 class EngineContext;
 class LiveEngine;
 class PluginCatalog;
-namespace library { class SampleLibrary; class StarterPack; }
+namespace library { class StarterPack; }
+namespace guides { struct Guide; }
 namespace listening { class Listening; }
 
 /** JSON-RPC 2.0 over any message transport. Lives on the message thread.
@@ -86,6 +88,10 @@ private:
 
     std::map<std::string, std::pair<std::filesystem::file_time_type, model::Json>> peaksCache;
 
+    /** Samples analysed for the mix methods, by path and change time, so a channel's sound is
+        decoded and classified once rather than on every call. */
+    std::map<std::string, std::pair<std::filesystem::file_time_type, library::SampleEntry>> entryCache;
+
     /** Choices put to the user (A/B/C), by id: what was offered and what they picked (-1 none of
         them; unset while waiting). */
     struct Offer
@@ -120,8 +126,13 @@ private:
     model::Json callNotes (const std::string& method, const model::Json& params);
     model::Json callGuides (const std::string& method, const model::Json& params);
 
-    /** The guide a style or a folder of references goes with, by name; null without one. */
-    static model::Json guideFor (const std::string& styleName);
+    /** The guide a style or a folder of references goes with, by name, among the guides listed
+        once for the request; null without one. */
+    static model::Json guideFor (const std::vector<guides::Guide>&, const std::string& styleName);
+
+    /** What the library knows of a sample, else an analysis of the file (kept in entryCache).
+        Throws std::runtime_error if the file can't be read. */
+    library::SampleEntry entryFor (const std::filesystem::path&);
     model::Json compareToStyle (const model::Json& params);
     model::Json importIntoProject (const std::string& method, const model::Json& params);
     void startLibraryScan();

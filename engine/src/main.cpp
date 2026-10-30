@@ -282,7 +282,20 @@ Add --verbose to see engine log messages.
                 catch (const std::exception& e)
                 {
                     std::cerr << "error: couldn't open " << dir.string() << ": " << e.what() << std::endl;
-                    workspace = open (previous);
+
+                    try
+                    {
+                        workspace = open (previous);
+                    }
+                    catch (const std::exception& again)
+                    {
+                        // With no project open there's nothing to serve: stop, rather than let the
+                        // exception out of the message loop and end the process without a word.
+                        std::cerr << "error: couldn't reopen " << previous.string() << " either: " << again.what() << std::endl;
+                        server->detachHandler();
+                        stopRequested = true;
+                        return;
+                    }
                 }
 
                 server->setHandler (*workspace.handler);

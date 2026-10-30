@@ -23,6 +23,10 @@ public:
         Message thread only. */
     void setHandler (ApiHandler&);
 
+    /** Forgets the handler (it's gone and nothing replaces it): what clients send from then on
+        is dropped. Message thread only. */
+    void detachHandler();
+
     /** Throws if the port can't be opened. */
     void start();
     void stop();

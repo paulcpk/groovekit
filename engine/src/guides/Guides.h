@@ -9,7 +9,7 @@
 namespace gk::guides
 {
 
-/** The guides GrooveKit ships with (guides/*.md, built in): { id, text }. */
+/** The guides GrooveKit ships with (the .md files of the guides folder, built in): { id, text }. */
 const std::vector<std::pair<std::string, std::string>>& builtInTexts();
 
 /** The parts of a song a guide talks about, and that a review sorts channels into. */
@@ -61,6 +61,9 @@ public:
 
     /** By id or name, ignoring case and punctuation ("Drum & Bass", "drum-and-bass"). */
     std::optional<Guide> find (const std::string& idOrName) const;
+
+    /** The same among guides listed already, for looking many names up from one reading. */
+    static const Guide* findIn (const std::vector<Guide>&, const std::string& idOrName);
 
     /** Saves the user's version of a guide (a new one without an id: the id comes from its
         name). Throws std::invalid_argument for a bad id, empty text or invalid targets. */

@@ -258,17 +258,30 @@ fs::path GuideStore::getDefaultFolder()
     return EngineContext::getAppDataFolder() / "guides";
 }
 
+/** The built-in guides parsed once: their texts don't change while the engine runs, and parsing
+    the lot (regular expressions over each) on every listing was the cost of looking a guide up. */
+static const std::map<std::string, Guide>& builtInGuides()
+{
+    static const auto guides = []
+    {
+        std::map<std::string, Guide> byId;
+
+        for (auto& [id, text] : builtInTexts())
+        {
+            auto g = parse (id, text);
+            g.builtIn = true;
+            byId[id] = std::move (g);
+        }
+
+        return byId;
+    }();
+
+    return guides;
+}
+
 std::vector<Guide> GuideStore::list() const
 {
-    std::map<std::string, Guide> byId;
-
-    for (auto& [id, text] : builtInTexts())
-    {
-        auto g = parse (id, text);
-        g.builtIn = true;
-        byId[id] = std::move (g);
-    }
-
+    auto byId = builtInGuides();
     std::error_code ec;
 
     for (auto& entry : fs::directory_iterator (folder, ec))
@@ -314,6 +327,16 @@ std::vector<Guide> GuideStore::list() const
 
 std::optional<Guide> GuideStore::find (const std::string& idOrName) const
 {
+    const auto guides = list();
+
+    if (auto* g = findIn (guides, idOrName))
+        return *g;
+
+    return {};
+}
+
+const Guide* GuideStore::findIn (const std::vector<Guide>& guides, const std::string& idOrName)
+{
     const auto wanted = simplified (idOrName);
 
     // A name can carry another in brackets, "Hard techno (Schranz)": either one finds it.
@@ -331,15 +354,15 @@ std::optional<Guide> GuideStore::find (const std::string& idOrName) const
         return all;
     };
 
-    for (auto& g : list())
+    for (auto& g : guides)
     {
         const auto all = names (g.name);
 
         if (simplified (g.id) == wanted || std::find (all.begin(), all.end(), wanted) != all.end())
-            return g;
+            return &g;
     }
 
-    return {};
+    return nullptr;
 }
 
 Guide GuideStore::save (const std::string& givenId, const std::string& text)
