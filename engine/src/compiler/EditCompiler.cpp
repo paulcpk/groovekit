@@ -685,6 +685,30 @@ namespace
                 external->getAudioPluginInstance()->setStateInformation (data.data(), static_cast<int> (data.size()));
             }
 
+            // A factory preset by name: "Stabs: Rave Stab", or "Rave Stab" alone.
+            if (ref.preset)
+            {
+                auto* instance = external->getAudioPluginInstance();
+                const auto wanted = juce::String (*ref.preset).trim();
+                int found = -1;
+                juce::StringArray names;
+
+                for (int i = 0; i < instance->getNumPrograms() && found < 0; ++i)
+                {
+                    const auto name = instance->getProgramName (i);
+                    names.add (name);
+
+                    if (name.equalsIgnoreCase (wanted) || name.fromFirstOccurrenceOf (": ", false, false).equalsIgnoreCase (wanted))
+                        found = i;
+                }
+
+                if (found < 0)
+                    throw std::runtime_error (owner + ": \"" + ref.name + "\" has no preset \"" + *ref.preset + "\""
+                                              + (names.isEmpty() ? "" : "; its presets: " + names.joinIntoString (", ").toStdString()));
+
+                instance->setCurrentProgram (found);
+            }
+
             for (auto& [key, value] : ref.params)
             {
                 auto param = findHostedParam (*external, key);

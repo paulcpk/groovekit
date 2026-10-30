@@ -243,6 +243,8 @@ export interface PluginRef {
   manufacturer?: string;
   /** Path of the saved state blob, relative to the project folder. */
   state?: string;
+  /** One of the plugin's factory presets (programs) by name, applied after the state and before the params. GrooveKit's own plugins name theirs "Category: Name"; the name alone matches too. */
+  preset?: string;
   /** Parameter id or name to normalized value (0..1), applied after the state. */
   params?: Record<string, number>;
 }

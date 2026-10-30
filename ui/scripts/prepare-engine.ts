@@ -1,10 +1,10 @@
 // Copies the engine build into src-tauri/binaries under the name Tauri bundles sidecars by:
-// groovekit-engine-<target triple>, and GrooveKit's own plugins (the Triad synth) into
+// groovekit-engine-<target triple>, and GrooveKit's own plugins (Triad, Quartet, Sextet, Chamber, Echo) into
 // src-tauri/plugins, which the app carries in Resources/Plug-Ins. Uses the release build if
 // there is one, else the debug build.
 
 import { execSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "..", "..");
@@ -22,14 +22,16 @@ mkdirSync(join(target, ".."), { recursive: true });
 copyFileSync(source, target);
 console.log(`Engine for the app: ${source}`);
 
-const plugin = join(repo, "build", preset!, "plugins", "triad", "Triad_artefacts", preset === "release" ? "Release" : "Debug", "VST3", "Triad.vst3");
-if (!existsSync(plugin)) {
-  console.error(`No Triad build at ${plugin}; build the engine target, which builds it too.`);
+// GrooveKit's own plugins, collected by the build into one folder.
+const built = join(repo, "build", preset!, "plugins", "all");
+const bundles = existsSync(built) ? readdirSync(built).filter((f) => f.endsWith(".vst3")) : [];
+if (bundles.length === 0) {
+  console.error(`No plugin builds in ${built}; build the engine target, which builds them too.`);
   process.exit(1);
 }
 
 const plugins = join(repo, "ui", "src-tauri", "plugins");
 rmSync(plugins, { recursive: true, force: true });
 mkdirSync(plugins, { recursive: true });
-cpSync(plugin, join(plugins, "Triad.vst3"), { recursive: true, verbatimSymlinks: true });
-console.log(`Plugins for the app: ${plugin}`);
+for (const bundle of bundles) cpSync(join(built, bundle), join(plugins, bundle), { recursive: true, verbatimSymlinks: true });
+console.log(`Plugins for the app: ${bundles.join(", ")} from ${built}`);

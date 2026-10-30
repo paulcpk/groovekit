@@ -97,5 +97,13 @@ if(GK_BUILD_TESTS)
     enable_testing()
 endif()
 
+# GrooveKit's own plugins, collected in one folder for the engine and the app's packaging.
+set(GK_PLUGINS_DIR "${CMAKE_BINARY_DIR}/plugins/all")
+add_subdirectory(plugins/common)
 add_subdirectory(plugins/triad)
+add_subdirectory(plugins/quartet)
+add_subdirectory(plugins/sextet)
+add_subdirectory(plugins/chamber)
+add_subdirectory(plugins/echo)
+add_subdirectory(plugins/pictures)
 add_subdirectory(engine)

@@ -44,3 +44,10 @@ set_target_properties(Triad Triad_VST3 PROPERTIES
     OBJC_VISIBILITY_PRESET hidden
     OBJCXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN TRUE)
+
+# Beside the other plugins, where the engine and the app's packaging find them.
+add_custom_command(TARGET Triad_VST3 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${GK_PLUGINS_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${GK_PLUGINS_DIR}/Triad.vst3"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_BUNDLE_DIR:Triad_VST3>" "${GK_PLUGINS_DIR}/Triad.vst3"
+    COMMENT "Collecting Triad.vst3")

@@ -1937,6 +1937,15 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params, Cli
 
         auto result = PluginCatalog::toJson (*desc);
         result["parameterCount"] = external->getNumAutomatableParameters();
+
+        // Its factory presets, chosen by name with "preset" in a pluginRef.
+        auto presets = Json::array();
+
+        if (auto* instance = external->getAudioPluginInstance())
+            for (int i = 0; i < instance->getNumPrograms() && i < 500; ++i)
+                presets.push_back (instance->getProgramName (i).toStdString());
+
+        result["presets"] = presets;
         plugin = nullptr;
         EditGraveyard::getInstance().bury (std::move (edit));
         result["matchingParameters"] = matching;

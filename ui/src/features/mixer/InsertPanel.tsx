@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { IconButton, Knob } from "@/components/controls";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownSub, DropdownTrigger } from "@/components/menu";
 import { createAutomation } from "@/features/playlist/automation";
-import { PluginList } from "@/features/rack/PluginPicker";
+import { OWN_PLUGINS, PluginList, ownPlugins, usePlugins } from "@/features/rack/PluginPicker";
 import { effectNames, getCatalogue } from "@/lib/catalogue";
 import { cn } from "@/lib/cn";
 import { useAutomated } from "@/lib/automation";
@@ -139,6 +139,7 @@ function AddEffect({ insert }: { insert: Insert }) {
   const add = (effect: Effect, name: string) =>
     void execute({ type: "addEffect", insert: insert.id, effect }, { label: `Add ${name}` }).then(() => openEffect(insert.id, effect));
   const id = (base: string) => uniqueId(base, insert.effects ?? []);
+  const own = ownPlugins(usePlugins(false));
 
   return (
     <Dropdown>
@@ -155,6 +156,11 @@ function AddEffect({ insert }: { insert: Insert }) {
           return <DropdownItem key={kind} onSelect={() => add({ type: "builtin", id: id(kind), kind: kind as never, ...(mix !== undefined && mix < 1 ? { mix } : {}) }, name)}>{name}</DropdownItem>;
         })}
         <DropdownSeparator />
+        {own.map((p) => (
+          <DropdownItem key={p.uid} onSelect={() => add({ type: "plugin", id: id(p.name), plugin: { format: p.format, uid: p.uid, name: p.name, manufacturer: p.manufacturer } }, p.name)}>
+            {p.name} <span className="text-2xs text-faint">{OWN_PLUGINS[p.name]}</span>
+          </DropdownItem>
+        ))}
         <DropdownSub label="Plugins">
           <PluginList instrument={false} onPick={(p) => add({ type: "plugin", id: id(p.name), plugin: { format: p.format, uid: p.uid, name: p.name, manufacturer: p.manufacturer } }, p.name)} />
         </DropdownSub>

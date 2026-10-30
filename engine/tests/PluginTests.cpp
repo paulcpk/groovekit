@@ -198,13 +198,118 @@ TEST_CASE ("GrooveKit's synth is registered without a scan, and plays")
     CHECK (loud - quiet == Catch::Approx (21).margin (0.5));
 }
 
-TEST_CASE ("Every one of the synth's presets plays, and its editor opens")
+TEST_CASE ("A plugin's preset is chosen by name, with or without its category")
 {
-    auto triad = findByName (appleUnits(), "Triad");
-    REQUIRE (triad);
+    auto quartet = findByName (appleUnits(), "Quartet");
+    REQUIRE (quartet);
 
+    auto render = [&] (const std::string& preset)
+    {
+        auto doc = Json::parse (std::ifstream (test::repoRoot() / "tests" / "songs" / "beeps" / "song.json"));
+        doc["channels"][0]["instrument"] = { { "type", "plugin" },
+            { "plugin", { { "format", "VST3" }, { "uid", quartet->createIdentifierString().toStdString() }, { "name", "Quartet" }, { "preset", preset } } } };
+        auto project = model::parseProject (doc);
+        auto compiled = compileProject (test::getEngine(), project, { test::tempDir(), tracktion::Edit::forRendering });
+        auto file = test::tempDir() / "quartet.wav";
+        renderToWav (compiled, project, file, {});
+        return analysis::rmsDb (analysis::loadAudio (file), { 0, 0.1, {} });
+    };
+
+    CHECK (render ("Stabs: Rave Stab") > -40);
+    CHECK (render ("rave stab") > -40);
+    CHECK_THROWS_WITH (render ("Nothing Like It"), Catch::Matchers::ContainsSubstring ("no preset"));
+}
+
+TEST_CASE ("Every one of GrooveKit's effects takes a burst through each of its presets, and its editor opens")
+{
+    std::vector<juce::PluginDescription> effects;
+
+    for (auto& d : appleUnits().getPlugins())
+        if (d.manufacturerName == "GrooveKit" && ! d.isInstrument)
+            effects.push_back (d);
+
+    REQUIRE (effects.size() >= 2);
+
+    for (auto& effect : effects)
+    {
+        INFO (effect.name);
+        juce::String error;
+        auto instance = test::getEngine().getPluginManager().pluginFormatManager.createPluginInstance (effect, 48000, 512, error);
+        REQUIRE (instance != nullptr);
+        instance->setPlayConfigDetails (2, 2, 48000, 512);
+        instance->prepareToPlay (48000, 512);
+        REQUIRE (instance->getNumPrograms() > 10);
+
+        for (int p = 0; p < instance->getNumPrograms(); ++p)
+        {
+            INFO (instance->getProgramName (p));
+            instance->setCurrentProgram (p);
+            instance->reset();
+
+            // A short burst, then silence: the effect's tail is what comes after.
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            float peak = 0, tail = 0;
+            bool finite = true;
+
+            // Five seconds: enough for a repeat a bar long to come round. A frozen preset takes
+            // nothing in, so it has no tail to check.
+            const bool frozen = instance->getProgramName (p).contains ("Frozen");
+
+            for (int block = 0; block < 480; ++block)
+            {
+                buffer.clear();
+
+                if (block == 0)
+                    for (int i = 0; i < 256; ++i)
+                        for (int ch = 0; ch < 2; ++ch)
+                            buffer.setSample (ch, i, 0.5f * std::sin (i * 0.3f) * (1 - i / 256.0f));
+
+                instance->processBlock (buffer, midi);
+
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < buffer.getNumSamples(); ++i)
+                        finite = finite && std::isfinite (buffer.getSample (ch, i));
+
+                peak = std::max (peak, buffer.getMagnitude (0, buffer.getNumSamples()));
+
+                if (block >= 2)
+                    tail = std::max (tail, buffer.getMagnitude (0, buffer.getNumSamples()));
+                else if (block == 0)
+                    tail = std::max (tail, buffer.getMagnitude (300, buffer.getNumSamples() - 300));
+            }
+
+            CHECK (finite);
+            CHECK (peak > 0.01f);
+            CHECK (peak < 4.0f);
+
+            if (! frozen)
+                CHECK (tail > 0.0005f);
+        }
+
+        std::unique_ptr<juce::AudioProcessorEditor> editor (instance->createEditor());
+        REQUIRE (editor != nullptr);
+        CHECK (editor->getWidth() > 600);
+        editor.reset();
+        instance->releaseResources();
+    }
+}
+
+TEST_CASE ("Every one of GrooveKit's synths plays each of its presets, and its editor opens")
+{
+    std::vector<juce::PluginDescription> synths;
+
+    for (auto& d : appleUnits().getPlugins())
+        if (d.manufacturerName == "GrooveKit" && d.isInstrument)
+            synths.push_back (d);
+
+    REQUIRE (synths.size() >= 2);
+
+  for (auto& synth : synths)
+  {
+    INFO (synth.name);
     juce::String error;
-    auto instance = test::getEngine().getPluginManager().pluginFormatManager.createPluginInstance (*triad, 48000, 512, error);
+    auto instance = test::getEngine().getPluginManager().pluginFormatManager.createPluginInstance (synth, 48000, 512, error);
     REQUIRE (instance != nullptr);
     instance->setPlayConfigDetails (0, 2, 48000, 512);
     instance->prepareToPlay (48000, 512);
@@ -251,4 +356,5 @@ TEST_CASE ("Every one of the synth's presets plays, and its editor opens")
     CHECK (editor->getWidth() > 800);
     editor.reset();
     instance->releaseResources();
+  }
 }

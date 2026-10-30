@@ -23,10 +23,24 @@ export function usePlugins(instrument: boolean) {
   return plugins;
 }
 
-/** Instruments for a new channel: GrooveKit's own Triad synth first, then every scanned plugin. */
+/** GrooveKit's own instruments and effects, in the order the menus show them, with what each is for. */
+export const OWN_PLUGINS: Record<string, string> = {
+  Triad: "three-oscillator synth",
+  Quartet: "FM chords and stabs",
+  Sextet: "six-oscillator pads and basses",
+  Chamber: "reverb",
+  Echo: "delay",
+};
+
+/** The scanned plugins that are GrooveKit's own, in menu order. */
+export function ownPlugins(plugins: PluginInfo[] | null) {
+  return Object.keys(OWN_PLUGINS).map((name) => plugins?.find((p) => p.manufacturer === "GrooveKit" && p.name === name)).filter((p): p is PluginInfo => !!p);
+}
+
+/** Instruments for a new channel: GrooveKit's own synths first, then every scanned plugin. */
 export function PluginPicker({ doc }: { doc: Project }) {
   const plugins = usePlugins(true);
-  const triad = plugins?.find((p) => p.manufacturer === "GrooveKit" && p.name === "Triad");
+  const own = ownPlugins(plugins);
   const add = (p: PluginInfo) => {
     const id = uniqueId(p.name, doc.channels);
     void execute({
@@ -37,7 +51,7 @@ export function PluginPicker({ doc }: { doc: Project }) {
 
   return (
     <>
-      {triad && <DropdownItem onSelect={() => add(triad)}>Triad synth</DropdownItem>}
+      {own.map((p) => <DropdownItem key={p.uid} onSelect={() => add(p)}>{p.name} <span className="text-2xs text-faint">{OWN_PLUGINS[p.name]}</span></DropdownItem>)}
       <DropdownSub label="Plugin instrument">
         <PluginList instrument onPick={add} />
       </DropdownSub>
