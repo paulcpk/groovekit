@@ -9,22 +9,30 @@ namespace gk::library
 
 using analysis::Audio;
 
+std::vector<float> monoMix (const juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
+{
+    if (numSamples < 0)
+        numSamples = buffer.getNumSamples() - startSample;
+
+    std::vector<float> mono (static_cast<size_t> (std::max (0, numSamples)), 0.0f);
+    const auto channels = buffer.getNumChannels();
+
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        auto* d = buffer.getReadPointer (ch) + startSample;
+
+        for (int i = 0; i < numSamples; ++i)
+            mono[static_cast<size_t> (i)] += d[i] / static_cast<float> (channels);
+    }
+
+    return mono;
+}
+
 namespace
 {
     std::vector<float> monoMix (const Audio& audio, int numSamples)
     {
-        std::vector<float> mono (static_cast<size_t> (numSamples), 0.0f);
-        const auto channels = audio.buffer.getNumChannels();
-
-        for (int ch = 0; ch < channels; ++ch)
-        {
-            auto* d = audio.buffer.getReadPointer (ch);
-
-            for (int i = 0; i < numSamples; ++i)
-                mono[static_cast<size_t> (i)] += d[i] / static_cast<float> (channels);
-        }
-
-        return mono;
+        return gk::library::monoMix (audio.buffer, 0, numSamples);
     }
 
     /** RMS in consecutive windows. */
@@ -231,8 +239,14 @@ std::vector<double> detectTransients (const Audio& audio, double resolutionSecon
 
 std::optional<SampleFeatures::Pitch> detectPitch (const Audio& audio, int startSample, int windowSamples)
 {
-    const auto sr = audio.sampleRate;
     const auto total = audio.buffer.getNumSamples();
+    const auto end = std::min (total, juce::jlimit (0, std::max (0, total - 1), startSample) + std::max (0, windowSamples));
+    const auto mono = monoMix (audio, end);
+    return detectPitch (mono.data(), end, audio.sampleRate, startSample, windowSamples);
+}
+
+std::optional<SampleFeatures::Pitch> detectPitch (const float* mono, int total, double sr, int startSample, int windowSamples)
+{
     const auto tauMin = static_cast<int> (sr / 1500.0);
     auto tauMax = static_cast<int> (sr / 30.0);
 
@@ -244,8 +258,7 @@ std::optional<SampleFeatures::Pitch> detectPitch (const Audio& audio, int startS
     if (tauMax <= tauMin + 2 || length < 256)
         return {};
 
-    auto mono = monoMix (audio, startSample + windowSamples);
-    const float* x = mono.data() + startSample;
+    const float* x = mono + startSample;
 
     double energy = 0;
     for (int j = 0; j < windowSamples; ++j) energy += static_cast<double> (x[j]) * x[j];
@@ -360,9 +373,22 @@ SampleFeatures analyseSample (const Audio& audio, double maxSeconds)
 
     // Pitch from the body of the sound: just after the attack, and through it to the end of the
     // decay, where the note most windows agree on wins (a kick's pitch is its tail's, past the
-    // click).
+    // click). The windows read the mono mix made above rather than mixing again for each; the
+    // first may run a little past the analysed stretch of a longer file, so that part is mixed on.
+    const auto pitchWindow = static_cast<int> (audio.sampleRate * 0.1);
     const auto pitchStart = static_cast<int> ((peak + 2) * static_cast<size_t> (window));
-    f.pitch = detectPitch (audio, pitchStart, static_cast<int> (audio.sampleRate * 0.1));
+    const auto pitchTotal = std::min (audio.buffer.getNumSamples(), numSamples + pitchWindow + 2 * window);
+    std::vector<float> pitchTail;
+
+    if (pitchTotal > numSamples)
+    {
+        pitchTail = mono;
+        const auto more = monoMix (audio.buffer, numSamples, pitchTotal - numSamples);
+        pitchTail.insert (pitchTail.end(), more.begin(), more.end());
+    }
+
+    const auto* pitchMono = pitchTotal > numSamples ? pitchTail.data() : mono.data();
+    f.pitch = detectPitch (pitchMono, pitchTotal, audio.sampleRate, pitchStart, pitchWindow);
 
     {
         std::map<int, std::vector<SampleFeatures::Pitch>> byKey;
@@ -370,8 +396,8 @@ SampleFeatures analyseSample (const Audio& audio, double maxSeconds)
         const auto step = static_cast<int> (audio.sampleRate * 0.05);
         int windows = 0;
 
-        for (auto at = pitchStart; at + static_cast<int> (audio.sampleRate * 0.1) <= bodyEnd && windows < 12; at += step, ++windows)
-            if (auto p = detectPitch (audio, at, static_cast<int> (audio.sampleRate * 0.1)); p && p->confidence > 0.8f)
+        for (auto at = pitchStart; at + pitchWindow <= bodyEnd && windows < 12; at += step, ++windows)
+            if (auto p = detectPitch (pitchMono, pitchTotal, audio.sampleRate, at, pitchWindow); p && p->confidence > 0.8f)
                 byKey[p->key].push_back (*p);
 
         auto best = std::max_element (byKey.begin(), byKey.end(), [] (auto& a, auto& b) { return a.second.size() < b.second.size(); });
@@ -398,6 +424,18 @@ SampleFeatures analyseSample (const Audio& audio, double maxSeconds)
     f.estimatedTempo = estimateTempo (flux, 0.01, numSamples / audio.sampleRate);
 
     return f;
+}
+
+SampleFeatures::Bands measureBands (const Audio& audio, double maxSeconds)
+{
+    SampleFeatures f;
+    const auto numSamples = std::min (audio.buffer.getNumSamples(), static_cast<int> (maxSeconds * audio.sampleRate));
+
+    if (numSamples <= 0 || audio.buffer.getNumChannels() == 0)
+        return f.bands;
+
+    measureSpectrum (monoMix (audio, numSamples), audio.sampleRate, f);
+    return f.bands;
 }
 
 model::Json toJson (const SampleFeatures& f)

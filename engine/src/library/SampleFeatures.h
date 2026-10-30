@@ -61,11 +61,21 @@ struct SampleFeatures
 /** Analyses up to maxSeconds of the audio. */
 SampleFeatures analyseSample (const analysis::Audio&, double maxSeconds = 30);
 
+/** Only the band shares of up to maxSeconds of the audio, exactly as analyseSample measures
+    them: a few FFTs, for telling a kick from a hat among many short hits. */
+SampleFeatures::Bands measureBands (const analysis::Audio&, double maxSeconds = 30);
+
 /** Times (seconds) where the level jumps, even within a dense mix: drum hits in a loop or a recording. */
 std::vector<double> detectTransients (const analysis::Audio&, double resolutionSeconds = 0.001);
 
 /** Fundamental frequency of the mono mix in [start, start + window) using YIN. */
 std::optional<SampleFeatures::Pitch> detectPitch (const analysis::Audio&, int startSample, int windowSamples);
+
+/** The same on a mono mix already made (mono holds numSamples at sampleRate). */
+std::optional<SampleFeatures::Pitch> detectPitch (const float* mono, int numSamples, double sampleRate, int startSample, int windowSamples);
+
+/** The channels' average (numSamples from startSample; the rest of the buffer by default). */
+std::vector<float> monoMix (const juce::AudioBuffer<float>&, int startSample = 0, int numSamples = -1);
 
 model::Json toJson (const SampleFeatures&);
 
