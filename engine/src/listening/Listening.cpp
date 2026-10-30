@@ -5,6 +5,7 @@
 #include "library/SampleFeatures.h"
 
 #include <fstream>
+#include <random>
 
 namespace gk::listening
 {
@@ -362,24 +363,46 @@ float Listening::baseline (const StyleProfile& profile, Role role)
             return it->second.median;
     }
 
-    // The median fit of the library's samples in this role (all of them, if it has few).
+    // The median fit of the library's samples in this role (all of them, if it has few). A
+    // median needs no more than a sample of the library: up to 2000 embeddings in the role and
+    // 2000 of all, drawn by reservoir sampling with a fixed seed so the baseline is stable, and
+    // copied out so no fit is computed while the index is locked.
     std::map<std::string, Role> roles;
 
-    for (auto& s : library.getSamples())
-        roles[s.path] = roleOf (s.classification.category, s.classification.loop);
+    library.forEach ([&] (const library::SampleEntry& s)
+    {
+        roles.emplace (s.path, roleOf (s.classification.category, s.classification.loop));
+    });
 
-    std::vector<float> inRole, all;
+    constexpr size_t sampleSize = 2000;
+    std::vector<Embedding> inRole, all;
+    std::mt19937 random (1);
+
+    auto draw = [&] (std::vector<Embedding>& reservoir, size_t seen, const Embedding& e)
+    {
+        if (seen < sampleSize)
+            reservoir.push_back (e);
+        else if (const auto j = std::uniform_int_distribution<size_t> (0, seen) (random); j < sampleSize)
+            reservoir[j] = e;
+    };
+
+    size_t seenAll = 0, seenInRole = 0;
 
     index.forEach ([&] (const std::string& path, const Embedding& e)
     {
-        const auto f = profile.fit (role, e);
-        all.push_back (f);
+        draw (all, seenAll++, e);
 
         if (auto it = roles.find (path); it != roles.end() && available (profile, it->second) == role)
-            inRole.push_back (f);
+            draw (inRole, seenInRole++, e);
     });
 
-    auto& values = inRole.size() >= 20 ? inRole : all;
+    auto& chosen = inRole.size() >= 20 ? inRole : all;
+    std::vector<float> values;
+    values.reserve (chosen.size());
+
+    for (auto& e : chosen)
+        values.push_back (profile.fit (role, e));
+
     float median = 0;
 
     if (! values.empty())
@@ -438,11 +461,15 @@ Json Listening::search (const library::SampleQuery& filters, const SoundQuery& q
 {
     auto query = filters;
     const auto limit = query.limit;
-    query.limit = std::numeric_limits<int>::max();
-    auto candidates = library.search (query);
-
     const bool listening = models.getStatus().ready && index.size() > 0;
     const bool ranked = ! q.sound.empty() || ! q.like.empty() || ! q.style.empty();
+
+    // Ranking by sound needs every candidate; without it, the library's own order and limit
+    // (and the same copies-show-once rule below) give the same results.
+    if (ranked)
+        query.limit = std::numeric_limits<int>::max();
+
+    auto candidates = library.search (query);
 
     if (ranked && ! models.getStatus().ready)
         throw std::runtime_error ("Searching by sound needs the listening models (listening.download)");

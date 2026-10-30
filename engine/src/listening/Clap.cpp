@@ -9,17 +9,34 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <fstream>
 
+#if defined (__APPLE__)
+ #include <Accelerate/Accelerate.h>
+#endif
+
 namespace gk::listening
 {
 
 float similarity (const Embedding& a, const Embedding& b)
 {
+    // A search takes this dot product tens of thousands of times; the compiler can't vectorise
+    // a plain float sum (strict floating point), so use Accelerate where it's there.
+   #if defined (__APPLE__)
     float sum = 0;
-
-    for (size_t i = 0; i < a.size(); ++i)
-        sum += a[i] * b[i];
-
+    vDSP_dotpr (a.data(), 1, b.data(), 1, &sum, a.size());
     return sum;
+   #else
+    float s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+
+    for (size_t i = 0; i + 3 < a.size(); i += 4)
+    {
+        s0 += a[i] * b[i];
+        s1 += a[i + 1] * b[i + 1];
+        s2 += a[i + 2] * b[i + 2];
+        s3 += a[i + 3] * b[i + 3];
+    }
+
+    return (s0 + s1) + (s2 + s3);
+   #endif
 }
 
 Embedding average (const std::vector<Embedding>& embeddings)
