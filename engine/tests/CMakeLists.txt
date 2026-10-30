@@ -19,7 +19,7 @@ add_executable(gk_tests
     TestHelpers.cpp)
 
 target_link_libraries(gk_tests PRIVATE gk_engine Catch2::Catch2WithMain)
-target_precompile_headers(gk_tests PRIVATE <tracktion_engine/tracktion_engine.h> <nlohmann/json.hpp> <catch2/catch_test_macros.hpp>)
+target_precompile_headers(gk_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:<tracktion_engine/tracktion_engine.h>>" "$<$<COMPILE_LANGUAGE:CXX>:<nlohmann/json.hpp>>" "$<$<COMPILE_LANGUAGE:CXX>:<catch2/catch_test_macros.hpp>>")
 add_dependencies(gk_tests Triad_VST3)
 
 include(Catch)

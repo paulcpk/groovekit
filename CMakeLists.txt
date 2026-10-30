@@ -91,10 +91,9 @@ add_subdirectory("${TRACKTION_DIR}/modules" tracktion EXCLUDE_FROM_ALL)
 # Rubber Band aren't ours to step through, and renders, stretches and analysis in the tests and in
 # daily use run many times faster than at -O0. Called from the directory whose targets compile them
 # (source properties are per directory); GrooveKit's own sources keep the build type's flags.
+# Whatever the build type, these sources skip the precompiled header (the modules set their own
+# macros before their headers).
 function(gk_optimise_third_party)
-    if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-        return()
-    endif()
     set(sources "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
     get_property(modules GLOBAL PROPERTY _juce_module_names)
     foreach(module IN LISTS modules)
@@ -105,12 +104,15 @@ function(gk_optimise_third_party)
         endif()
     endforeach()
     foreach(source IN LISTS sources)
-        get_source_file_property(options "${source}" COMPILE_OPTIONS)
-        if(NOT options)
-            set(options "")
+        set_source_files_properties("${source}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            get_source_file_property(options "${source}" COMPILE_OPTIONS)
+            if(NOT options)
+                set(options "")
+            endif()
+            list(APPEND options "-O2")
+            set_source_files_properties("${source}" PROPERTIES COMPILE_OPTIONS "${options}")
         endif()
-        list(APPEND options "-O2")
-        set_source_files_properties("${source}" PROPERTIES COMPILE_OPTIONS "${options}" SKIP_PRECOMPILE_HEADERS ON)
     endforeach()
 endfunction()
 

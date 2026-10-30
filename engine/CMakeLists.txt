@@ -93,7 +93,7 @@ set_source_files_properties("${guides_cpp}" PROPERTIES SKIP_PRECOMPILE_HEADERS O
 gk_optimise_third_party()
 
 # The heavy headers every engine file includes, compiled once: Tracktion (with JUCE) and JSON.
-target_precompile_headers(gk_engine PRIVATE <tracktion_engine/tracktion_engine.h> <nlohmann/json.hpp>)
+target_precompile_headers(gk_engine PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:<tracktion_engine/tracktion_engine.h>>" "$<$<COMPILE_LANGUAGE:CXX>:<nlohmann/json.hpp>>")
 
 target_compile_definitions(gk_engine PUBLIC
     JUCE_PLUGINHOST_AU=1
