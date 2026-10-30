@@ -36,9 +36,9 @@ namespace
     /** Whether the limiter is the last thing the master's sound goes through: the last effect
         on master, fully heard, the fader at unity, no sends and nothing automated there. Then one
         render without it is what the limiter gets at any input gain. */
-    bool limiterIsLast (Project& project)
+    bool limiterIsLast (const Project& project)
     {
-        const auto* master = findMaster (project);
+        const auto* master = findInsert (project, masterInsertId);
 
         if (master == nullptr || master->effects.empty() || master->volumeDb != 0 || master->pan != 0 || ! master->sends.empty())
             return false;
