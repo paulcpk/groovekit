@@ -37,6 +37,11 @@ function keyFor(key: string, octave: number) {
   return undefined;
 }
 
+/** Moves the typing keyboard up or down by octaves (Z plays C of the octave, C0 to C8). */
+export function shiftTypingOctave(by: number) {
+  setUi({ typingOctave: Math.max(0, Math.min(8, useUi.getState().typingOctave + by)) });
+}
+
 /** With the typing keyboard on, letter keys play notes instead of shortcuts; - and = shift the octave.
     Keys typed in a plugin's window come from the engine, whose window that is. */
 export function useTypingKeyboard() {
@@ -53,14 +58,12 @@ export function useTypingKeyboard() {
 
     /** Whether the key is the typing keyboard's (then it's used up). */
     const press = (k: string, repeat: boolean) => {
-      const octave = useUi.getState().typingOctave;
-
       if (k === "-" || k === "=") {
-        setUi({ typingOctave: Math.max(0, Math.min(8, octave + (k === "=" ? 1 : -1))) });
+        shiftTypingOctave(k === "=" ? 1 : -1);
         return true;
       }
 
-      const note = keyFor(k, octave);
+      const note = keyFor(k, useUi.getState().typingOctave);
       if (note === undefined) return false;
       if (repeat || held.has(k)) return true;
       held.set(k, note);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronDown, Circle, Ellipsis, KeyboardMusic, Layers, ListMusic, Metronome, Pause, Piano, Play, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
+import { ChevronDown, Circle, Ellipsis, KeyboardMusic, Layers, ListMusic, Metronome, Minus, Pause, Piano, Play, Plus, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
 import { Button, DragNumber, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownSub, DropdownTrigger } from "@/components/menu";
 import { cn } from "@/lib/cn";
@@ -13,6 +13,7 @@ import { masterSong, record, redo, renderSong, setCountIn, setMetronome, setPlay
 import { browseForProject, openProject, recentProjects, saveProject, type RecentProject } from "./ProjectDialog";
 import { ProjectName } from "./ProjectName";
 import { collectSamples, importAudio } from "./importFiles";
+import { shiftTypingOctave } from "./liveInput";
 
 export const snaps: { label: string; ticks: number }[] = [
   { label: "Bar", ticks: 0 }, // resolved against the time signature
@@ -105,10 +106,15 @@ function TransportButtons() {
           ))}
         </DropdownContent>
       </Dropdown>
-      <IconButton title={typingKeyboard ? `Typing keyboard on (octave ${typingOctave}; - and = change it): letters play the selected channel` : "Typing keyboard: play the selected channel with the letter keys"}
+      <IconButton title={typingKeyboard ? `Typing keyboard on: letters play the selected channel, Z from C${typingOctave}` : "Typing keyboard: play the selected channel with the letter keys"}
         active={typingKeyboard} tone="accent" onClick={() => setUi({ typingKeyboard: !typingKeyboard })}>
         <KeyboardMusic size={14} />
       </IconButton>
+      <div className="flex items-center" title={`The typing keyboard's octave: Z plays C${typingOctave} (- and = change it too)`}>
+        <IconButton size="sm" title="Octave down (-)" disabled={typingOctave <= 0} onClick={() => shiftTypingOctave(-1)}><Minus size={12} /></IconButton>
+        <span className={cn("w-5 text-center text-2xs tabular-nums", typingKeyboard ? "text-fg" : "text-faint")}>C{typingOctave}</span>
+        <IconButton size="sm" title="Octave up (=)" disabled={typingOctave >= 8} onClick={() => shiftTypingOctave(1)}><Plus size={12} /></IconButton>
+      </div>
     </div>
   );
 }
