@@ -1,7 +1,9 @@
 # Pictures of GrooveKit's plugin windows, drawn off-screen from the plugins' own code (a hosted
 # plugin's window is a native view and can't be drawn that way), for the website and the docs:
 #   build/<preset>/plugins/pictures/PluginPictures_artefacts/<config>/PluginPictures <folder>
+# Not part of the default build (it compiles JUCE once more): cmake --build --preset dev --target PluginPictures
 juce_add_console_app(PluginPictures PRODUCT_NAME "PluginPictures")
+set_target_properties(PluginPictures PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 target_sources(PluginPictures PRIVATE main.cpp)
 

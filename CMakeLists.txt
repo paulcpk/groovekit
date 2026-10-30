@@ -87,6 +87,33 @@ set(TRACKTION_DIR "${CMAKE_CURRENT_SOURCE_DIR}/engine/external/tracktion_engine"
 add_subdirectory("${TRACKTION_DIR}/modules/juce" juce EXCLUDE_FROM_ALL)
 add_subdirectory("${TRACKTION_DIR}/modules" tracktion EXCLUDE_FROM_ALL)
 
+# Third-party code is compiled with optimisation even in Debug builds: JUCE, Tracktion and
+# Rubber Band aren't ours to step through, and renders, stretches and analysis in the tests and in
+# daily use run many times faster than at -O0. Called from the directory whose targets compile them
+# (source properties are per directory); GrooveKit's own sources keep the build type's flags.
+function(gk_optimise_third_party)
+    if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        return()
+    endif()
+    set(sources "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
+    get_property(modules GLOBAL PROPERTY _juce_module_names)
+    foreach(module IN LISTS modules)
+        get_target_property(module_sources ${module} INTERFACE_JUCE_MODULE_SOURCES)
+        if(module_sources)
+            list(FILTER module_sources INCLUDE REGEX "\\.(c|cc|cpp|cxx|mm|m)$")
+            list(APPEND sources ${module_sources})
+        endif()
+    endforeach()
+    foreach(source IN LISTS sources)
+        get_source_file_property(options "${source}" COMPILE_OPTIONS)
+        if(NOT options)
+            set(options "")
+        endif()
+        list(APPEND options "-O2")
+        set_source_files_properties("${source}" PROPERTIES COMPILE_OPTIONS "${options}" SKIP_PRECOMPILE_HEADERS ON)
+    endforeach()
+endfunction()
+
 if(GK_BUILD_TESTS)
     FetchContent_Declare(Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git

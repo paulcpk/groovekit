@@ -43,6 +43,7 @@ function(gk_add_plugin name)
     target_sources(${name} PRIVATE ${GK_SOURCES})
     target_compile_definitions(${name} PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(${name} PRIVATE gk_plugin_common juce::juce_audio_utils juce::juce_dsp PUBLIC juce::juce_recommended_config_flags)
+    gk_optimise_third_party()
     set_source_files_properties(${GK_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Wshadow;-Wfloat-equal")
     set_target_properties(${name} ${name}_VST3 PROPERTIES
         C_VISIBILITY_PRESET hidden

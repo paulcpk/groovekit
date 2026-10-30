@@ -88,6 +88,11 @@ target_include_directories(gk_engine SYSTEM PUBLIC "${onnxruntime_SOURCE_DIR}/in
 target_sources(gk_engine PRIVATE "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
 target_include_directories(gk_engine PRIVATE "${rubberband_SOURCE_DIR}")
 set_source_files_properties("${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp" PROPERTIES COMPILE_OPTIONS "-w")
+set_source_files_properties("${guides_cpp}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+gk_optimise_third_party()
+
+# The heavy headers every engine file includes, compiled once: Tracktion (with JUCE) and JSON.
+target_precompile_headers(gk_engine PRIVATE <tracktion_engine/tracktion_engine.h> <nlohmann/json.hpp>)
 
 target_compile_definitions(gk_engine PUBLIC
     JUCE_PLUGINHOST_AU=1

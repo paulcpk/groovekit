@@ -31,6 +31,7 @@ target_link_libraries(Triad
         juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags)
+gk_optimise_third_party()
 
 # Warnings for our own code, not JUCE's.
 set_source_files_properties(Source/Parameters.cpp Source/PluginEditor.cpp Source/PluginProcessor.cpp Source/Synth.cpp
