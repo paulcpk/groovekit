@@ -1,5 +1,6 @@
 #include "KickSound.h"
 
+#include "Dsp.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
 
@@ -16,48 +17,8 @@ using model::Json;
 
 namespace
 {
-    constexpr float floorDb = -90.0f;
     constexpr double bandEdges[] = { 30, 60, 120, 250, 500, 1000, 2000, 4000, 12000 };
     constexpr size_t numBands = std::size (bandEdges) - 1;
-
-    std::vector<float> filtered (std::vector<float> x, double rate, double hz, bool highPass)
-    {
-        for (auto q : { 0.5412, 1.3066 })
-        {
-            juce::IIRFilter f;
-            f.setCoefficients (highPass ? juce::IIRCoefficients::makeHighPass (rate, hz, q) : juce::IIRCoefficients::makeLowPass (rate, hz, q));
-            f.processSamples (x.data(), static_cast<int> (x.size()));
-        }
-
-        return x;
-    }
-
-    std::vector<float> band (const std::vector<float>& x, double rate, double lowHz, double highHz)
-    {
-        return filtered (filtered (x, rate, lowHz, true), rate, std::min (highHz, rate * 0.45), false);
-    }
-
-    double power (const std::vector<float>& x, double rate, double from, double to)
-    {
-        const auto n = static_cast<int64_t> (x.size());
-        const auto a = std::clamp (static_cast<int64_t> (from * rate), int64_t { 0 }, n);
-        const auto b = std::clamp (static_cast<int64_t> (to * rate), int64_t { 0 }, n);
-
-        if (b <= a)
-            return 0;
-
-        double sum = 0;
-
-        for (auto i = a; i < b; ++i)
-            sum += static_cast<double> (x[static_cast<size_t> (i)]) * x[static_cast<size_t> (i)];
-
-        return sum / static_cast<double> (b - a);
-    }
-
-    float db (double p)
-    {
-        return p > 1e-12 ? static_cast<float> (10.0 * std::log10 (p)) : floorDb;
-    }
 
     template <typename T>
     T median (std::vector<T> v)

@@ -1,5 +1,6 @@
 #include "Arrangement.h"
 
+#include "Dsp.h"
 #include "Groove.h"
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
@@ -26,51 +27,9 @@ const std::vector<std::string>& Arrangement::partNames()
 
 namespace
 {
-    constexpr float floorDb = -90.0f;
     constexpr float comesInWithin = 12.0f;  // a part comes in within this of its usual level,
     constexpr float leavesUnder = 18.0f;    // and goes when it's this far under (no flicker in between)
     constexpr float absentUnder = 35.0f;    // a part this far under the mix isn't in the track
-
-    /** A 4th-order Butterworth low- or high-pass, as two biquads. */
-    std::vector<float> filtered (std::vector<float> x, double rate, double hz, bool highPass)
-    {
-        for (auto q : { 0.5412, 1.3066 })
-        {
-            juce::IIRFilter f;
-            f.setCoefficients (highPass ? juce::IIRCoefficients::makeHighPass (rate, hz, q) : juce::IIRCoefficients::makeLowPass (rate, hz, q));
-            f.processSamples (x.data(), static_cast<int> (x.size()));
-        }
-
-        return x;
-    }
-
-    std::vector<float> band (const std::vector<float>& x, double rate, double lowHz, double highHz)
-    {
-        return filtered (filtered (x, rate, lowHz, true), rate, highHz, false);
-    }
-
-    /** Mean square between two times (seconds). */
-    double power (const std::vector<float>& x, double rate, double from, double to)
-    {
-        const auto n = static_cast<int64_t> (x.size());
-        const auto a = std::clamp (static_cast<int64_t> (from * rate), int64_t { 0 }, n);
-        const auto b = std::clamp (static_cast<int64_t> (to * rate), int64_t { 0 }, n);
-
-        if (b <= a)
-            return 0;
-
-        double sum = 0;
-
-        for (auto i = a; i < b; ++i)
-            sum += static_cast<double> (x[static_cast<size_t> (i)]) * x[static_cast<size_t> (i)];
-
-        return sum / static_cast<double> (b - a);
-    }
-
-    float db (double p)
-    {
-        return p > 1e-12 ? static_cast<float> (10.0 * std::log10 (p)) : floorDb;
-    }
 
     std::vector<double> onsets (const std::vector<float>& x, double rate)
     {

@@ -1,5 +1,6 @@
 #include "Styles.h"
 
+#include "Dsp.h"
 #include "EngineContext.h"
 #include "Maps.h"
 #include "NoteTranscriber.h"
@@ -85,20 +86,6 @@ namespace
             sum += static_cast<double> (v) * v;
 
         return x.empty() || sum <= 0 ? analysis::silenceDb : static_cast<float> (10.0 * std::log10 (sum / static_cast<double> (x.size())));
-    }
-
-    /** A 4th-order Butterworth low- or high-pass, as two biquads. */
-    std::vector<float> filter (std::vector<float> x, double sampleRate, double hz, bool highPass)
-    {
-        for (auto q : { 0.5412, 1.3066 })
-        {
-            auto c = highPass ? juce::IIRCoefficients::makeHighPass (sampleRate, hz, q) : juce::IIRCoefficients::makeLowPass (sampleRate, hz, q);
-            juce::IIRFilter f;
-            f.setCoefficients (c);
-            f.processSamples (x.data(), static_cast<int> (x.size()));
-        }
-
-        return x;
     }
 
     analysis::Audio toAudio (juce::AudioBuffer<float> buffer, double sampleRate)
@@ -701,7 +688,6 @@ std::vector<std::string> Styles::names() const
 
 std::shared_ptr<const StyleProfile> Styles::get (const std::string& name) const
 {
-    const auto version = maps->getVersion();
     std::vector<std::shared_ptr<const SongMap>> inUse;
 
     for (auto& map : maps->all())
@@ -711,16 +697,24 @@ std::shared_ptr<const StyleProfile> Styles::get (const std::string& name) const
     if (inUse.empty())
         return {};
 
+    // The profile depends on this style's maps alone: which are in use, when each was heard,
+    // and where its tracks are. Keyed on those, hearing a song of another style keeps it.
+    const auto folder = maps->getStyleFolder (inUse.front()->style).value_or (std::filesystem::path());
+    std::string signature = folder.string() + "\n";
+
+    for (auto& map : inUse)
+        signature += map->id() + "@" + std::to_string (map->heardAt) + "\n";
+
     {
         std::lock_guard lock (cacheMutex);
 
-        if (auto it = cache.find (lower (name)); it != cache.end() && it->second.version == version)
+        if (auto it = cache.find (lower (name)); it != cache.end() && it->second.signature == signature)
             return it->second.profile;
     }
 
     auto profile = std::make_shared<StyleProfile>();
     profile->name = inUse.front()->style;
-    profile->folder = maps->getStyleFolder (profile->name).value_or (std::filesystem::path());
+    profile->folder = folder;
 
     for (auto& map : inUse)
         profile->tracks.push_back (map->track);
@@ -744,7 +738,7 @@ std::shared_ptr<const StyleProfile> Styles::get (const std::string& name) const
     }
 
     std::lock_guard lock (cacheMutex);
-    cache[lower (name)] = { version, profile };
+    cache[lower (name)] = { std::move (signature), profile };
     return profile;
 }
 
@@ -1342,8 +1336,8 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
         const std::pair<Role, std::vector<float>> parts[] = {
             { Role::mix, toClap (chunk) },
             { Role::drums, drums },
-            { Role::kick, filter (drums, Clap::sampleRate, 200, false) },
-            { Role::hats, filter (drums, Clap::sampleRate, 5000, true) },
+            { Role::kick, filtered (drums, Clap::sampleRate, 200, false) },
+            { Role::hats, filtered (drums, Clap::sampleRate, 5000, true) },
             { Role::bass, toClap (stems.bass) },
             { Role::music, toClap (stems.other) },
         };
@@ -1423,9 +1417,10 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
             for (int c = 0; c < 2; ++c)
                 hit.buffer.copyFrom (c, 0, stems.drums, c, from, count);
 
+            // Only the band shares tell a kick from a hat: the rest of a sample's analysis
+            // (pitch, envelope, loudness, tempo) would be measured for hundreds of hits for nothing.
             const auto peak = hit.buffer.getMagnitude (0, count);
-            const auto features = library::analyseSample (hit, hitSeconds);
-            const auto& b = features.bands;
+            const auto b = library::measureBands (hit, hitSeconds);
             const auto role = b.sub + b.low > 0.55f ? Role::kickHit : b.high > 0.45f ? Role::hatHit : Role::percHit;
 
             if (peak > loudest[role].peak)

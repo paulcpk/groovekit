@@ -261,7 +261,8 @@ private:
     std::atomic<bool> skipping { false };   // the song being heard was taken out of the queue
     Observer observer;
 
-    struct Cached { uint64_t version = 0; std::shared_ptr<const StyleProfile> profile; };
+    /** A profile with the maps it was built from (their ids, when they were heard, the folder). */
+    struct Cached { std::string signature; std::shared_ptr<const StyleProfile> profile; };
     mutable std::mutex cacheMutex;
     mutable std::map<std::string, Cached> cache;
 
