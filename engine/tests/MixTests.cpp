@@ -31,8 +31,7 @@ namespace
 
         Json call (const std::string& method, Json params = Json::object())
         {
-            handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", nextId++ }, { "method", method }, { "params", params } }.dump(), client);
-            return lastResponse;
+            return lastResponse = test::callApi (handler, client, method, std::move (params));
         }
 
         const model::Channel& channel (const std::string& id)  { return *model::findChannel (session.getProject(), id); }

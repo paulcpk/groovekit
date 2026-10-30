@@ -2,6 +2,7 @@
 
 #include "library/SampleLibrary.h"
 #include "session/Session.h"
+#include "session/Steps.h"
 
 namespace gk
 {
@@ -11,7 +12,7 @@ class LiveEngine;
 class PluginCatalog;
 namespace library { class StarterPack; }
 namespace guides { struct Guide; }
-namespace listening { class Listening; }
+namespace listening { class Listening; struct StyleProfile; }
 
 /** JSON-RPC 2.0 over any message transport. Lives on the message thread.
 
@@ -66,10 +67,11 @@ public:
     /** The notification a client gets when it connects. */
     std::string getSnapshotMessage() const;
 
-    /** Handles one incoming message and sends the response through client.send. */
+    /** Handles one incoming message and sends the response through client.send: at once, or
+        once a method that renders or hears is done on a pool thread (see dispatch). */
     void handleMessage (const std::string& text, Client&);
 
-    /** The JSON-RPC result for one method call. Throws on errors. */
+    /** The JSON-RPC result for one method call, waited for. Throws on errors. */
     model::Json call (const std::string& method, const model::Json& params, Client&);
 
 private:
@@ -109,8 +111,27 @@ private:
         in one can be placed later. */
     std::vector<std::pair<std::string, std::vector<float>>> voiceRecordings;
 
+    /** Methods that render or hear (render, analyze, analyzeMix, master, mix.check, mix.audition,
+        picks.offer, styles.compare) don't answer from dispatch: they set this, steps the message
+        thread and the pool take turns on, and handleMessage sends the response when they're done,
+        so the message thread serves other requests meanwhile. */
+    std::shared_ptr<Steps> deferred;
+
+    /** The JSON-RPC result for one method call, or an empty result with deferred set. Throws on errors. */
+    model::Json dispatch (const std::string& method, const model::Json& params, Client&);
+    static model::Json errorResponse (const model::Json& id, std::exception_ptr);
+
     model::Json render (const model::Json& params);
     model::Json peaks (const model::Json& params);
+
+    /** The style a mix method works against: the one named in params, else the song's; a guide's
+        name stands for the style whose references go with it. Null without one. */
+    std::shared_ptr<const listening::StyleProfile> styleProfile (const model::Json& params) const;
+
+    /** mix.audition as steps: the trials are built and their Edits compiled on the message
+        thread, rendered and measured on the pool; result is the audition's. With tolerant,
+        a candidate that can't be tried is reported with an error instead of failing the whole. */
+    std::shared_ptr<Steps> auditionSteps (const model::Json& params, bool tolerant);
     model::Json captureState (const std::string& pluginKey, const std::string& origin);
     model::Json callLibrary (const std::string& method, const model::Json& params);
     model::Json callLive (const std::string& method, const model::Json& params, Client&);

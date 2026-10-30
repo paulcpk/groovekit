@@ -566,8 +566,7 @@ TEST_CASE ("The API reaches the live engine for transport, live and record metho
     client.send = [&] (const std::string& m) { response = Json::parse (m); };
     auto call = [&] (const std::string& method, Json params = Json::object())
     {
-        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
-        return response;
+        return response = test::callApi (handler, client, method, params);
     };
 
     CHECK (call ("live.setChannel", { { "channel", "beep" } })["result"]["channel"] == "beep");

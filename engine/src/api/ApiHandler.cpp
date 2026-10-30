@@ -310,10 +310,36 @@ std::string ApiHandler::getSnapshotMessage() const
     return notification ("snapshot", std::move (params)).dump();
 }
 
+Json ApiHandler::errorResponse (const Json& id, std::exception_ptr error)
+{
+    try
+    {
+        std::rethrow_exception (error);
+    }
+    catch (const RpcError& e)
+    {
+        return { { "jsonrpc", "2.0" }, { "id", id }, { "error", { { "code", e.code }, { "message", e.what() } } } };
+    }
+    catch (const CommandError& e)
+    {
+        return { { "jsonrpc", "2.0" }, { "id", id }, { "error", { { "code", commandFailed }, { "message", e.what() } } } };
+    }
+    catch (const std::invalid_argument& e)
+    {
+        // How stores, parsers and the encoders say the input was wrong.
+        return { { "jsonrpc", "2.0" }, { "id", id }, { "error", { { "code", invalidParams }, { "message", e.what() } } } };
+    }
+    catch (const std::exception& e)
+    {
+        return { { "jsonrpc", "2.0" }, { "id", id }, { "error", { { "code", operationFailed }, { "message", e.what() } } } };
+    }
+}
+
 void ApiHandler::handleMessage (const std::string& text, Client& client)
 {
     Json id;
     Json response;
+    deferred = nullptr;
 
     try
     {
@@ -337,29 +363,32 @@ void ApiHandler::handleMessage (const std::string& text, Client& client)
         if (! params.is_object())
             throw RpcError (invalidParams, "params must be an object");
 
-        auto result = call (request["method"].get<std::string>(), params, client);
+        auto result = dispatch (request["method"].get<std::string>(), params, client);
+
+        if (auto steps = std::exchange (deferred, nullptr))
+        {
+            // Answered when the steps are done; the message thread goes on serving meanwhile. The
+            // client's send outlives this handler (it holds the connection weakly), so a project
+            // switched in between still gets its answer.
+            steps->runLater (context, alive, [steps, send = client.send, id] (std::exception_ptr error)
+            {
+                if (id.is_null() || ! send)
+                    return;
+
+                send ((error ? errorResponse (id, error)
+                             : Json { { "jsonrpc", "2.0" }, { "id", id }, { "result", steps->result } }).dump());
+            });
+            return;
+        }
 
         if (id.is_null())
             return; // a notification: no response
 
         response = { { "jsonrpc", "2.0" }, { "id", id }, { "result", std::move (result) } };
     }
-    catch (const RpcError& e)
+    catch (...)
     {
-        response = { { "jsonrpc", "2.0" }, { "id", id }, { "error", { { "code", e.code }, { "message", e.what() } } } };
-    }
-    catch (const CommandError& e)
-    {
-        response = { { "jsonrpc", "2.0" }, { "id", id }, { "error", { { "code", commandFailed }, { "message", e.what() } } } };
-    }
-    catch (const std::invalid_argument& e)
-    {
-        // How stores, parsers and the encoders say the input was wrong.
-        response = { { "jsonrpc", "2.0" }, { "id", id }, { "error", { { "code", invalidParams }, { "message", e.what() } } } };
-    }
-    catch (const std::exception& e)
-    {
-        response = { { "jsonrpc", "2.0" }, { "id", id }, { "error", { { "code", operationFailed }, { "message", e.what() } } } };
+        response = errorResponse (id, std::current_exception());
     }
 
     if (client.send)
@@ -367,6 +396,20 @@ void ApiHandler::handleMessage (const std::string& text, Client& client)
 }
 
 Json ApiHandler::call (const std::string& method, const Json& params, Client& client)
+{
+    deferred = nullptr;
+    auto result = dispatch (method, params, client);
+
+    if (auto steps = std::exchange (deferred, nullptr))
+    {
+        steps->runNow();
+        return steps->result;
+    }
+
+    return result;
+}
+
+Json ApiHandler::dispatch (const std::string& method, const Json& params, Client& client)
 {
     if (method.starts_with ("project."))
         return callProject (method, params);
@@ -454,7 +497,8 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
         if (auto v = optionalNumber (params, "end"))            options.render.end = static_cast<model::Ticks> (*v);
         if (params.contains ("group"))                          options.execute.group = readParam<std::string> (params, "group");
 
-        return masterToLoudness (context.getEngine(), session, options);
+        deferred = masterToLoudnessSteps (context.getEngine(), session, options);
+        return {};
     }
 
     if (method == "analyzeMix")
@@ -466,15 +510,27 @@ Json ApiHandler::call (const std::string& method, const Json& params, Client& cl
         if (auto v = optionalNumber (params, "tailSeconds"))    options.tailSeconds = *v;
 
         const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
-        return analysis::analyseMix (context.getEngine(), session.getProject(), { projectDir, tracktion::Edit::forRendering },
-                                     options, projectDir / "renders" / "analysis");
+        deferred = analysis::analyseMixSteps (context.getEngine(), session.getProject(), { projectDir, tracktion::Edit::forRendering },
+                                              options, projectDir / "renders" / "analysis");
+        return {};
     }
 
     if (method == "analyze")
     {
-        auto audio = analysis::loadAudio (readParam<std::string> (params, "path"));
-        return analysis::analyse (analysis::slice (audio, { optionalNumber (params, "start").value_or (0),
-                                                            optionalNumber (params, "end"), {} }), true);
+        const auto path = readParam<std::string> (params, "path");
+        const auto start = optionalNumber (params, "start").value_or (0);
+        const auto end = optionalNumber (params, "end");
+        auto steps = std::make_shared<Steps>();
+        auto* result = &steps->result;
+
+        steps->pooled ([path, start, end, result]
+        {
+            auto audio = analysis::loadAudio (path);
+            *result = analysis::analyse (analysis::slice (audio, { start, end, {} }), true);
+        });
+
+        deferred = steps;
+        return {};
     }
 
     // The effect catalogue, with each effect's factory presets.
@@ -737,87 +793,120 @@ Json ApiHandler::render (const Json& params)
     }
 
     // Rendered at full resolution, then given its silence, level and format. The mix and its
-    // stems get the same gain, so the stems still add up to the mix.
+    // stems get the same gain, so the stems still add up to the mix. Each Edit is compiled on the
+    // message thread and rendered on the pool, one after the other.
     options.bitDepth = 32;
-    std::optional<float> gain;
 
-    auto finish = [&] (const model::Project& project, const std::filesystem::path& file)
+    struct Run
     {
-        const auto temp = file.parent_path() / ("." + file.stem().string() + ".render.wav");
-        std::filesystem::create_directories (file.parent_path());
-        auto compiled = compileProject (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering });
-        renderToWav (compiled, project, temp, options);
-
-        auto audio = analysis::loadAudio (temp);
-        std::error_code ec;
-        std::filesystem::remove (temp, ec);
-
-        const auto before = static_cast<int> (std::round (silenceBefore * audio.sampleRate));
-        const auto after = static_cast<int> (std::round (silenceAfter * audio.sampleRate));
-
-        if (before > 0 || after > 0)
-        {
-            juce::AudioBuffer<float> padded (audio.buffer.getNumChannels(), audio.buffer.getNumSamples() + before + after);
-            padded.clear();
-
-            for (int c = 0; c < padded.getNumChannels(); ++c)
-                padded.copyFrom (c, before, audio.buffer, c, 0, audio.buffer.getNumSamples());
-
-            audio.buffer = std::move (padded);
-        }
-
-        if (normalize && ! gain)
-        {
-            const auto peak = audio.buffer.getMagnitude (0, audio.buffer.getNumSamples());
-            gain = peak > 0 ? juce::Decibels::decibelsToGain (static_cast<float> (*normalize)) / peak : 1.0f;
-        }
-
-        if (gain)
-            audio.buffer.applyGain (*gain);
-
-        writeAudio (audio.buffer, audio.sampleRate, file, encode);
-        return audio;
+        std::optional<float> gain;
+        std::optional<CompiledEdit> compiled;
+        model::Project project;
+        analysis::Audio mix;
+        Json result, stems = Json::array();
     };
 
-    const auto mix = finish (session.getProject(), output);
+    auto run = std::make_shared<Run>();
+    auto steps = std::make_shared<Steps>();
+    auto& engine = context.getEngine();
 
-    Json result { { "path", std::filesystem::absolute (output).string() }, { "format", encode.format },
-                  { "analysis", analysis::analyse (mix, true) } };
+    auto addRender = [&, run, steps, projectDir, options, encode, silenceBefore, silenceAfter, normalize] (const std::filesystem::path& file, bool isMix, std::optional<model::Id> soloInsert)
+    {
+        steps->here ([run, &engine, projectDir, soloInsert, file, this]
+        {
+            // The song as it is now; a stem's insert soloed (heard through what it feeds).
+            run->project = session.getProject();
 
-    if (gain)
-        result["gainDb"] = std::round (juce::Decibels::gainToDecibels (*gain) * 10) / 10;
+            if (soloInsert)
+            {
+                for (auto& i : run->project.mixer.inserts)
+                    i.solo = i.id == *soloInsert;
+
+                for (auto& c : run->project.channels)
+                    c.solo = false;
+
+                for (auto& t : run->project.playlist.rows)
+                    t.solo = false;
+            }
+
+            std::filesystem::create_directories (file.parent_path());
+            run->compiled.emplace (compileProject (engine, run->project, { projectDir, tracktion::Edit::forRendering }));
+        });
+
+        steps->pooled ([run, file, isMix, options, encode, silenceBefore, silenceAfter, normalize]
+        {
+            const auto temp = file.parent_path() / ("." + file.stem().string() + ".render.wav");
+            renderToWav (*run->compiled, run->project, temp, options);
+
+            auto audio = analysis::loadAudio (temp);
+            std::error_code ec;
+            std::filesystem::remove (temp, ec);
+
+            const auto before = static_cast<int> (std::round (silenceBefore * audio.sampleRate));
+            const auto after = static_cast<int> (std::round (silenceAfter * audio.sampleRate));
+
+            if (before > 0 || after > 0)
+            {
+                juce::AudioBuffer<float> padded (audio.buffer.getNumChannels(), audio.buffer.getNumSamples() + before + after);
+                padded.clear();
+
+                for (int c = 0; c < padded.getNumChannels(); ++c)
+                    padded.copyFrom (c, before, audio.buffer, c, 0, audio.buffer.getNumSamples());
+
+                audio.buffer = std::move (padded);
+            }
+
+            if (normalize && ! run->gain)
+            {
+                const auto peak = audio.buffer.getMagnitude (0, audio.buffer.getNumSamples());
+                run->gain = peak > 0 ? juce::Decibels::decibelsToGain (static_cast<float> (*normalize)) / peak : 1.0f;
+            }
+
+            if (run->gain)
+                audio.buffer.applyGain (*run->gain);
+
+            writeAudio (audio.buffer, audio.sampleRate, file, encode);
+
+            if (isMix)
+                run->mix = std::move (audio);
+        });
+
+        // The Edit goes on the message thread, as Edits must.
+        steps->here ([run] { run->compiled.reset(); });
+    };
+
+    addRender (output, true, std::nullopt);
+
+    steps->pooled ([run, output, encode]
+    {
+        run->result = { { "path", std::filesystem::absolute (output).string() }, { "format", encode.format },
+                        { "analysis", analysis::analyse (run->mix, true) } };
+
+        if (run->gain)
+            run->result["gainDb"] = std::round (juce::Decibels::gainToDecibels (*run->gain) * 10) / 10;
+    });
 
     // Stems: each insert but master on its own (soloed, so it's heard through what it feeds),
     // over the same range, next to the mix as <name>-<insert>.<format>.
     if (params.value ("stems", false))
     {
-        auto stems = Json::array();
-
         for (auto& insert : session.getProject().mixer.inserts)
         {
             if (insert.id == model::masterInsertId)
                 continue;
 
-            auto project = session.getProject();
-
-            for (auto& i : project.mixer.inserts)
-                i.solo = i.id == insert.id;
-
-            for (auto& c : project.channels)
-                c.solo = false;
-
-            for (auto& t : project.playlist.rows)
-                t.solo = false;
-
             auto stem = output.parent_path() / (output.stem().string() + "-" + insert.id + "." + extension);
-            finish (project, stem);
-            stems.push_back ({ { "insert", insert.id }, { "path", std::filesystem::absolute (stem).string() } });
+            addRender (stem, false, insert.id);
+            steps->here ([run, id = insert.id, stem] { run->stems.push_back ({ { "insert", id }, { "path", std::filesystem::absolute (stem).string() } }); });
         }
 
-        result["stems"] = stems;
+        steps->here ([run] { run->result["stems"] = run->stems; });
     }
 
-    return result;
+    auto* result = &steps->result;
+    steps->here ([run, result] { *result = std::move (run->result); });
+    deferred = steps;
+    return {};
 }
 
 Json ApiHandler::callLibrary (const std::string& method, const Json& params)
@@ -2833,6 +2922,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             // channel they're for, or in a phantom slot of their own (loops over the bars, one-shots and
             // instruments playing notes). An instrument can only be heard that way.
             const auto instruments = std::any_of (offer["candidates"].begin(), offer["candidates"].end(), [] (auto& c) { return c.contains ("instrument"); });
+            auto steps = std::make_shared<Steps>();   // the tries, when there are any
+            std::vector<size_t> tried;                 // which candidates they're for
 
             if (! session.getProject().playlist.clips.empty() || params.contains ("channel") || instruments)
             {
@@ -2866,23 +2957,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
 
                     try
                     {
-                        Client none;
-                        const auto tried = callMix ("mix.audition", trial, none);
-
-                        for (size_t k = 0; k < which.size(); ++k)
-                        {
-                            const auto& t = tried["candidates"][k];
-                            auto& c = offer["candidates"][which[k]];
-
-                            if (! t.contains ("alone"))
-                                continue;
-
-                            c["alone"] = t["alone"];
-                            c["rest"] = t["rest"];
-
-                            if (! c.contains ("audition"))
-                                c["audition"] = t["file"];
-                        }
+                        steps = auditionSteps (trial, true);
+                        tried = which;
                     }
                     catch (const std::exception&)
                     {
@@ -2891,15 +2967,42 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
                 }
             }
 
-            offers[id] = { offer, std::nullopt };
+            auto* s = steps.get();
 
-            // Answered offers aren't asked for again after a while: keep the last few dozen.
-            while (offers.size() > 24 && offers.begin()->second.choice)
-                offers.erase (offers.begin());
+            steps->here ([this, s, offer = std::move (offer), id, tried] () mutable
+            {
+                if (! tried.empty() && s->result.contains ("candidates"))
+                {
+                    for (size_t k = 0; k < tried.size(); ++k)
+                    {
+                        const auto& t = s->result["candidates"][k];
+                        auto& c = offer["candidates"][tried[k]];
 
-            if (broadcast)
-                broadcast (notification ("picks", offer).dump());
-            return { { "id", id } };
+                        if (! t.contains ("alone"))
+                            continue;
+
+                        c["alone"] = t["alone"];
+                        c["rest"] = t["rest"];
+
+                        if (! c.contains ("audition"))
+                            c["audition"] = t["file"];
+                    }
+                }
+
+                offers[id] = { offer, std::nullopt };
+
+                // Answered offers aren't asked for again after a while: keep the last few dozen.
+                while (offers.size() > 24 && offers.begin()->second.choice)
+                    offers.erase (offers.begin());
+
+                if (broadcast)
+                    broadcast (notification ("picks", offer).dump());
+
+                s->result = { { "id", id } };
+            });
+
+            deferred = steps;
+            return {};
         }
 
         const auto id = static_cast<int> (optionalNumber (params, "id").value_or (0));
@@ -3261,25 +3364,7 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
     };
 
     // The style the song is made in, for slots and balance from its references.
-    const auto profile = [&]() -> std::shared_ptr<const listening::StyleProfile>
-    {
-        const auto name = params.contains ("style") ? readParam<std::string> (params, "style") : session.getProject().style.value_or ("");
-
-        if (listening == nullptr || name.empty())
-            return nullptr;
-
-        if (auto p = listening->getStyles().get (name))
-            return p;
-
-        // A guide's name or id stands for the style whose references' folder goes with it.
-        const auto guides = guides::GuideStore (guides::GuideStore::getDefaultFolder()).list();
-
-        for (auto& n : listening->getStyles().names())
-            if (guideFor (guides, n) == Json (name))
-                return listening->getStyles().get (n);
-
-        return nullptr;
-    }();
+    const auto profile = styleProfile (params);
 
     auto proposed = [&] (ChannelPart part)
     {
@@ -3437,14 +3522,10 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
         if (profile != nullptr)
             checks.referenceBalance = profile->measurements().value ("balance", std::vector<float>());
 
-        // listen false: only what the song shows without rendering (quick).
-        auto result = params.value ("listen", true)
-            ? analysis::checkMix (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering }, render, projectDir / "renders" / "analysis", checks)
-            : Json { { "problems", Json::array() } };
-
         // Problems the song shows without listening: too many parts at once or coming in together,
-        // parts with no slot, loops out of key.
-        auto problems = result["problems"];
+        // parts with no slot, loops out of key. Read now; the renders (listen true) follow as steps.
+        auto problems = Json::array();
+        Json result;
         const auto maxParts = static_cast<int> (optionalNumber (params, "maxParts").value_or (6));
         const auto arrangement = analysis::checkArrangement (project, checks.parts, maxParts);
 
@@ -3483,334 +3564,513 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
                 }
         }
 
-        std::sort (problems.begin(), problems.end(), [] (const Json& a, const Json& b) { return a["severity"].get<double>() > b["severity"].get<double>(); });
-        result["problems"] = problems;
         result["style"] = profile != nullptr ? Json (profile->name) : Json();
-        return result;
+
+        auto steps = params.value ("listen", true)
+            ? analysis::checkMixSteps (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering }, render, projectDir / "renders" / "analysis", checks)
+            : std::make_shared<Steps>();
+        auto* s = steps.get();
+
+        steps->here ([s, heard = std::move (problems), shown = std::move (result)]
+        {
+            auto& result = s->result;      // what listening found, or nothing
+
+            if (! result.is_object())
+                result = Json::object();
+
+            auto problems = result.value ("problems", Json::array());
+
+            for (auto& p : heard)
+                problems.push_back (p);
+
+            for (auto& [key, value] : shown.items())
+                result[key] = value;
+
+            std::sort (problems.begin(), problems.end(), [] (const Json& a, const Json& b) { return a["severity"].get<double>() > b["severity"].get<double>(); });
+            result["problems"] = problems;
+        });
+
+        deferred = steps;
+        return {};
     }
 
     if (method == "mix.audition")
     {
-        const auto& project = session.getProject();
-        const model::Channel* channel = params.contains ("channel") ? &findOrThrow (readParam<std::string> (params, "channel")) : nullptr;
+        deferred = auditionSteps (params, false);
+        return {};
+    }
 
-        // What to try: samples (paths), or candidates that are a sample or an instrument, each maybe
-        // with notes of its own to play in a phantom slot.
-        struct Candidate
+    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+}
+
+std::shared_ptr<const listening::StyleProfile> ApiHandler::styleProfile (const Json& params) const
+{
+    const auto name = params.contains ("style") ? readParam<std::string> (params, "style") : session.getProject().style.value_or ("");
+
+    if (listening == nullptr || name.empty())
+        return nullptr;
+
+    if (auto p = listening->getStyles().get (name))
+        return p;
+
+    // A guide's name or id stands for the style whose references' folder goes with it.
+    const auto guides = guides::GuideStore (guides::GuideStore::getDefaultFolder()).list();
+
+    for (auto& n : listening->getStyles().names())
+        if (guideFor (guides, n) == Json (name))
+            return listening->getStyles().get (n);
+
+    return nullptr;
+}
+
+std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool tolerant)
+{
+    using model::ChannelPart;
+    const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+
+    auto entryOf = [&] (const model::Channel& c) -> std::optional<library::SampleEntry>
+    {
+        auto* sampler = std::get_if<model::SamplerInstrument> (&c.instrument);
+
+        if (sampler == nullptr || sampler->layers.empty())
+            return {};
+
+        std::filesystem::path sample = sampler->layers.front().sample;
+
+        if (sample.is_relative())
+            sample = projectDir / sample;
+
+        try { return entryFor (sample); } catch (const std::exception&) { return {}; }
+    };
+
+    auto partOf = [&] (const model::Channel& c)
+    {
+        if (c.part)
+            return *c.part;
+
+        const auto e = entryOf (c);
+        return mixer::guessPart (c.name, e ? e->classification.category : "", e && e->classification.loop,
+                                 e ? e->features.bands.sub + e->features.bands.low : 0.0f);
+    };
+
+    const auto profile = styleProfile (params);
+
+    auto proposed = [&] (ChannelPart part)
+    {
+        auto slot = mixer::defaultSlot (part);
+
+        if (profile != nullptr && (part == ChannelPart::bass || part == ChannelPart::synth || part == ChannelPart::vocal))
+            slot = mixer::fitToReferences (slot, part, profile->spectrum (part == ChannelPart::bass ? listening::Role::bass : listening::Role::music));
+
+        return slot;
+    };
+
+    auto findOrThrow = [&] (const std::string& id) -> const model::Channel&
+    {
+        if (auto* c = model::findChannel (session.getProject(), id))
+            return *c;
+
+        throw RpcError (invalidParams, "No channel \"" + id + "\"");
+    };
+
+    const auto& project = session.getProject();
+    const model::Channel* channel = params.contains ("channel") ? &findOrThrow (readParam<std::string> (params, "channel")) : nullptr;
+
+    // What to try: samples (paths), or candidates that are a sample or an instrument, each maybe
+    // with notes of its own to play in a phantom slot.
+    struct Candidate
+    {
+        std::optional<std::string> path;
+        std::optional<model::Instrument> instrument;
+        std::optional<std::vector<model::Note>> notes;
+        std::optional<ChannelPart> part;
+        std::optional<library::SampleEntry> entry;
+        std::string source;     // as given, for its audition's file name
+    };
+
+    auto notesOf = [&] (Json list)
+    {
+        for (auto& n : list)
+            if (n.is_object())
+                n["channel"] = "phantom";
+
+        return readParam<std::vector<model::Note>> (Json { { "notes", list } }, "notes");
+    };
+
+    auto partNamed = [&] (const Json& j) -> std::optional<ChannelPart>
+    {
+        if (! j.contains ("part"))
+            return {};
+
+        if (auto p = mixer::partFromName (readParam<std::string> (j, "part")))
+            return p;
+
+        throw RpcError (invalidParams, "part: one of kick, rumble, drums, bass, percussion, clap, hats, synth, vocal, fx");
+    };
+
+    std::vector<Candidate> candidates;
+
+    if (params.contains ("candidates"))
+        for (auto& c : params["candidates"])
         {
-            std::optional<std::string> path;
-            std::optional<model::Instrument> instrument;
-            std::optional<std::vector<model::Note>> notes;
-            std::optional<ChannelPart> part;
-            std::optional<library::SampleEntry> entry;
-            std::string source;     // as given, for its audition's file name
-        };
+            Candidate candidate;
 
-        auto notesOf = [&] (Json list)
+            if (c.contains ("path"))        candidate.path = readParam<std::string> (c, "path");
+            if (c.contains ("instrument"))  candidate.instrument = readParam<model::Instrument> (c, "instrument");
+            if (c.contains ("notes"))       candidate.notes = notesOf (c["notes"]);
+            candidate.part = partNamed (c);
+            candidate.source = c.dump();
+
+            if (! candidate.path && ! candidate.instrument)
+                throw RpcError (invalidParams, "candidates: each needs a path or an instrument");
+
+            candidates.push_back (std::move (candidate));
+        }
+    else
+        for (auto& path : readParam<std::vector<std::string>> (params, "paths"))
+            candidates.push_back ({ path, {}, {}, {}, {}, path });
+
+    if (candidates.empty() || candidates.size() > 20)
+        throw RpcError (invalidParams, "paths: one to ten samples");
+
+    const auto sharedNotes = params.contains ("notes") ? std::optional (notesOf (params["notes"])) : std::nullopt;
+    const auto sharedPart = partNamed (params);
+
+    for (auto& c : candidates)
+        if (c.path && c.path->size() > 0)
         {
-            for (auto& n : list)
-                if (n.is_object())
-                    n["channel"] = "phantom";
+            try { c.entry = entryFor (*c.path); } catch (const std::exception&) {}
+        }
 
-            return readParam<std::vector<model::Note>> (Json { { "notes", list } }, "notes");
-        };
+    const auto bar = model::ticksPerBar (project.timeSignature);
+    RenderOptions render;
+    render.sampleRate = 44100;
+    render.start = static_cast<model::Ticks> (optionalNumber (params, "start").value_or (0));
+    render.end = static_cast<model::Ticks> (optionalNumber (params, "end").value_or (static_cast<double> (*render.start + 8 * bar)));
 
-        auto partNamed = [&] (const Json& j) -> std::optional<ChannelPart>
+    const auto folder = getDefaultCacheDir() / "auditions" / "in-song";
+    const CompileOptions compile { projectDir, tracktion::Edit::forRendering };
+    auto fileFor = [&] (const std::string& what) { return folder / (std::to_string (std::hash<std::string> {} (what)) + ".wav"); };
+    const auto key = project.key ? music::parseKey (*project.key) : std::nullopt;
+    auto isPitched = [] (ChannelPart p) { return p == ChannelPart::bass || p == ChannelPart::synth || p == ChannelPart::vocal; };
+
+    Json result { { "bars", { *render.start / bar + 1, *render.end / bar + 1 } } };
+    std::optional<library::SampleEntry> currentEntry;
+
+    // What a candidate's try needs between its steps.
+    struct Run
+    {
+        Json result, out = Json::array();
+        std::shared_ptr<analysis::Placement> placement;
+        bool failed = false;
+    };
+
+    auto run = std::make_shared<Run>();
+    auto steps = std::make_shared<Steps>();
+    auto& engine = context.getEngine();
+
+    // One try: the Edits made here, the renders pooled, then what it measured taken up; with
+    // tolerant, a try that fails is reported as such instead of failing the whole audition.
+    auto addTry = [&, run, steps, render, tolerant] (model::Project trial, model::Id id, std::filesystem::path file,
+                                                     std::function<void (Json&)> took, Json onError)
+    {
+        steps->here ([run, &engine, trial = std::move (trial), id, file, compile, tolerant, onError]
         {
-            if (! j.contains ("part"))
-                return {};
+            run->failed = false;
 
-            if (auto p = mixer::partFromName (readParam<std::string> (j, "part")))
-                return p;
-
-            throw RpcError (invalidParams, "part: one of kick, rumble, drums, bass, percussion, clap, hats, synth, vocal, fx");
-        };
-
-        std::vector<Candidate> candidates;
-
-        if (params.contains ("candidates"))
-            for (auto& c : params["candidates"])
+            try
             {
-                Candidate candidate;
-
-                if (c.contains ("path"))        candidate.path = readParam<std::string> (c, "path");
-                if (c.contains ("instrument"))  candidate.instrument = readParam<model::Instrument> (c, "instrument");
-                if (c.contains ("notes"))       candidate.notes = notesOf (c["notes"]);
-                candidate.part = partNamed (c);
-                candidate.source = c.dump();
-
-                if (! candidate.path && ! candidate.instrument)
-                    throw RpcError (invalidParams, "candidates: each needs a path or an instrument");
-
-                candidates.push_back (std::move (candidate));
+                run->placement = analysis::preparePlacement (engine, trial, id, compile, file);
             }
-        else
-            for (auto& path : readParam<std::vector<std::string>> (params, "paths"))
-                candidates.push_back ({ path, {}, {}, {}, {}, path });
+            catch (const std::exception& e)
+            {
+                if (! tolerant)
+                    throw;
 
-        if (candidates.empty() || candidates.size() > 20)
-            throw RpcError (invalidParams, "paths: one to ten samples");
+                run->failed = true;
+                auto j = onError;
+                j["error"] = e.what();
+                run->out.push_back (j);
+            }
+        });
 
-        const auto sharedNotes = params.contains ("notes") ? std::optional (notesOf (params["notes"])) : std::nullopt;
-        const auto sharedPart = partNamed (params);
+        auto tried = std::make_shared<Json>();
+
+        steps->pooled ([run, render, tried, tolerant, onError]
+        {
+            if (run->failed)
+                return;
+
+            try
+            {
+                *tried = analysis::renderPlacement (*run->placement, render);
+            }
+            catch (const std::exception& e)
+            {
+                if (! tolerant)
+                    throw;
+
+                run->failed = true;
+                auto j = onError;
+                j["error"] = e.what();
+                run->out.push_back (j);
+            }
+        });
+
+        steps->here ([run, tried, took]
+        {
+            run->placement.reset();   // its Edits go here, on the message thread
+
+            if (! run->failed)
+                took (*tried);
+        });
+    };
+
+    if (channel != nullptr)
+    {
+        std::optional<std::string> currentPath;
+
+        if (auto* sampler = std::get_if<model::SamplerInstrument> (&channel->instrument); sampler != nullptr && ! sampler->layers.empty())
+            currentPath = sampler->layers.front().sample;
+
+        result["channel"] = channel->id;
+        result["part"] = model::toString (partOf (*channel));
+        currentEntry = entryOf (*channel);
+
+        if (! mixer::readSlot (project, *channel))
+            result["note"] = "The channel has no slot yet: give it one first (mix_slots), so each candidate is heard in its place";
+
+        addTry (project, channel->id, fileFor (channel->id + "@current"), [run, currentPath] (Json& current)
+        {
+            if (currentPath)
+                current["path"] = *currentPath;
+
+            run->result["current"] = current;
+        }, Json::object());
+    }
+
+    // Samples play as loud as the sound they'd replace, so the louder one doesn't win for being
+    // louder; in a phantom slot, as loud as each other.
+    std::optional<float> targetLufs;
+
+    if (currentEntry)
+        targetLufs = currentEntry->features.integratedLufs;
+    else
+    {
+        std::vector<float> loudness;
 
         for (auto& c : candidates)
-            if (c.path && c.path->size() > 0)
+            if (c.entry && c.entry->features.integratedLufs)
+                loudness.push_back (*c.entry->features.integratedLufs);
+
+        if (! loudness.empty())
+        {
+            std::nth_element (loudness.begin(), loudness.begin() + static_cast<long> (loudness.size() / 2), loudness.end());
+            targetLufs = loudness[loudness.size() / 2];
+        }
+    }
+
+    // Notes for a phantom one-shot or instrument when none are given: a bar of its part's usual figure.
+    auto figureFor = [&] (ChannelPart part)
+    {
+        const auto tonic = key ? key->tonic : 9;
+        std::vector<model::Note> notes;
+        auto add = [&] (model::Ticks start, model::TickLength length, int k) { notes.push_back ({ "phantom", start, length, k, 100 }); };
+
+        for (int beat = 0; beat < 4; ++beat)
+            switch (part)
             {
-                try { c.entry = entryFor (*c.path); } catch (const std::exception&) {}
+                case ChannelPart::hats:         add (beat * 960 + 480, 120, 60); break;
+                case ChannelPart::percussion:   if (beat % 2 == 1) add (beat * 960, 240, 60); break;
+                case ChannelPart::bass:         add (beat * 960 + 480, 360, 36 + tonic); break;
+                case ChannelPart::synth:
+                case ChannelPart::vocal:
+                case ChannelPart::fx:           if (beat % 2 == 0) add (beat * 960, 720, 48 + tonic); break;
+                default:                        add (beat * 960, 240, 60); break;
             }
 
-        const auto bar = model::ticksPerBar (project.timeSignature);
-        RenderOptions render;
-        render.sampleRate = 44100;
-        render.start = static_cast<model::Ticks> (optionalNumber (params, "start").value_or (0));
-        render.end = static_cast<model::Ticks> (optionalNumber (params, "end").value_or (static_cast<double> (*render.start + 8 * bar)));
+        return notes;
+    };
 
-        const auto folder = getDefaultCacheDir() / "auditions" / "in-song";
-        const CompileOptions compile { projectDir, tracktion::Edit::forRendering };
-        auto fileFor = [&] (const std::string& what) { return folder / (std::to_string (std::hash<std::string> {} (what)) + ".wav"); };
-        const auto key = project.key ? music::parseKey (*project.key) : std::nullopt;
-        auto isPitched = [] (ChannelPart p) { return p == ChannelPart::bass || p == ChannelPart::synth || p == ChannelPart::vocal; };
 
-        Json result { { "bars", { *render.start / bar + 1, *render.end / bar + 1 } } };
-        std::optional<library::SampleEntry> currentEntry;
+    for (auto& candidate : candidates)
+    {
+        const auto entry = candidate.entry;
+
+        if (candidate.path && ! entry && ! candidate.instrument)
+        {
+            run->out.push_back ({ { "path", *candidate.path }, { "error", "can't be read" } });
+            continue;
+        }
+
+        auto trial = project;
+        model::Id id;
+        auto part = ChannelPart::synth;
+        model::SamplerLayer* layer = nullptr;
+        model::Channel* placed = nullptr;
 
         if (channel != nullptr)
         {
-            auto current = analysis::placeInMix (context.getEngine(), project, channel->id, compile, render, fileFor (channel->id + "@current"));
+            // In the channel's place, playing its notes or clips: a sample in its first layer (loops at
+            // their exact tempo, pitched one-shots on their root), or a whole instrument.
+            id = channel->id;
+            part = partOf (*channel);
+            placed = &*std::find_if (trial.channels.begin(), trial.channels.end(), [&] (auto& x) { return x.id == id; });
 
-            if (auto* sampler = std::get_if<model::SamplerInstrument> (&channel->instrument); sampler != nullptr && ! sampler->layers.empty())
-                current["path"] = sampler->layers.front().sample;
-
-            result["channel"] = channel->id;
-            result["part"] = model::toString (partOf (*channel));
-            result["current"] = current;
-            currentEntry = entryOf (*channel);
-
-            if (! mixer::readSlot (project, *channel))
-                result["note"] = "The channel has no slot yet: give it one first (mix_slots), so each candidate is heard in its place";
-        }
-
-        // Samples play as loud as the sound they'd replace, so the louder one doesn't win for being
-        // louder; in a phantom slot, as loud as each other.
-        std::optional<float> targetLufs;
-
-        if (currentEntry)
-            targetLufs = currentEntry->features.integratedLufs;
-        else
-        {
-            std::vector<float> loudness;
-
-            for (auto& c : candidates)
-                if (c.entry && c.entry->features.integratedLufs)
-                    loudness.push_back (*c.entry->features.integratedLufs);
-
-            if (! loudness.empty())
+            if (candidate.instrument)
+                placed->instrument = *candidate.instrument;
+            else
             {
-                std::nth_element (loudness.begin(), loudness.begin() + static_cast<long> (loudness.size() / 2), loudness.end());
-                targetLufs = loudness[loudness.size() / 2];
-            }
-        }
+                auto* sampler = std::get_if<model::SamplerInstrument> (&placed->instrument);
 
-        // Notes for a phantom one-shot or instrument when none are given: a bar of its part's usual figure.
-        auto figureFor = [&] (ChannelPart part)
-        {
-            const auto tonic = key ? key->tonic : 9;
-            std::vector<model::Note> notes;
-            auto add = [&] (model::Ticks start, model::TickLength length, int k) { notes.push_back ({ "phantom", start, length, k, 100 }); };
-
-            for (int beat = 0; beat < 4; ++beat)
-                switch (part)
+                if (sampler == nullptr || sampler->layers.empty())
                 {
-                    case ChannelPart::hats:         add (beat * 960 + 480, 120, 60); break;
-                    case ChannelPart::percussion:   if (beat % 2 == 1) add (beat * 960, 240, 60); break;
-                    case ChannelPart::bass:         add (beat * 960 + 480, 360, 36 + tonic); break;
-                    case ChannelPart::synth:
-                    case ChannelPart::vocal:
-                    case ChannelPart::fx:           if (beat % 2 == 0) add (beat * 960, 720, 48 + tonic); break;
-                    default:                        add (beat * 960, 240, 60); break;
+                    model::SamplerInstrument s;
+                    s.layers.push_back ({});
+                    s.layers.front().id = "l";
+                    placed->instrument = s;
+                    sampler = &std::get<model::SamplerInstrument> (placed->instrument);
                 }
 
-            return notes;
-        };
+                layer = &sampler->layers.front();
+                layer->sample = entry->path;
 
-        auto out = Json::array();
+                if (layer->sourceTempo && entry->classification.loop)
+                    if (auto tempo = library::SampleLibrary::loopTempo (*entry))
+                        layer->sourceTempo = *tempo;
 
-        for (auto& candidate : candidates)
+                if (! entry->classification.loop && isPitched (part))
+                    if (auto root = library::SampleLibrary::keyOf (*entry).root)
+                        layer->rootKey = *root;
+            }
+        }
+        else
         {
-            const auto& entry = candidate.entry;
+            // A phantom slot: a channel of its own through its part's slot, as if it were in the
+            // arrangement: a loop back to back over the bars, a one-shot or an instrument playing notes.
+            part = candidate.part.value_or (sharedPart.value_or (entry ? mixer::guessPart (std::filesystem::path (entry->path).stem().string(),
+                                                                                                entry->classification.category, entry->classification.loop,
+                                                                                                entry->features.bands.sub + entry->features.bands.low)
+                                                                        : ChannelPart::synth));
+            id = "audition";
 
-            if (candidate.path && ! entry && ! candidate.instrument)
+            auto taken = [&] (const model::Id& x)
             {
-                out.push_back ({ { "path", *candidate.path }, { "error", "can't be read" } });
+                return model::findChannel (trial, x) != nullptr || model::findInsert (trial, x) != nullptr
+                    || std::any_of (trial.patterns.begin(), trial.patterns.end(), [&] (auto& p) { return p.id == x; })
+                    || std::any_of (trial.playlist.clips.begin(), trial.playlist.clips.end(), [&] (auto& c) { return std::visit ([&] (auto& v) { return v.id.starts_with (x); }, c); });
+            };
+
+            while (taken (id))
+                id += "-x";
+
+            model::Insert insert;
+            insert.id = id;
+            insert.name = "Audition";
+            insert.effects.push_back (model::Effect (mixer::slotEffect (proposed (part))));
+            trial.mixer.inserts.push_back (insert);
+
+            const auto notes = candidate.notes ? candidate.notes : sharedNotes;
+            const auto loopTempo = entry && entry->classification.loop ? library::SampleLibrary::loopTempo (*entry) : std::nullopt;
+            const auto asLoop = ! candidate.instrument && ! notes && loopTempo;
+
+            if (! candidate.instrument && ! notes && entry && entry->classification.loop && ! loopTempo)
+            {
+                run->out.push_back ({ { "path", entry->path }, { "error", "a loop with no tempo needs a channel or notes to play" } });
                 continue;
             }
 
-            auto trial = project;
-            model::Id id;
-            auto part = ChannelPart::synth;
-            model::SamplerLayer* layer = nullptr;
-            model::Channel* placed = nullptr;
+            model::Channel c;
+            c.id = id;
+            c.name = "Audition";
+            c.insert = id;
+            c.group = asLoop ? model::ChannelGroup::arrangement : model::ChannelGroup::rack;
+            c.part = part;
 
-            if (channel != nullptr)
+            if (candidate.instrument)
+                c.instrument = *candidate.instrument;
+            else
             {
-                // In the channel's place, playing its notes or clips: a sample in its first layer (loops at
-                // their exact tempo, pitched one-shots on their root), or a whole instrument.
-                id = channel->id;
-                part = partOf (*channel);
-                placed = &*std::find_if (trial.channels.begin(), trial.channels.end(), [&] (auto& x) { return x.id == id; });
+                model::SamplerLayer l;
+                l.id = "l";
+                l.sample = entry->path;
 
-                if (candidate.instrument)
-                    placed->instrument = *candidate.instrument;
+                if (asLoop)
+                    l.sourceTempo = *loopTempo;
+                else if (isPitched (part))
+                    l.rootKey = library::SampleLibrary::keyOf (*entry).root.value_or (60);
                 else
+                    l.pitchTracking = false;
+
+                model::SamplerInstrument sampler;
+                sampler.layers.push_back (l);
+                c.instrument = sampler;
+            }
+
+            trial.channels.push_back (c);
+            placed = &trial.channels.back();
+
+            if (auto* sampler = std::get_if<model::SamplerInstrument> (&placed->instrument); sampler != nullptr && ! sampler->layers.empty())
+                layer = &sampler->layers.front();
+
+            int row = 0;
+
+            for (auto& clip : trial.playlist.clips)
+                row = std::max (row, std::visit ([] (auto& v) { return static_cast<int> (v.row) + 1; }, clip));
+
+            if (asLoop)
+            {
+                // A clip per time round, back to back: whole beats long, so it stays on the grid.
+                const auto beats = std::max (1.0, std::round (entry->features.durationSeconds * *loopTempo / 60));
+                const auto every = static_cast<model::Ticks> (beats * model::ticksPerQuarter);
+                int n = 0;
+
+                for (auto at = *render.start; at < *render.end; at += every)
                 {
-                    auto* sampler = std::get_if<model::SamplerInstrument> (&placed->instrument);
-
-                    if (sampler == nullptr || sampler->layers.empty())
-                    {
-                        model::SamplerInstrument s;
-                        s.layers.push_back ({});
-                        s.layers.front().id = "l";
-                        placed->instrument = s;
-                        sampler = &std::get<model::SamplerInstrument> (placed->instrument);
-                    }
-
-                    layer = &sampler->layers.front();
-                    layer->sample = entry->path;
-
-                    if (layer->sourceTempo && entry->classification.loop)
-                        if (auto tempo = library::SampleLibrary::loopTempo (*entry))
-                            layer->sourceTempo = *tempo;
-
-                    if (! entry->classification.loop && isPitched (part))
-                        if (auto root = library::SampleLibrary::keyOf (*entry).root)
-                            layer->rootKey = *root;
+                    model::AudioClip clip;
+                    clip.id = id + "-" + std::to_string (n++);
+                    clip.row = row;
+                    clip.start = at;
+                    clip.length = std::min (every, *render.end - at);
+                    clip.channel = id;
+                    trial.playlist.clips.push_back (clip);
                 }
             }
             else
             {
-                // A phantom slot: a channel of its own through its part's slot, as if it were in the
-                // arrangement: a loop back to back over the bars, a one-shot or an instrument playing notes.
-                part = candidate.part.value_or (sharedPart.value_or (entry ? mixer::guessPart (std::filesystem::path (entry->path).stem().string(),
-                                                                                                    entry->classification.category, entry->classification.loop,
-                                                                                                    entry->features.bands.sub + entry->features.bands.low)
-                                                                            : ChannelPart::synth));
-                id = "audition";
+                model::Pattern pattern;
+                pattern.id = id;
+                pattern.notes = notes ? *notes : figureFor (part);
 
-                auto taken = [&] (const model::Id& x)
-                {
-                    return model::findChannel (trial, x) != nullptr || model::findInsert (trial, x) != nullptr
-                        || std::any_of (trial.patterns.begin(), trial.patterns.end(), [&] (auto& p) { return p.id == x; })
-                        || std::any_of (trial.playlist.clips.begin(), trial.playlist.clips.end(), [&] (auto& c) { return std::visit ([&] (auto& v) { return v.id.starts_with (x); }, c); });
-                };
+                for (auto& n : pattern.notes)
+                    n.channel = id;
 
-                while (taken (id))
-                    id += "-x";
+                trial.patterns.push_back (pattern);
 
-                model::Insert insert;
-                insert.id = id;
-                insert.name = "Audition";
-                insert.effects.push_back (model::Effect (mixer::slotEffect (proposed (part))));
-                trial.mixer.inserts.push_back (insert);
-
-                const auto notes = candidate.notes ? candidate.notes : sharedNotes;
-                const auto loopTempo = entry && entry->classification.loop ? library::SampleLibrary::loopTempo (*entry) : std::nullopt;
-                const auto asLoop = ! candidate.instrument && ! notes && loopTempo;
-
-                if (! candidate.instrument && ! notes && entry && entry->classification.loop && ! loopTempo)
-                {
-                    out.push_back ({ { "path", entry->path }, { "error", "a loop with no tempo needs a channel or notes to play" } });
-                    continue;
-                }
-
-                model::Channel c;
-                c.id = id;
-                c.name = "Audition";
-                c.insert = id;
-                c.group = asLoop ? model::ChannelGroup::arrangement : model::ChannelGroup::rack;
-                c.part = part;
-
-                if (candidate.instrument)
-                    c.instrument = *candidate.instrument;
-                else
-                {
-                    model::SamplerLayer l;
-                    l.id = "l";
-                    l.sample = entry->path;
-
-                    if (asLoop)
-                        l.sourceTempo = *loopTempo;
-                    else if (isPitched (part))
-                        l.rootKey = library::SampleLibrary::keyOf (*entry).root.value_or (60);
-                    else
-                        l.pitchTracking = false;
-
-                    model::SamplerInstrument sampler;
-                    sampler.layers.push_back (l);
-                    c.instrument = sampler;
-                }
-
-                trial.channels.push_back (c);
-                placed = &trial.channels.back();
-
-                if (auto* sampler = std::get_if<model::SamplerInstrument> (&placed->instrument); sampler != nullptr && ! sampler->layers.empty())
-                    layer = &sampler->layers.front();
-
-                int row = 0;
-
-                for (auto& clip : trial.playlist.clips)
-                    row = std::max (row, std::visit ([] (auto& v) { return static_cast<int> (v.row) + 1; }, clip));
-
-                if (asLoop)
-                {
-                    // A clip per time round, back to back: whole beats long, so it stays on the grid.
-                    const auto beats = std::max (1.0, std::round (entry->features.durationSeconds * *loopTempo / 60));
-                    const auto every = static_cast<model::Ticks> (beats * model::ticksPerQuarter);
-                    int n = 0;
-
-                    for (auto at = *render.start; at < *render.end; at += every)
-                    {
-                        model::AudioClip clip;
-                        clip.id = id + "-" + std::to_string (n++);
-                        clip.row = row;
-                        clip.start = at;
-                        clip.length = std::min (every, *render.end - at);
-                        clip.channel = id;
-                        trial.playlist.clips.push_back (clip);
-                    }
-                }
-                else
-                {
-                    model::Pattern pattern;
-                    pattern.id = id;
-                    pattern.notes = notes ? *notes : figureFor (part);
-
-                    for (auto& n : pattern.notes)
-                        n.channel = id;
-
-                    trial.patterns.push_back (pattern);
-
-                    model::PatternClip clip;
-                    clip.id = id + "-0";
-                    clip.row = row;
-                    clip.start = *render.start;
-                    clip.length = *render.end - *render.start;
-                    clip.pattern = id;
-                    trial.playlist.clips.push_back (clip);
-                }
+                model::PatternClip clip;
+                clip.id = id + "-0";
+                clip.row = row;
+                clip.start = *render.start;
+                clip.length = *render.end - *render.start;
+                clip.pattern = id;
+                trial.playlist.clips.push_back (clip);
             }
+        }
 
-            double gain = 0;
+        double gain = 0;
 
-            if (layer != nullptr && ! candidate.instrument && targetLufs && entry && entry->features.integratedLufs)
-            {
-                gain = std::clamp (static_cast<double> (*targetLufs - *entry->features.integratedLufs), -18.0, 18.0);
-                layer->gainDb = std::clamp (layer->gainDb + gain, -60.0, 24.0);
-            }
+        if (layer != nullptr && ! candidate.instrument && targetLufs && entry && entry->features.integratedLufs)
+        {
+            gain = std::clamp (static_cast<double> (*targetLufs - *entry->features.integratedLufs), -18.0, 18.0);
+            layer->gainDb = std::clamp (layer->gainDb + gain, -60.0, 24.0);
+        }
 
-            auto j = analysis::placeInMix (context.getEngine(), trial, id, compile, render,
-                                           fileFor (id + "@" + candidate.source + "@" + (sharedNotes ? params["notes"].dump() : "") + "@" + std::to_string (*render.start)));
+        const auto inPlace = channel != nullptr;
+        Json onError = entry ? Json { { "path", entry->path } } : Json::object();
 
+        addTry (std::move (trial), id, fileFor (id + "@" + candidate.source + "@" + (sharedNotes ? params["notes"].dump() : "") + "@" + std::to_string (*render.start)),
+                [run, entry, gain, inPlace, part, key] (Json& j)
+        {
             if (entry)
             {
                 j["path"] = entry->path;
@@ -3819,22 +4079,30 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
 
             j["gainDb"] = std::round (gain * 10) / 10;
 
-            if (channel == nullptr)
+            if (! inPlace)
                 j["part"] = model::toString (part);
 
             // Whether a sample's notes go with the song's.
-            if (key && entry && isPitched (part))
+            if (key && entry && (part == ChannelPart::bass || part == ChannelPart::synth || part == ChannelPart::vocal))
                 if (auto fit = library::SampleLibrary::fitTo (*entry, *key))
                     j["key"] = { { "fits", fit->fits }, { "transpose", fit->transpose } };
 
-            out.push_back (std::move (j));
-        }
-
-        result["candidates"] = out;
-        return result;
+            run->out.push_back (std::move (j));
+        }, onError);
     }
 
-    throw RpcError (methodNotFound, "unknown method \"" + method + "\"");
+    // Candidates that couldn't be tried were noted as the loop went: they keep their place.
+    run->result = std::move (result);
+    auto* final = &steps->result;
+
+    steps->here ([run, final]
+    {
+        run->result["candidates"] = run->out;
+        *final = std::move (run->result);
+    });
+
+    return steps;
+
 }
 
 Json ApiHandler::compareToStyle (const Json& params)
@@ -3885,31 +4153,37 @@ Json ApiHandler::compareToStyle (const Json& params)
         if (! c.mute)
             parts[partOf (c)].push_back (c.id);
 
-    const auto file = workDir / "mix.wav";
-    auto compiled = compileProject (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering });
-    renderToWav (compiled, project, file, options);
-
-    Json result;
-
-    try
-    {
-        result = listening->compare (*profile, file, project.tempo, project.swing);
-    }
-    catch (...)
-    {
-        std::filesystem::remove (file);
-        throw;
-    }
-
-    std::filesystem::remove (file);
-
     auto partsJson = Json::object();
 
     for (auto& [role, channels] : parts)
         partsJson[listening::roleName (role)] = channels;
 
-    result["channels"] = partsJson;
-    return result;
+    struct Run
+    {
+        std::optional<CompiledEdit> compiled;
+        model::Project project;
+        std::filesystem::path file;
+    };
+
+    auto run = std::make_shared<Run>();
+    run->project = project;
+    run->file = workDir / "mix.wav";
+    run->compiled.emplace (compileProject (context.getEngine(), project, { projectDir, tracktion::Edit::forRendering }));
+
+    auto steps = std::make_shared<Steps>();
+    auto* result = &steps->result;
+
+    steps->pooled ([run, options, profile, partsJson, result, listening = listening]
+    {
+        struct Cleanup { std::filesystem::path file; ~Cleanup() { std::error_code e; std::filesystem::remove (file, e); } } cleanup { run->file };
+        renderToWav (*run->compiled, run->project, run->file, options);
+        *result = listening->compare (*profile, run->file, run->project.tempo, run->project.swing);
+        (*result)["channels"] = partsJson;
+    });
+
+    steps->here ([run] { run->compiled.reset(); });
+    deferred = steps;
+    return {};
 }
 
 library::SampleEntry ApiHandler::entryFor (const std::filesystem::path& path)

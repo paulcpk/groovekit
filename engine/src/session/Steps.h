@@ -2,6 +2,7 @@
 
 #include "model/Project.h"
 
+#include <atomic>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -37,8 +38,9 @@ public:
 
     void runNow();
 
-    /** Message thread only; the caller keeps this object alive until done is called. */
-    void runLater (EngineContext&, Done done);
+    /** Message thread only; the caller keeps this object alive until done is called. When alive
+        goes false (the project was closed), no further step runs and done gets an error. */
+    void runLater (EngineContext&, std::shared_ptr<std::atomic<bool>> alive, Done done);
 
     /** What the steps produced. */
     model::Json result;
@@ -53,7 +55,7 @@ private:
     std::vector<Item> steps;
     size_t next = 0;
 
-    void continueLater (EngineContext&, Done done);
+    void continueLater (EngineContext&, const std::shared_ptr<std::atomic<bool>>& alive, Done done);
 };
 
 } // namespace gk

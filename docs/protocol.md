@@ -25,6 +25,8 @@ A serving engine registers in `~/Library/Application Support/GrooveKit/engines/<
 
 ## Methods
 
+Requests are handled one at a time on the engine's message thread, except that `render`, `analyze`, `analyzeMix`, `master`, `mix.check`, `mix.audition`, `picks.offer` and `styles.compare` do their rendering and measuring on a pool thread (two at a time) and answer when done: other requests, and the transport and levels notifications, go on meanwhile. The song they work on is the song as it was when they were asked.
+
 | Method | Params | Result |
 | --- | --- | --- |
 | `hello` | `origin?`: name recorded in history for this connection's changes (`ui`, `agent`, ...) | `{ server, protocol, project }`; `protocol` goes up when clients need methods an older engine lacks (2: song maps and sound matching), so a client that joined an older engine can say so |

@@ -2,6 +2,7 @@
 
 #include "compiler/EditCompiler.h"
 #include "render/Render.h"
+#include "session/Steps.h"
 
 #include <set>
 
@@ -21,6 +22,11 @@ namespace gk::analysis
 model::Json analyseMix (tracktion::Engine&, const model::Project&, const CompileOptions&,
                         const RenderOptions&, const std::filesystem::path& workDir);
 
+/** The same as steps (the Edit compiled and the stems' mutes set on the message thread, the
+    renders pooled), with the result in the steps' result. */
+std::shared_ptr<Steps> analyseMixSteps (tracktion::Engine&, const model::Project&, const CompileOptions&,
+                                        const RenderOptions&, const std::filesystem::path& workDir);
+
 /** What a combination check knows about the song besides its sound. */
 struct MixCheckContext
 {
@@ -38,6 +44,9 @@ struct MixCheckContext
 model::Json checkMix (tracktion::Engine&, const model::Project&, const CompileOptions&, const RenderOptions&,
                       const std::filesystem::path& workDir, const MixCheckContext&);
 
+std::shared_ptr<Steps> checkMixSteps (tracktion::Engine&, const model::Project&, const CompileOptions&, const RenderOptions&,
+                                      const std::filesystem::path& workDir, const MixCheckContext&);
+
 /** Reads the arrangement from the song itself (no rendering): which parts play in each bar, and
     where too many play at once or come in together. A part is a channel heard in a bar (its
     notes or its audio clips); beds don't count (fx parts playing through most of the song).
@@ -53,5 +62,18 @@ model::Json checkArrangement (const model::Project&, const std::map<std::string,
     mix. For trying candidate sounds in place before choosing one. */
 model::Json placeInMix (tracktion::Engine&, const model::Project&, const model::Id& channel, const CompileOptions&,
                         const RenderOptions&, const std::filesystem::path& file);
+
+/** placeInMix in two halves: the projects and their Edits, made on the message thread, and the
+    renders and measurements, which any thread may do. */
+struct Placement
+{
+    model::Project alone, rest;
+    std::optional<CompiledEdit> aloneEdit, restEdit;
+    std::filesystem::path file, aloneFile, restFile;
+};
+
+std::shared_ptr<Placement> preparePlacement (tracktion::Engine&, const model::Project&, const model::Id& channel,
+                                             const CompileOptions&, const std::filesystem::path& file);
+model::Json renderPlacement (Placement&, const RenderOptions&);
 
 } // namespace gk::analysis

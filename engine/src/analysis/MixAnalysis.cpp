@@ -113,63 +113,97 @@ namespace
         return audio;
     }
 
-    Renders renderStems (tracktion::Engine& engine, const Project& project, const CompileOptions& compileOptions,
-                         const RenderOptions& renderOptions, const std::filesystem::path& workDir)
+    /** The renders of a mix analysis as steps: the Edit compiled and each stem's mutes set on the
+        message thread, the renders and measurements pooled (Steps). The mix and every stem come
+        from one Edit, so instruments and effects are made once: a stem is the channel's tracks
+        alone unmuted (every channel solo cleared), as compiling the song with every other channel
+        muted would set them. */
+    struct StemRun
     {
-        // A folder of its own, so analyses running at once don't share files.
-        const auto dir = workDir / juce::Uuid().toDashedString().toStdString();
-        std::filesystem::create_directories (dir);
-
-        struct Cleanup { std::filesystem::path dir; ~Cleanup() { std::error_code e; std::filesystem::remove_all (dir, e); } } cleanup { dir };
-
-        // The mix and every stem come from one Edit, so instruments and effects are made once:
-        // a stem is the channel's tracks alone unmuted (every channel solo cleared), as compiling
-        // the song with every other channel muted would set them.
-        auto compiled = compileProject (engine, project, compileOptions);
-
+        Project project;
+        CompileOptions compileOptions;
+        RenderOptions renderOptions;
+        std::filesystem::path dir;       // of its own, so analyses running at once don't share files
+        std::optional<CompiledEdit> compiled;
         Renders r;
-        r.mix = renderAudio (compiled, project, renderOptions, dir / "mix.wav");
-        r.mixMeasured = measure (r.mix);
-        r.mixBands = r.mixMeasured.bands.energies;
+        int index = 0;
 
-        auto tracksOf = [&] (const Id& channel)
+        ~StemRun()
         {
-            std::vector<tracktion::AudioTrack*> tracks;
+            std::error_code e;
+            std::filesystem::remove_all (dir, e);
+        }
+    };
 
-            if (auto it = compiled.channelTracks.find (channel); it != compiled.channelTracks.end())
-                tracks.push_back (it->second);
+    std::shared_ptr<StemRun> addStemSteps (Steps& steps, tracktion::Engine& engine, const Project& project, const CompileOptions& compileOptions,
+                                           const RenderOptions& renderOptions, const std::filesystem::path& workDir)
+    {
+        auto run = std::make_shared<StemRun>();
+        run->project = project;
+        run->compileOptions = compileOptions;
+        run->renderOptions = renderOptions;
+        run->dir = workDir / juce::Uuid().toDashedString().toStdString();
 
-            if (auto it = compiled.audioChannelTracks.find (channel); it != compiled.audioChannelTracks.end())
-                tracks.insert (tracks.end(), it->second.begin(), it->second.end());
+        steps.here ([run, &engine]
+        {
+            std::filesystem::create_directories (run->dir);
+            run->compiled.emplace (compileProject (engine, run->project, run->compileOptions));
+        });
 
-            return tracks;
-        };
+        steps.pooled ([run]
+        {
+            run->r.mix = renderAudio (*run->compiled, run->project, run->renderOptions, run->dir / "mix.wav");
+            run->r.mixMeasured = measure (run->r.mix);
+            run->r.mixBands = run->r.mixMeasured.bands.energies;
+        });
 
         // Channels with nothing before the range's end (plus the tail) can't be heard in it.
         const auto rangeEnd = renderOptions.end.value_or (getSongEnd (project))
                               + static_cast<Ticks> (std::ceil (renderOptions.tailSeconds * project.tempo / 60.0 * ticksPerQuarter));
         const auto sounding = channelsSoundingBefore (project, rangeEnd);
-        int index = 0;
 
         for (auto& source : findSources (project))
         {
             if (! sounding.contains (source))
                 continue;
 
-            for (auto& c : project.channels)
-                for (auto* track : tracksOf (c.id))
-                    track->setMute (c.id != source);
+            steps.here ([run, source]
+            {
+                auto& compiled = *run->compiled;
 
-            auto audio = renderAudio (compiled, project, renderOptions, dir / ("stem-" + std::to_string (index++) + ".wav"));
-            const auto peak = peakDb (audio);
+                auto tracksOf = [&] (const Id& channel)
+                {
+                    std::vector<tracktion::AudioTrack*> tracks;
 
-            if (peak < -90)
-                continue; // the source doesn't play in this range
+                    if (auto it = compiled.channelTracks.find (channel); it != compiled.channelTracks.end())
+                        tracks.push_back (it->second);
 
-            r.stems.push_back ({ source, bandEnergies (audio), integratedLufs (audio), peak });
+                    if (auto it = compiled.audioChannelTracks.find (channel); it != compiled.audioChannelTracks.end())
+                        tracks.insert (tracks.end(), it->second.begin(), it->second.end());
+
+                    return tracks;
+                };
+
+                for (auto& c : run->project.channels)
+                    for (auto* track : tracksOf (c.id))
+                        track->setMute (c.id != source);
+            });
+
+            steps.pooled ([run, source]
+            {
+                auto audio = renderAudio (*run->compiled, run->project, run->renderOptions, run->dir / ("stem-" + std::to_string (run->index++) + ".wav"));
+                const auto peak = peakDb (audio);
+
+                if (peak < -90)
+                    return; // the source doesn't play in this range
+
+                run->r.stems.push_back ({ source, bandEnergies (audio), integratedLufs (audio), peak });
+            });
         }
 
-        return r;
+        // The Edit goes once the renders are done (on the message thread, as Edits must).
+        steps.here ([run] { run->compiled.reset(); });
+        return run;
     }
 
     /** A stem's share of the mix's energy in each band, 0 to 1. */
@@ -202,10 +236,10 @@ namespace
     }
 }
 
-Json analyseMix (tracktion::Engine& engine, const Project& project, const CompileOptions& compileOptions,
-                 const RenderOptions& renderOptions, const std::filesystem::path& workDir)
+namespace
 {
-    auto r = renderStems (engine, project, compileOptions, renderOptions, workDir);
+Json analyseMixReport (const Renders& r)
+{
     std::vector<std::vector<double>> shares;
     auto stemJson = Json::array();
 
@@ -266,10 +300,8 @@ Json analyseMix (tracktion::Engine& engine, const Project& project, const Compil
     };
 }
 
-Json checkMix (tracktion::Engine& engine, const Project& project, const CompileOptions& compileOptions,
-               const RenderOptions& renderOptions, const std::filesystem::path& workDir, const MixCheckContext& context)
+Json checkMixReport (const Renders& r, const MixCheckContext& context)
 {
-    auto r = renderStems (engine, project, compileOptions, renderOptions, workDir);
     const auto bandCount = r.mixBands.size();
 
     std::vector<std::vector<double>> shares;
@@ -515,6 +547,43 @@ Json checkMix (tracktion::Engine& engine, const Project& project, const CompileO
         { "references", haveReferences },
     };
 }
+} // namespace
+
+std::shared_ptr<Steps> analyseMixSteps (tracktion::Engine& engine, const Project& project, const CompileOptions& compileOptions,
+                                        const RenderOptions& renderOptions, const std::filesystem::path& workDir)
+{
+    auto steps = std::make_shared<Steps>();
+    auto run = addStemSteps (*steps, engine, project, compileOptions, renderOptions, workDir);
+    auto* s = steps.get();
+    steps->pooled ([s, run] { s->result = analyseMixReport (run->r); });
+    return steps;
+}
+
+Json analyseMix (tracktion::Engine& engine, const Project& project, const CompileOptions& compileOptions,
+                 const RenderOptions& renderOptions, const std::filesystem::path& workDir)
+{
+    auto steps = analyseMixSteps (engine, project, compileOptions, renderOptions, workDir);
+    steps->runNow();
+    return steps->result;
+}
+
+std::shared_ptr<Steps> checkMixSteps (tracktion::Engine& engine, const Project& project, const CompileOptions& compileOptions,
+                                      const RenderOptions& renderOptions, const std::filesystem::path& workDir, const MixCheckContext& context)
+{
+    auto steps = std::make_shared<Steps>();
+    auto run = addStemSteps (*steps, engine, project, compileOptions, renderOptions, workDir);
+    auto* s = steps.get();
+    steps->pooled ([s, run, context] { s->result = checkMixReport (run->r, context); });
+    return steps;
+}
+
+Json checkMix (tracktion::Engine& engine, const Project& project, const CompileOptions& compileOptions,
+               const RenderOptions& renderOptions, const std::filesystem::path& workDir, const MixCheckContext& context)
+{
+    auto steps = checkMixSteps (engine, project, compileOptions, renderOptions, workDir, context);
+    steps->runNow();
+    return steps->result;
+}
 
 Json checkArrangement (const Project& project, const std::map<std::string, ChannelPart>& parts, int maxParts)
 {
@@ -644,14 +713,19 @@ Json checkArrangement (const Project& project, const std::map<std::string, Chann
     return { { "problems", problems }, { "bars", barsJson }, { "beds", beds } };
 }
 
-Json placeInMix (tracktion::Engine& engine, const Project& project, const Id& channel, const CompileOptions& compileOptions,
-                 const RenderOptions& renderOptions, const std::filesystem::path& file)
+std::shared_ptr<Placement> preparePlacement (tracktion::Engine& engine, const Project& project, const Id& channel,
+                                             const CompileOptions& compileOptions, const std::filesystem::path& file)
 {
     std::filesystem::create_directories (file.parent_path());
+    auto placement = std::make_shared<Placement>();
+    placement->file = file;
 
     // The channel alone and the rest without it, both kept: played in sync, the rest can be faded
     // under the channel. The song is them together. Solos are left out: the whole song plays.
-    auto alone = project, rest = project;
+    auto& alone = placement->alone;
+    auto& rest = placement->rest;
+    alone = project;
+    rest = project;
 
     for (auto& c : alone.channels)
     {
@@ -681,13 +755,20 @@ Json placeInMix (tracktion::Engine& engine, const Project& project, const Id& ch
         return f;
     };
 
-    const auto aloneFile = sibling ("-alone"), restFile = sibling ("-rest");
+    placement->aloneFile = sibling ("-alone");
+    placement->restFile = sibling ("-rest");
+    placement->aloneEdit.emplace (compileProject (engine, alone, compileOptions));
+    placement->restEdit.emplace (compileProject (engine, rest, compileOptions));
+    return placement;
+}
 
-    for (auto [p, f] : { std::pair { &alone, aloneFile }, std::pair { &rest, restFile } })
-    {
-        auto compiled = compileProject (engine, *p, compileOptions);
-        renderToWav (compiled, *p, f, renderOptions);
-    }
+Json renderPlacement (Placement& placement, const RenderOptions& renderOptions)
+{
+    const auto& file = placement.file;
+    const auto& aloneFile = placement.aloneFile;
+    const auto& restFile = placement.restFile;
+    renderToWav (*placement.aloneEdit, placement.alone, aloneFile, renderOptions);
+    renderToWav (*placement.restEdit, placement.rest, restFile, renderOptions);
 
     const auto own = loadAudio (aloneFile);
     const auto others = loadAudio (restFile);
@@ -741,6 +822,13 @@ Json placeInMix (tracktion::Engine& engine, const Project& project, const Id& ch
     result["holds"] = holds;
     result["levelDb"] = round (integratedLufs (own) - integratedLufs (mix), 0.1);
     return result;
+}
+
+Json placeInMix (tracktion::Engine& engine, const Project& project, const Id& channel, const CompileOptions& compileOptions,
+                 const RenderOptions& renderOptions, const std::filesystem::path& file)
+{
+    auto placement = preparePlacement (engine, project, channel, compileOptions, file);
+    return renderPlacement (*placement, renderOptions);
 }
 
 } // namespace gk::analysis

@@ -42,6 +42,39 @@ EngineContext& getEngineContext()
     return *context;
 }
 
+
+model::Json callApi (ApiHandler& handler, ApiHandler::Client& client, const std::string& method, model::Json params)
+{
+    static int nextId = 1;
+    const auto id = nextId++;
+    std::optional<model::Json> response;
+    auto previous = client.send;
+
+    client.send = [&, previous] (const std::string& m)
+    {
+        auto json = model::Json::parse (m);
+
+        if (json.value ("id", -1) == id)
+            response = json;
+        else if (previous)
+            previous (m);
+    };
+
+    handler.handleMessage (model::Json { { "jsonrpc", "2.0" }, { "id", id }, { "method", method }, { "params", params } }.dump(), client);
+
+    const auto deadline = juce::Time::getMillisecondCounter() + 600000;
+
+    while (! response && juce::Time::getMillisecondCounter() < deadline)
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+
+    client.send = previous;
+
+    if (! response)
+        throw std::runtime_error (method + " wasn't answered in time");
+
+    return *response;
+}
+
 } // namespace gk::test
 
 CATCH_REGISTER_LISTENER (gk::test::EngineShutdown)

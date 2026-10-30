@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineContext.h"
+#include "api/ApiHandler.h"
 
 #include <juce_core/juce_core.h>
 
@@ -48,5 +49,9 @@ inline tracktion::Engine& getEngine()
 {
     return getEngineContext().getEngine();
 }
+
+/** Sends one request to an ApiHandler and waits for its response: methods that render or hear
+    answer later, from a pool thread, through the message loop. */
+model::Json callApi (ApiHandler&, ApiHandler::Client&, const std::string& method, model::Json params = model::Json::object());
 
 } // namespace gk::test

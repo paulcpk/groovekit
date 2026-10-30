@@ -92,157 +92,211 @@ namespace
     }
 }
 
-Json masterToLoudness (tracktion::Engine& engine, Session& session, const MasterOptions& options)
+namespace
 {
-    auto project = session.getProject();
-    const bool hadLimiter = findLimiter (project) != nullptr;
-
-    if (! hadLimiter)
+    /** What a mastering run keeps between its steps. */
+    struct MasterRun
     {
-        BuiltinEffect limiter;
-        limiter.id = masterLimiterId;
-        limiter.kind = BuiltinEffectKind::limiter;
+        Project project;
+        bool hadLimiter = false, limiterLast = false;
+        std::filesystem::path file;
+        CompileOptions compileOptions;
+        MasterOptions options;
+        double gain = 0;
+        float lufs = analysis::silenceDb, truePeak = analysis::silenceDb;
+        int renders = 0, passes = 0;
 
-        if (auto* master = findMaster (project))
-            master->effects.push_back (limiter);
-    }
+        // The fast way: the song once without the limiter, which then runs over it in memory.
+        std::optional<CompiledEdit> compiled;       // kept while the offline limiter, made in its Edit, lives
+        tracktion::Plugin::Ptr offlineLimiter;
+        analysis::Audio dry;
 
-    auto& limiter = *findLimiter (project);
-    limiter.params["ceilingDb"] = options.ceilingDb;
+        BuiltinEffect& limiter()    { return *findLimiter (project); }
 
-    if (options.releaseMs)
-        limiter.params["releaseMs"] = *options.releaseMs;
-
-    const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
-    const auto file = projectDir / "renders" / "mastering.wav";
-    std::filesystem::create_directories (file.parent_path());
-    const CompileOptions compileOptions { projectDir, tracktion::Edit::forRendering };
-
-    auto gain = limiter.params.contains ("inputGainDb") ? limiter.params["inputGainDb"] : 0.0;
-    float lufs = analysis::silenceDb, truePeak = analysis::silenceDb;
-    std::optional<std::pair<double, double>> previous; // (gain, loudness) of the pass before
-    int renders = 0, passes = 0;
-
-    // With the limiter last on master, the song is rendered once without it and the limiter
-    // alone runs over that in memory for every gain tried; otherwise every pass renders the song.
-    std::optional<CompiledEdit> compiled;       // kept while the offline limiter, made in its Edit, lives
-    tracktion::Plugin::Ptr offlineLimiter;
-    analysis::Audio dry;
-    std::function<void (double)> measureAt;
-
-    if (limiterIsLast (project))
-    {
-        auto without = project;
-        findMaster (without)->effects.pop_back();
-        compiled.emplace (compileProject (engine, without, compileOptions));
-        renderToWav (*compiled, without, file, options.render);
-        ++renders;
-        dry = analysis::loadAudio (file);
-        offlineLimiter = effects::createEffect (*compiled->edit, limiter);
-
-        measureAt = [&] (double inputGain)
+        /** Tries gains until the loudness is within tolerance of the target, each measured by measureAt. */
+        void loop (const std::function<void (double)>& measureAt)
         {
-            limiter.params["inputGainDb"] = inputGain;
-            effects::applyParams (*offlineLimiter, limiter);
-            const auto pass = runLimiter (*offlineLimiter, dry, options.render.blockSize);
-            lufs = pass.lufs;
-            truePeak = pass.truePeak;
-        };
-    }
-    else
+            std::optional<std::pair<double, double>> previous; // (gain, loudness) of the pass before
+
+            while (passes < maxPasses)
+            {
+                measureAt (gain);
+                ++passes;
+
+                if (lufs <= analysis::silenceDb)
+                    throw std::runtime_error ("The song is silent; nothing to master");
+
+                const auto difference = options.targetLufs - lufs;
+
+                if (std::abs (difference) <= tolerance)
+                    break;
+
+                // Once the limiter works hard, each dB of gain adds less than a dB of loudness: step by
+                // the slope measured between the last two passes (secant), not by the raw difference.
+                auto step = difference;
+
+                if (previous && std::abs (gain - previous->first) > 1.0e-6)
+                {
+                    const auto slope = (lufs - previous->second) / (gain - previous->first);
+
+                    if (slope > 0.05)
+                        step = difference / slope;
+                }
+
+                previous = std::make_pair (gain, static_cast<double> (lufs));
+                const auto next = std::clamp (gain + std::clamp (step, -12.0, 12.0), -36.0, 36.0);
+
+                if (std::abs (next - gain) < 1.0e-3)
+                    break; // at the end of the range
+
+                gain = next;
+            }
+        }
+    };
+}
+
+std::shared_ptr<Steps> masterToLoudnessSteps (tracktion::Engine& engine, Session& session, const MasterOptions& options)
+{
+    auto steps = std::make_shared<Steps>();
+    auto run = std::make_shared<MasterRun>();
+    run->options = options;
+
+    // The song as it is, the limiter added if it's missing, its ceiling and release set; with the
+    // limiter last on master the song is compiled once without it (fast way), otherwise every
+    // pass renders the song, which compiles each time: that stays here on the message thread.
+    steps->here ([run, &engine, &session]
     {
-        measureAt = [&] (double inputGain)
+        auto& project = run->project;
+        project = session.getProject();
+        run->hadLimiter = findLimiter (project) != nullptr;
+
+        if (! run->hadLimiter)
         {
-            limiter.params["inputGainDb"] = inputGain;
-            auto edit = compileProject (engine, project, compileOptions);
-            renderToWav (edit, project, file, options.render);
-            ++renders;
+            BuiltinEffect limiter;
+            limiter.id = masterLimiterId;
+            limiter.kind = BuiltinEffectKind::limiter;
 
-            auto audio = analysis::loadAudio (file);
-            lufs = analysis::integratedLufs (audio);
-            truePeak = analysis::truePeakDb (audio);
-        };
-    }
-
-    while (passes < maxPasses)
-    {
-        measureAt (gain);
-        ++passes;
-
-        if (lufs <= analysis::silenceDb)
-            throw std::runtime_error ("The song is silent; nothing to master");
-
-        const auto difference = options.targetLufs - lufs;
-
-        if (std::abs (difference) <= tolerance)
-            break;
-
-        // Once the limiter works hard, each dB of gain adds less than a dB of loudness: step by
-        // the slope measured between the last two passes (secant), not by the raw difference.
-        auto step = difference;
-
-        if (previous && std::abs (gain - previous->first) > 1.0e-6)
-        {
-            const auto slope = (lufs - previous->second) / (gain - previous->first);
-
-            if (slope > 0.05)
-                step = difference / slope;
+            if (auto* master = findMaster (project))
+                master->effects.push_back (limiter);
         }
 
-        previous = std::make_pair (gain, static_cast<double> (lufs));
-        const auto next = std::clamp (gain + std::clamp (step, -12.0, 12.0), -36.0, 36.0);
+        auto& limiter = run->limiter();
+        limiter.params["ceilingDb"] = run->options.ceilingDb;
 
-        if (std::abs (next - gain) < 1.0e-3)
-            break; // at the end of the range
+        if (run->options.releaseMs)
+            limiter.params["releaseMs"] = *run->options.releaseMs;
 
-        gain = next;
-    }
+        const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+        run->file = projectDir / "renders" / "mastering.wav";
+        std::filesystem::create_directories (run->file.parent_path());
+        run->compileOptions = { projectDir, tracktion::Edit::forRendering };
+        run->gain = limiter.params.contains ("inputGainDb") ? limiter.params["inputGainDb"] : 0.0;
+        run->limiterLast = limiterIsLast (project);
 
-    offlineLimiter = nullptr;
-    compiled.reset();
-    std::filesystem::remove (file);
+        if (run->limiterLast)
+        {
+            auto without = project;
+            findMaster (without)->effects.pop_back();
+            run->compiled.emplace (compileProject (engine, without, run->compileOptions));
+            run->offlineLimiter = effects::createEffect (*run->compiled->edit, limiter);
+            return;
+        }
 
-    auto params = Json { { "inputGainDb", gain }, { "ceilingDb", options.ceilingDb } };
+        run->loop ([&] (double inputGain)
+        {
+            run->limiter().params["inputGainDb"] = inputGain;
+            auto edit = compileProject (engine, project, run->compileOptions);
+            renderToWav (edit, project, run->file, run->options.render);
+            ++run->renders;
 
-    if (options.releaseMs)
-        params["releaseMs"] = *options.releaseMs;
+            auto audio = analysis::loadAudio (run->file);
+            run->lufs = analysis::integratedLufs (audio);
+            run->truePeak = analysis::truePeakDb (audio);
+        });
+    });
 
-    Command command;
-
-    if (hadLimiter)
+    steps->pooled ([run]
     {
-        command = UpdateEffect { masterInsertId, masterLimiterId, Json { { "params", params } } };
-    }
-    else
+        if (! run->limiterLast)
+            return;
+
+        auto without = run->project;
+        findMaster (without)->effects.pop_back();
+        renderToWav (*run->compiled, without, run->file, run->options.render);
+        ++run->renders;
+        run->dry = analysis::loadAudio (run->file);
+
+        run->loop ([&] (double inputGain)
+        {
+            auto& limiter = run->limiter();
+            limiter.params["inputGainDb"] = inputGain;
+            effects::applyParams (*run->offlineLimiter, limiter);
+            const auto pass = runLimiter (*run->offlineLimiter, run->dry, run->options.render.blockSize);
+            run->lufs = pass.lufs;
+            run->truePeak = pass.truePeak;
+        });
+    });
+
+    auto* s = steps.get();
+
+    steps->here ([run, s, &session]
     {
-        BuiltinEffect effect;
-        effect.id = masterLimiterId;
-        effect.kind = BuiltinEffectKind::limiter;
+        run->offlineLimiter = nullptr;
+        run->compiled.reset();
+        std::filesystem::remove (run->file);
 
-        for (auto& [key, value] : params.items())
-            effect.params[key] = value.get<double>();
+        const auto& options = run->options;
+        auto params = Json { { "inputGainDb", run->gain }, { "ceilingDb", options.ceilingDb } };
 
-        command = AddEffect { masterInsertId, effect, std::nullopt };
-    }
+        if (options.releaseMs)
+            params["releaseMs"] = *options.releaseMs;
 
-    auto execute = options.execute;
+        Command command;
 
-    if (! execute.label)
-        execute.label = "Master to " + juce::String (options.targetLufs, 1).toStdString() + " LUFS";
+        if (run->hadLimiter)
+        {
+            command = UpdateEffect { masterInsertId, masterLimiterId, Json { { "params", params } } };
+        }
+        else
+        {
+            BuiltinEffect effect;
+            effect.id = masterLimiterId;
+            effect.kind = BuiltinEffectKind::limiter;
 
-    session.execute ({ command }, execute);
+            for (auto& [key, value] : params.items())
+                effect.params[key] = value.get<double>();
 
-    auto round = [] (double v) { return std::round (v * 100.0) / 100.0; };
+            command = AddEffect { masterInsertId, effect, std::nullopt };
+        }
 
-    return {
-        { "inputGainDb", round (gain) },
-        { "integratedLufs", round (lufs) },
-        { "truePeakDb", round (truePeak) },
-        { "targetLufs", options.targetLufs },
-        { "reachedTarget", std::abs (options.targetLufs - lufs) <= tolerance },
-        { "renders", renders },
-        { "passes", passes },
-    };
+        auto execute = options.execute;
+
+        if (! execute.label)
+            execute.label = "Master to " + juce::String (options.targetLufs, 1).toStdString() + " LUFS";
+
+        session.execute ({ command }, execute);
+
+        auto round = [] (double v) { return std::round (v * 100.0) / 100.0; };
+
+        s->result = {
+            { "inputGainDb", round (run->gain) },
+            { "integratedLufs", round (run->lufs) },
+            { "truePeakDb", round (run->truePeak) },
+            { "targetLufs", options.targetLufs },
+            { "reachedTarget", std::abs (options.targetLufs - run->lufs) <= tolerance },
+            { "renders", run->renders },
+            { "passes", run->passes },
+        };
+    });
+
+    return steps;
+}
+
+Json masterToLoudness (tracktion::Engine& engine, Session& session, const MasterOptions& options)
+{
+    auto steps = masterToLoudnessSteps (engine, session, options);
+    steps->runNow();
+    return steps->result;
 }
 
 } // namespace gk

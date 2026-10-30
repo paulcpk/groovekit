@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Session.h"
+#include "Steps.h"
 #include "render/Render.h"
 
 namespace tracktion { inline namespace engine { class Engine; } }
@@ -25,6 +26,11 @@ struct MasterOptions
     Returns the gain, the measured loudness and true peak, and how many renders it took.
 */
 model::Json masterToLoudness (tracktion::Engine&, Session&, const MasterOptions&);
+
+/** The same as steps: the song compiled, and the limiter setting applied, on the message thread;
+    the render and the limiter passes pooled. (When effects follow the limiter on master, every
+    pass renders the song and all of it stays on the message thread.) */
+std::shared_ptr<Steps> masterToLoudnessSteps (tracktion::Engine&, Session&, const MasterOptions&);
 
 inline constexpr const char* masterLimiterId = "master-limiter";
 

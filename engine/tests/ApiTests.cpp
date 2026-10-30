@@ -34,8 +34,7 @@ namespace
 
         Json call (const std::string& method, Json params = Json::object())
         {
-            handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", nextId++ }, { "method", method }, { "params", params } }.dump(), client);
-            return lastResponse;
+            return lastResponse = test::callApi (handler, client, method, std::move (params));
         }
     };
 }
@@ -131,8 +130,7 @@ TEST_CASE ("The API searches the sample library")
 
     auto call = [&] (const std::string& method, Json params)
     {
-        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
-        return response;
+        return response = test::callApi (handler, client, method, params);
     };
 
     call ("library.addFolder", { { "path", root.string() } });
@@ -209,8 +207,7 @@ TEST_CASE ("The API listens to samples and styles once the models are there")
 
     auto call = [&] (ApiHandler& h, const std::string& method, Json params)
     {
-        h.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
-        return response;
+        return response = test::callApi (h, client, method, params);
     };
 
     CHECK (call (handler, "listening.status", Json::object())["result"]["models"]["ready"] == false);
@@ -442,8 +439,7 @@ TEST_CASE ("Save as copies the project folder and opens the copy")
     client.send = [&] (const std::string& m) { response = Json::parse (m); };
     auto call = [&] (const std::string& method, Json params)
     {
-        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
-        return response;
+        return response = test::callApi (handler, client, method, params);
     };
 
     CHECK (call ("project.saveAs", { { "path", (root / "copy").string() } })["result"]["project"] == (root / "copy").string());
@@ -467,8 +463,7 @@ TEST_CASE ("Files are imported and collected into the project")
     client.send = [&] (const std::string& m) { response = Json::parse (m); };
     auto call = [&] (const std::string& method, Json params)
     {
-        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
-        return response;
+        return response = test::callApi (handler, client, method, params);
     };
 
     const auto beep = test::fixture ("beep.wav");
@@ -780,4 +775,34 @@ TEST_CASE ("Style guides are listed, read, edited, restored, and set as the song
     CHECK (std::none_of (hiddenList.begin(), hiddenList.end(), [] (auto& g) { return g.value ("hidden", false); }));
 
     ::unsetenv ("GROOVEKIT_GUIDES");
+}
+
+TEST_CASE ("Requests that render are answered later and don't hold up the others")
+{
+    Harness h;
+    h.call ("execute", Json::parse (R"({ "commands": [
+        { "type": "addChannel", "channel": { "id": "beep", "instrument": { "type": "sampler", "layers": [ { "id": "l", "sample": ")" + test::fixture ("beep.wav").string() + R"(" } ] } } },
+        { "type": "addPattern", "pattern": { "id": "p", "notes": [ { "channel": "beep", "start": 0, "length": 240 } ] } },
+        { "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 30720, "pattern": "p" } } ] })"));
+
+    std::vector<int> answered;
+    h.client.send = [&] (const std::string& m)
+    {
+        h.lastResponse = Json::parse (m);
+        answered.push_back (h.lastResponse["id"].get<int>());
+    };
+
+    // The render is compiled now and rendered on a pool thread; the summary, asked right after,
+    // is answered first.
+    h.handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 101 }, { "method", "render" }, { "params", Json::object() } }.dump(), h.client);
+    h.handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 102 }, { "method", "getSummary" }, { "params", Json::object() } }.dump(), h.client);
+    REQUIRE (answered == std::vector<int> { 102 });
+
+    const auto deadline = juce::Time::getMillisecondCounter() + 60000;
+
+    while (answered.size() < 2 && juce::Time::getMillisecondCounter() < deadline)
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+
+    REQUIRE (answered == std::vector<int> { 102, 101 });
+    CHECK (h.lastResponse["result"]["analysis"]["onsets"].size() == 8);
 }

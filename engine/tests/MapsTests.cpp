@@ -270,7 +270,7 @@ TEST_CASE ("The References tab's methods tick, queue, forget, move out and share
 
     auto call = [&] (const std::string& method, Json params = Json::object())
     {
-        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        response = test::callApi (handler, client, method, params);
         INFO (response.dump());
         CHECK_FALSE (response.contains ("error"));
         return response["result"];
@@ -535,7 +535,7 @@ TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and 
 
     auto call = [&] (const std::string& method, Json params)
     {
-        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        response = test::callApi (handler, client, method, params);
         INFO (response.dump());
         CHECK_FALSE (response.contains ("error"));
         return response["result"];
@@ -572,8 +572,7 @@ TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and 
     // "Other": the user says what they want instead; no verdict on these.
     const auto again = call ("picks.offer", { { "title", "Which hats?" }, { "style", "Hard Techno" },
                                               { "candidates", { { { "path", deep } }, { { "path", shortKick } } } } });
-    handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", "picks.choose" },
-                                  { "params", { { "id", again["id"] }, { "choice", 0 }, { "note", "hats only" } } } }.dump(), client);
+    response = test::callApi (handler, client, "picks.choose", { { "id", again["id"] }, { "choice", 0 }, { "note", "hats only" } });
     CHECK (response.contains ("error"));        // a note goes with "Other" only
     call ("picks.choose", { { "id", again["id"] }, { "choice", -1 }, { "note", "  Only hat loops, not whole drum loops " } });
     const auto other = call ("picks.get", { { "id", again["id"] } });
@@ -625,7 +624,7 @@ TEST_CASE ("While songs are being heard, the queue follows the ticks")
 
     auto call = [&] (const std::string& method, Json params = Json::object())
     {
-        handler.handleMessage (Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", method }, { "params", params } }.dump(), client);
+        response = test::callApi (handler, client, method, params);
         INFO (response.dump());
         CHECK_FALSE (response.contains ("error"));
         return response["result"];
