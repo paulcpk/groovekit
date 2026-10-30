@@ -48,9 +48,20 @@ export interface SongMap {
     arrangement?: Arrangement;
     /** The kick and rumble, measured where the kick plays with least around it. */
     kick?: { sound: KickSound; bars: [number, number]; clean: boolean };
+    /** What the music and the bass play where they're loudest: two bars each on the 16th grid. */
+    figures?: Figure[];
   };
   /** The arrangement as the agent reads it. */
   score?: string;
+}
+
+export interface Figure {
+  part: string;
+  bar: number;
+  bars: number;
+  section?: string;
+  key?: { key: string; confidence: number };
+  notes: { start: number; length: number; key: number; velocity: number }[];
 }
 
 export interface KickSound {

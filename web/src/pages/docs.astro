@@ -1,0 +1,86 @@
+---
+/** Everything in detail: architecture, every tool, listening, the studio, devices, hardware, building. */
+import Devices from "../components/Devices.astro";
+import Features from "../components/Features.astro";
+import Hardware from "../components/Hardware.astro";
+import Listening from "../components/Listening.astro";
+import OpenSource from "../components/OpenSource.astro";
+import Tools from "../components/Tools.astro";
+import Base from "../layouts/Base.astro";
+import { DOCS_NAV, LINKS, NAME, TOOL_COUNT } from "../lib/site";
+
+const layers = [
+  ["engine/", "C++ · JUCE 8 · Tracktion Engine", "The audio process. Owns the project: playback, recording, offline rendering, plugin hosting, the sample library and its classifier, listening (the models that hear samples and references), song maps, the change history. Serves JSON-RPC over a local WebSocket, one project per engine."],
+  ["ui/", "React 19 · zustand · Tauri", "The window. A client of the engine: it sends commands and renders the live state it gets back. Playlist, channel rack, piano roll, mixer, browser, the agent chat (which calls Anthropic’s API with your key and the same tools as the MCP server)."],
+  ["mcp/", "TypeScript · Node 24", `The MCP server: ${TOOL_COUNT} tools for Claude Code or any MCP client. Each tool is a few engine calls; the edit tool turns a list of typed commands into one atomic, undoable change. Starts its own engine when no app is serving the project.`],
+  ["plugins/", "C++ · JUCE VST3", "Triad, Quartet, Sextet, Chamber and Echo, with shared panel, widget, preset and DSP code in plugins/common. Bundled with the app and found by the engine without a scan."],
+  ["schema/", "JSON Schema → TypeScript and C++", "The project model and every command, generated for both sides, so the engine, the UI and the agent agree on every field and default."],
+];
+---
+
+<Base title={`${NAME} docs: how it works`} description={`How GrooveKit is built and what the agent can do: the engine, the MCP server's ${TOOL_COUNT} tools, listening and song maps, the studio, the bundled devices, hardware recording, and building from source.`} nav={DOCS_NAV}>
+  <section id="architecture" class="scroll-mt-16 pt-16 pb-20 sm:pt-24 sm:pb-28">
+    <div class="container-site">
+      <div class="max-w-3xl">
+        <p class="eyebrow">Docs</p>
+        <h1 class="title mt-4">How GrooveKit works.</h1>
+        <p class="mt-6 text-lg leading-relaxed text-dim">
+          One engine owns the song. The app’s window and the agent are both its clients, over the
+          same API, so they see the same project at the same time. This page is the long version;
+          the protocol and the architecture notes in the repository go deeper still.
+        </p>
+        <p class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+          <a href={LINKS.protocol} class="font-medium text-accent underline-offset-4 hover:underline">Engine API reference</a>
+          <a href={LINKS.architecture} class="font-medium text-accent underline-offset-4 hover:underline">Architecture notes</a>
+          <a href={LINKS.roadmap} class="font-medium text-accent underline-offset-4 hover:underline">Roadmap</a>
+          <a href={LINKS.readme} class="font-medium text-accent underline-offset-4 hover:underline">README</a>
+        </p>
+      </div>
+
+      <div class="mt-14 divide-y divide-line rounded-2xl bg-panel ring-1 ring-line">
+        {layers.map(([dir, stack, text]) => (
+          <div class="grid grid-cols-1 gap-2 p-6 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-6 sm:p-7">
+            <div>
+              <code class="chip">{dir}</code>
+              <p class="mt-2 text-xs text-faint">{stack}</p>
+            </div>
+            <p class="text-[14.5px] leading-relaxed text-dim">{text}</p>
+          </div>
+        ))}
+      </div>
+
+      <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <article class="rounded-2xl bg-panel p-6 ring-1 ring-line">
+          <h2 class="font-semibold">The model</h2>
+          <p class="mt-2 text-[14.5px] leading-relaxed text-dim">
+            Channels (the sampler with its layers, or a plugin) feed mixer inserts. Patterns hold notes
+            for any channels. The playlist holds pattern, audio and automation clips in rows. Inserts
+            chain effects, sends and a fader into other inserts or master. Time is ticks, 960 a beat.
+          </p>
+        </article>
+        <article class="rounded-2xl bg-panel p-6 ring-1 ring-line">
+          <h2 class="font-semibold">Commands and history</h2>
+          <p class="mt-2 text-[14.5px] leading-relaxed text-dim">
+            Every change, yours or the agent’s, is a typed command. A request’s commands apply as one
+            step or not at all, and land in the history with who made them. Undo and redo are per
+            group; edits made close together count as one.
+          </p>
+        </article>
+        <article class="rounded-2xl bg-panel p-6 ring-1 ring-line">
+          <h2 class="font-semibold">Projects are folders</h2>
+          <p class="mt-2 text-[14.5px] leading-relaxed text-dim">
+            song.json, the history, recordings and plugin states in one folder, saved as you go.
+            Plain JSON described by a published schema, so a script or another client can read and
+            write what the app does.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+  <Tools />
+  <Listening />
+  <Features />
+  <Devices />
+  <Hardware />
+  <OpenSource />
+</Base>

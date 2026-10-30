@@ -3,6 +3,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 import { LINKS, NAV } from "../lib/site";
 import Icon from "./Icon.astro";
 import Logo from "./Logo.astro";
+
+interface Props {
+  nav?: [id: string, label: string][];
+}
+const nav = Astro.props.nav ?? NAV;
+const onDocs = Astro.props.nav !== undefined;
 ---
 
 <header class="sticky top-0 z-40 border-b border-line/70 bg-bg/80 backdrop-blur-md">
@@ -11,14 +17,20 @@ import Logo from "./Logo.astro";
       <Logo />
     </a>
     <nav class="hidden items-center gap-0.5 lg:flex" aria-label="Sections">
-      {NAV.map(([id, label]) => (
+      {nav.map(([id, label]) => (
         <a
-          href={`${base}/#${id}`}
+          href={`${onDocs ? `${base}/docs/` : `${base}/`}#${id}`}
           class="rounded-md px-3 py-1.5 text-sm font-medium text-dim transition-colors hover:text-fg"
         >
           {label}
         </a>
       ))}
+      <a
+        href={onDocs ? `${base}/` : `${base}/docs/`}
+        class:list={["rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:text-fg", onDocs ? "text-dim" : "text-fg"]}
+      >
+        {onDocs ? "Home" : "Docs"}
+      </a>
     </nav>
     <div class="ml-auto flex items-center gap-2">
       <a

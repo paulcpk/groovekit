@@ -1,0 +1,51 @@
+---
+/** Every instrument and effect GrooveKit brings, for the docs page. */
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
+
+const synths = [
+  ["Triad", "Three oscillators with FM and ring modulation, unison, a filter with its own envelope, an LFO and glide.", "triad"],
+  ["Quartet", "Four-operator FM, eight algorithms, a chord memory, an analogue layer and a chorus. Categories: Stabs, Chords, Keys, Bass, Leads, Pads, Perc, FX.", "quartet"],
+  ["Sextet", "Six morphing oscillators (FM, ring, sync, unison), two filters in series, parallel or split, three envelopes, three LFOs, a ten-slot modulation matrix, drive, chorus, delay and reverb.", "sextet"],
+];
+const effects = [
+  ["Chamber", "An algorithmic reverb: size, decay, pre-delay, damping, diffusion, modulation, freeze, with an X/Y pad on any two parameters.", "chamber"],
+  ["Echo", "Stereo, ping-pong and dual delay, tempo-synced, with filtering, drive, modulation and the same pad.", "echo"],
+  ["Multiband compressor", "Three or four bands with their waveforms, crossovers and thresholds you drag.", "multiband"],
+  ["Compressor", "Its curve with the sound riding it, and the last seconds of level and gain reduction.", "compressor"],
+  ["Exciter", "Tube, tape, transformer or console warmth, level-matched, with generated harmonics.", "exciter"],
+  ["Stereo field", "Send each side to each side, widen, delay one side, keep the bass mono, on a vectorscope.", "stereo"],
+  ["Bitcrusher", "Fewer bits and a lower sample rate on a little LCD, with jitter.", "bitcrusher"],
+];
+const builtIn = "Seven-band EQ, limiter, reverb, tempo-synced delay, chorus, phaser, distortion, duck, clipper, low-pass and high-pass filters, and the slot EQ that keeps each part in its frequency range.";
+---
+
+<section id="devices" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site">
+    <div class="max-w-3xl">
+      <p class="eyebrow">Instruments & effects</p>
+      <h2 class="title mt-4">What comes in the box.</h2>
+      <p class="mt-6 text-lg leading-relaxed text-dim">
+        Five VST3 plugins built for GrooveKit and bundled with it, the built-in effects, and your
+        own VST3 and AU plugins. Presets are addressed by name, “Category: Name”, by you in the
+        Browser and by the agent in its commands.
+      </p>
+    </div>
+
+    <div class="mt-14 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {[...synths, ...effects].map(([name, text, file]) => (
+        <article class="flex gap-5 rounded-2xl bg-panel p-5 ring-1 ring-line">
+          <a href={`${base}gallery/${file}.jpg`} class="grid size-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-bg sm:size-28">
+            <img src={`${base}gallery/${file}.jpg`} alt="" loading="lazy" decoding="async" class="block max-h-full max-w-full object-contain" />
+          </a>
+          <div class="min-w-0">
+            <h3 class="font-semibold">{name}</h3>
+            <p class="mt-1.5 text-[14.5px] leading-relaxed text-dim">{text}</p>
+          </div>
+        </article>
+      ))}
+    </div>
+    <p class="mt-6 text-[14.5px] leading-relaxed text-dim">
+      <span class="font-semibold text-fg">Built in, without a window of their own:</span> {builtIn}
+    </p>
+  </div>
+</section>

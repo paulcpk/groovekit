@@ -1,10 +1,11 @@
 ---
+/** The claim, the download, and the app as it is: a screenshot of a song in progress. */
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
 import { LINKS } from "../lib/site";
-import AppWindow from "./AppWindow.astro";
 import Icon from "./Icon.astro";
 ---
 
-<section class="relative isolate overflow-hidden pt-16 pb-20 sm:pt-24 sm:pb-28">
+<section class="relative isolate overflow-hidden pt-16 pb-12 sm:pt-24 sm:pb-16">
   <!-- Glow: warm from the studio, violet from the agent. -->
   <div class="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
     <div class="absolute top-[-14rem] left-1/2 h-[36rem] w-[64rem] max-w-[160vw] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(242_163_58/0.16),transparent)]"></div>
@@ -34,9 +35,9 @@ import Icon from "./Icon.astro";
     </h1>
 
     <p class="gk-in mx-auto mt-7 max-w-2xl text-[clamp(1.05rem,2.2vw,1.25rem)] leading-relaxed text-dim" style="--d:2">
-      GrooveKit is an agent-first music production app for macOS. Ask Claude in the sidebar chat
-      or from Claude Code: it arranges, mixes, automates and masters through the same API as the
-      interface — every change shows up live in your window, and one undo takes it back.
+      GrooveKit is a music production app for macOS with Claude inside. Say what you want; it picks
+      sounds from your library, writes the parts, arranges, mixes and masters, and learns the style
+      from the tracks you love. Every change lands in your window, and one undo takes it back.
     </p>
 
     <div class="gk-in mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center" style="--d:3">
@@ -53,16 +54,27 @@ import Icon from "./Icon.astro";
     <p class="gk-in mt-5 text-[13px] text-faint" style="--d:4">
       Free · Apple silicon · macOS 12 or later ·{" "}
       <a href={LINKS.releases} class="text-dim underline decoration-line underline-offset-4 hover:text-fg">All releases</a>
-    </p>
-    <p class="gk-in mt-2 text-[13px] text-faint" style="--d:4">
-      First launch: macOS asks you to confirm it once, under{" "}
-      <a href="#faq" class="text-dim underline decoration-line underline-offset-4 hover:text-fg">Privacy &amp; Security</a>.
+      {" "}· First launch: confirm it once under{" "}
+      <a href="#faq" class="text-dim underline decoration-line underline-offset-4 hover:text-fg">Privacy &amp; Security</a>
     </p>
   </div>
 
-  <div class="container-site mt-16 sm:mt-20">
-    <div class="gk-in mx-auto max-w-5xl" style="--d:5">
-      <AppWindow />
-    </div>
+  <div class="container-site mt-14 sm:mt-20">
+    <figure class="gk-in mx-auto max-w-6xl" style="--d:5">
+      <div class="overflow-hidden rounded-xl bg-[#111113] shadow-[0_40px_120px_-30px_rgb(0_0_0/0.8),0_0_0_1px_rgb(255_255_255/0.08)] sm:rounded-2xl">
+        <img
+          src={`${base}shots/app.jpg`}
+          alt="GrooveKit with a techno song open: the Browser with projects, presets and samples on the left, the playlist with pattern, audio and automation clips, and the channel rack below"
+          width="1543"
+          height="784"
+          decoding="async"
+          fetchpriority="high"
+          class="block h-auto w-full"
+        />
+      </div>
+      <figcaption class="mt-4 text-center text-[13px] text-faint">
+        A song the agent built from the starter samples and GrooveKit’s own synths: Quartet stabs, a Sextet bass and pad, Echo and Chamber on the sends.
+      </figcaption>
+    </figure>
   </div>
 </section>

@@ -1,12 +1,13 @@
 import { RotateCw, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { IconButton, ToggleChip } from "@/components/controls";
 import { ArrangementView } from "./ArrangementView";
 import { KickMatches } from "./KickMatches";
 import { FloatingWindow } from "@/components/window";
 import { useStopPreviewsOnClose } from "@/features/shell/actions";
+import { noteName } from "@/lib/model";
 import { closeWindow, type OpenWindow } from "@/state/windows";
-import { forget, getMap, hear, setInUse, useMaps, type SongMap } from "./maps";
+import { forget, getMap, hear, setInUse, useMaps, type Figure, type SongMap } from "./maps";
 
 /** The parts the hearing levels against the whole mix. */
 const PARTS: [string, string][] = [["kick", "Kick and rumble"], ["bass", "Bass"], ["drums", "Drums"], ["hats", "Hats"], ["music", "Music"]];
@@ -124,11 +125,55 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
               )}
             </Section>
 
+            {t.figures && t.figures.length > 0 && (
+              <Section title="Figures">
+                <p className="mb-2 text-2xs leading-relaxed text-faint">What the music and the bass play where they're loudest, two bars each: the agent writes its lines in these rhythms and intervals.</p>
+                <div className="flex flex-col gap-2">
+                  {t.figures.map((f, i) => <FigureView key={i} figure={f} />)}
+                </div>
+              </Section>
+            )}
+
             <div className="mt-3 truncate text-2xs text-faint" title={song?.file ?? t.path}>{song?.file ?? t.path}</div>
           </>
         )}
       </div>
     </FloatingWindow>
+  );
+}
+
+/** A figure as a small piano roll: a row per note it uses, 16ths across its bars. */
+function FigureView({ figure: f }: { figure: Figure }) {
+  const keys = [...new Set(f.notes.map((n) => n.key))].sort((a, b) => b - a);
+  const steps = f.bars * 16;
+  const color = f.part === "bass" ? "#5ec4a9" : "#a78bfa";
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline gap-2 text-2xs">
+        <span className="font-medium text-fg">{f.part}</span>
+        <span className="text-faint">bars {f.bar + 1}–{f.bar + f.bars}{f.section ? ` · ${f.section}` : ""}{f.key ? ` · ${f.key.key}` : ""}</span>
+      </div>
+      <div className="grid gap-px rounded-[4px] bg-bg p-1 ring-1 ring-line" style={{ gridTemplateColumns: `28px repeat(${steps}, minmax(0, 1fr))` }}>
+        {keys.map((key) => (
+          <Fragment key={key}>
+            <span className="pr-1 text-right font-mono text-[9px] leading-[10px] text-faint">{noteName(key)}</span>
+            {Array.from({ length: steps }, (_, step) => {
+              const note = f.notes.find((n) => n.key === key && n.start <= step * 240 && n.start + n.length > step * 240);
+              const starts = note !== undefined && note.start === step * 240;
+              return (
+                <span key={step} className="h-[10px]"
+                  style={{
+                    background: note ? color : step % 16 === 0 ? "#1f1f24" : step % 4 === 0 ? "#19191d" : "#151518",
+                    opacity: note ? 0.45 + 0.55 * note.velocity / 127 : 1,
+                    borderLeft: starts ? "1px solid #0c0c0e" : undefined,
+                    borderRadius: starts ? "2px 0 0 2px" : undefined,
+                  }} />
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
+    </div>
   );
 }
 

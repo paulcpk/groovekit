@@ -21,19 +21,29 @@ export const LINKS = {
   architecture: "https://github.com/paulcpk/groovekit/blob/main/docs/architecture.md",
   roadmap: "https://github.com/paulcpk/groovekit/blob/main/docs/roadmap.md",
   mcp: "https://modelcontextprotocol.io",
+  starter: "https://github.com/paulcpk/groovekit/releases/tag/starter-samples-v1",
 };
 
 /** Who's behind GrooveKit, in the footer and on the privacy page. */
 export const CONTACT = { name: "Paul Csapak", email: "hello@paulcpk.com" };
 
+/** The landing page's sections, in the header. The docs page has its own in DOCS_NAV. */
 export const NAV: [id: string, label: string][] = [
-  ["agent", "How it works"],
-  ["tools", "Agent tools"],
-  ["features", "Features"],
+  ["screens", "The app"],
+  ["agent", "The agent"],
   ["gallery", "Devices"],
-  ["hardware", "Hardware"],
-  ["open-source", "Open source"],
   ["faq", "FAQ"],
+];
+
+/** The docs page's sections. */
+export const DOCS_NAV: [id: string, label: string][] = [
+  ["architecture", "Architecture"],
+  ["tools", "Agent tools"],
+  ["listening", "Listening"],
+  ["features", "The studio"],
+  ["devices", "Devices"],
+  ["hardware", "Hardware"],
+  ["open-source", "Build it"],
 ];
 
 /** The command the README gives for using GrooveKit from Claude Code in any folder. */
@@ -49,8 +59,7 @@ export interface ToolGroup {
   wide?: boolean;
 }
 
-export const TOOL_GROUPS: ToolGroup[
-  ] = [
+export const TOOL_GROUPS: ToolGroup[] = [
   {
     id: "sounds",
     title: "Picks sounds from your library",
@@ -59,26 +68,42 @@ export const TOOL_GROUPS: ToolGroup[
     tools: [
       {
         name: "search_samples",
-        does: "Finds samples by words, category (kick, snare, hat, bass, synth, vocal, fx…), one-shot or loop, tempo (half and double time match) and key. Each result says what it sounds like: “kick one-shot, 0.42 s, pitched F1, sharp attack, dark, bass-heavy”, plus its detected root key.",
+        does: "Finds samples by words, category (kick, snare, hat, bass, synth, vocal, fx…), one-shot or loop, tempo (half and double time match) and key. Each result says what it sounds like: “kick one-shot, 0.42 s, pitched F1, sharp attack, dark, bass-heavy”, plus its root key and, once GrooveKit can listen, words for how it sounds.",
       },
       {
         name: "describe_sample",
         does: "Full measurements of one file: duration, loudness, attack and decay, spectral centroid, sub/low/mid/high energy, detected pitch, onsets and tempo. Works on files outside the library too.",
       },
+      { name: "rate_sample", does: "Records your verdict on a sample, fits or doesn’t, for a style; GrooveKit’s taste model learns from them." },
+      { name: "sample_library", does: "Adds or removes library folders and rescans changed files in the background." },
+    ],
+  },
+  {
+    id: "listening",
+    title: "Learns your taste from the tracks you love",
+    lead: "Styles are folders of reference tracks. GrooveKit hears each one once into a song map, and the agent works from the maps: arrangement, levels, sounds and the figures the music plays.",
+    wide: true,
+    tools: [
+      { name: "styles", does: "Your styles, each learnt from the maps in use: tempo, swing, parts at once, each part’s level against the kick, the low end, and how the references sound." },
       {
-        name: "sample_library",
-        does: "Adds or removes library folders and rescans changed files in the background.",
+        name: "song_maps",
+        does: "The reference tracks heard into maps: sections with their role and bars, which parts play where, energy, the kick and rumble measured, and two-bar figures of what the music and the bass play, as notes on the 16th grid.",
       },
+      { name: "style_guide", does: "How to make a style: the feeling, each part’s sound with words to search by, the order to build in, the mix, the arrangement, what to avoid, with targets in numbers." },
+      { name: "compare_to_style", does: "Renders the song and hears it exactly as the references were heard, then reports each part’s fit with words for how both sound." },
+      { name: "match_sound", does: "Finds a kick and rumble like a reference’s, measured in numbers: the body’s note, how long it rings, click, grit, the rumble between kicks, width." },
+      { name: "offer_choice", does: "Puts sounds to you to pick by ear, A, B, C… up to twenty at a time, with “another ten” if none fits." },
+      { name: "audition_in_song", does: "Tries up to twenty candidate samples in a channel’s place inside the song, renders the bars with each, and says how each sits with the rest." },
     ],
   },
   {
     id: "ears",
     title: "Hears in numbers",
-    lead: "The agent can’t listen, so it measures. It renders, reads the result, adjusts and renders again.",
+    lead: "The agent measures everything it makes. It renders, reads the result, adjusts and renders again.",
     tools: [
       {
         name: "render",
-        does: "Renders the song or a range of bars to a 48 kHz WAV and returns peak, true peak, RMS, integrated/short-term/momentary LUFS, loudness range, ten-band spectral balance, stereo correlation and onset times.",
+        does: "Renders the song or a range of bars to a WAV and returns peak, true peak, RMS, integrated/short-term/momentary LUFS, loudness range, ten-band spectral balance, stereo correlation and onset times.",
       },
       { name: "analyze_audio", does: "The same measurements for any audio file, or a stretch of it." },
     ],
@@ -90,22 +115,26 @@ export const TOOL_GROUPS: ToolGroup[
     tools: [
       {
         name: "edit_project",
-        does: "Adds and changes channels, sampler layers, patterns, notes, arrangement rows, clips, inserts, effects and sends. If any command fails, nothing changes and the error names the field.",
+        does: "Adds and changes channels, sampler layers, patterns, notes, arrangement rows, clips, inserts, effects, sends and plugin presets. If any command fails, nothing changes and the error names the field.",
       },
       { name: "get_summary", does: "A compact overview: tempo, channels and samples, patterns, clips in bars, mixer." },
       { name: "get_project", does: "The exact song.json, or any part of it by JSON Pointer." },
       { name: "get_schema", does: "TypeScript definitions of the model and every command, with defaults." },
+      { name: "melody", does: "A melody you hummed or one taken from a reference, as notes on the song’s grid, in its key and a register, ready to place on a synth." },
+      { name: "notes", does: "Your standing notes for the agent (“prefer loops over one-shots”), for every song or this one." },
     ],
   },
   {
     id: "mix",
     title: "Finds what’s fighting in the mix",
-    lead: "One stem per channel, measured against the whole.",
+    lead: "One stem per channel, measured against the whole, and a frequency slot for every part.",
     tools: [
       {
         name: "analyze_mix",
         does: "Each source’s loudness and share of every frequency band, and masking: pairs that crowd the same band, like kick and bass at 60–120 Hz.",
       },
+      { name: "mix_slots", does: "A slot for every part, so the kick and rumble own the low end, synths the mids and percussion the highs; applied as the agent adds channels." },
+      { name: "check_mix", does: "Hears how the parts combine and lists what goes wrong between them, worst first, each with a fix." },
     ],
   },
   {
@@ -122,14 +151,14 @@ export const TOOL_GROUPS: ToolGroup[
   {
     id: "plugins",
     title: "Drives your plugins",
-    lead: "Your VST3 and AU instruments and effects, by name, with every parameter.",
+    lead: "Your VST3 and AU instruments and effects, and GrooveKit’s own, by name, with every parameter and preset.",
     tools: [
       { name: "plugins", does: "Lists installed plugins by name, maker, category, instrument or effect; scans for new ones." },
       {
         name: "describe_plugin",
-        does: "Loads a plugin and lists its parameters with their values, so the agent can set them by name and automate them with automation clips.",
+        does: "Loads a plugin and lists its parameters and presets, so the agent can pick “Stabs: Hard Techno Stab” by name, set parameters and automate them.",
       },
-      { name: "list_effects", does: "The built-in seven-band EQ, compressor, multiband compressor, limiter, reverb, tempo-synced delay, chorus, phaser, distortion, exciter, bitcrusher, stereo field, duck, clipper and filters, with every parameter’s unit and range." },
+      { name: "list_effects", does: "The built-in EQ, compressor, multiband compressor, limiter, reverb, delay, chorus, phaser, distortion, exciter, bitcrusher, stereo field, slot and filters, with every parameter’s unit and range." },
     ],
   },
   {
@@ -203,7 +232,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Where do the sounds come from?",
-    a: "From your own sample folders. GrooveKit indexes them in the background (tens of thousands of files are fine), describes each sound, and gives both you and the agent the same search. Your VST3 and AU plugins work too.",
+    a: "From your own sample folders. GrooveKit indexes them in the background (tens of thousands of files are fine), describes each sound, and gives both you and the agent the same search. To start with, the Browser offers 812 public-domain drum machine sounds and loops as a one-time download. Your VST3 and AU plugins work too, next to GrooveKit’s own synths and effects.",
   },
   {
     q: "What data leaves my Mac?",

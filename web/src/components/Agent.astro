@@ -1,226 +1,159 @@
 ---
 /**
- * How the agent works: the two ways to reach it (the chat in the app, Claude Code over MCP), three
- * steps, a realistic Claude Code session (real tool names and argument shapes from mcp/src/tools.ts
- * and the schema) and the one-engine diagram.
+ * How Claude gets in: the chat in the app or Claude Code over MCP, both through the same tools,
+ * and the architecture in one picture: clients on top, the engine below, your Mac underneath.
  */
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
 import { LINKS, MCP_ADD, TOOL_COUNT } from "../lib/site";
+import Icon from "./Icon.astro";
 
-const steps = [
+const ways = [
   {
-    n: "01",
-    title: "Connect Claude once",
-    text: "In the app, paste your own Anthropic API key into the sidebar’s Agent tab and start chatting; the key stays on your Mac. Or use Claude Code: GrooveKit’s MCP server, the standard way Claude picks up new tools, gives it the same toolbox.",
+    title: "In the app",
+    text: "Open the Agent tab, paste your own Anthropic API key, and talk: type, or hold a key and speak. The key stays on your Mac.",
+  },
+  {
+    title: "From Claude Code",
+    text: "GrooveKit ships an MCP server, the standard way Claude picks up tools. Register it once and Claude Code works on the project your window has open.",
     code: MCP_ADD,
-  },
-  {
-    n: "02",
-    title: "Say what you want",
-    text: "A genre, a tempo, a feeling, a reference loudness. Or something smaller: “the hats are too busy in the drop”. The agent reads the song before it touches it.",
-  },
-  {
-    n: "03",
-    title: "Watch, listen, undo",
-    text: "Each edit lands in the open app as it happens, outlined in violet and listed under Changes in the Agent tab. A whole request is one undo step, so trying an idea costs nothing.",
   },
 ];
 
-type Line =
-  | { kind: "user"; text: string }
-  | { kind: "say"; text: string }
-  | { kind: "call"; tool: string; args: string; result: string[]; ok?: boolean };
-
-const session: Line[] = [
-  {
-    kind: "user",
-    text: "Make a dark techno groove at 128 from my own samples: four-on-the-floor kick, offbeat bass, busy hats. Keep the kick and bass out of each other’s way, then master it for streaming.",
-  },
-  { kind: "call", tool: "get_summary", args: "", result: ["tempo 120 · 0 channels · 0 patterns · empty playlist"] },
-  {
-    kind: "call",
-    tool: "search_samples",
-    args: `{"query":"dark kick","category":"kick","loop":false,"limit":5}`,
-    result: ["Kicks/Industrial Kick 03.wav", "“kick one-shot, 0.42 s, pitched F1, sharp attack, dark, bass-heavy”", "5 of 38,214 samples"],
-  },
-  {
-    kind: "call",
-    tool: "search_samples",
-    args: `{"query":"reese bass","category":"bass","loop":false}`,
-    result: ["Bass/Reese Stab F.wav · rootKey 29", "“bass one-shot, 0.61 s, pitched F1 (−8 c), sharp attack, bass-heavy”"],
-  },
-  {
-    kind: "call",
-    tool: "edit_project",
-    args: `{"label":"Dark techno groove","commands":[
-  {"type":"setTempo","tempo":128},
-  {"type":"addChannel","channel":{"id":"kick","instrument":{"type":"sampler",
-    "layers":[{"id":"l1","sample":"…/Industrial Kick 03.wav","pitchTracking":false}]}}},
-  {"type":"addPattern","pattern":{"id":"groove","length":3840,
-    "notes":[{"channel":"kick","start":0,"length":240}, …]}},
-  {"type":"addClip","clip":{"type":"pattern","id":"g1","track":"drums",
-    "start":0,"length":61440,"pattern":"groove"}},
-  … 12 more]}`,
-    result: ["entry 14 · “Dark techno groove” · applied atomically"],
-    ok: true,
-  },
-  {
-    kind: "call",
-    tool: "analyze_mix",
-    args: `{"startBar":1,"endBar":17}`,
-    result: ["mix −17.6 LUFS · true peak −3.2 dB", "masking: kick × bass at 60–120 Hz"],
-  },
-  {
-    kind: "call",
-    tool: "edit_project",
-    args: `{"label":"Carve room for the kick","commands":[{"type":"addEffect","insert":"bass",
-  "effect":{"type":"builtin","id":"eq","kind":"eq","params":{"band1Freq":110,"band1GainDb":-4}}}]}`,
-    result: ["entry 15 · “Carve room for the kick”"],
-    ok: true,
-  },
-  {
-    kind: "call",
-    tool: "master",
-    args: `{"targetLufs":-14,"ceilingDb":-1}`,
-    result: ["integrated −14.1 LUFS · true peak −1.0 dB · reached target in 3 renders"],
-    ok: true,
-  },
-  { kind: "call", tool: "transport", args: `{"action":"play","fromBar":1}`, result: ["playing · song mode · bar 1"] },
-  {
-    kind: "say",
-    text: "Done: 16 bars at 128 BPM with kick, offbeat bass and 16th hats, a low shelf on the bass so the kick owns 60–120 Hz, mastered to −14 LUFS. It’s playing now. One undo takes the whole thing back.",
-  },
+const steps = [
+  ["Reads before it touches", "The song, your notes, the style’s guide and maps. Then it searches your library and auditions candidates in the song."],
+  ["Changes the song in one step", "A request becomes typed commands applied atomically. Each lands in your window as it happens, outlined in violet."],
+  ["Checks its own work", "It renders and measures: loudness, spectrum, masking, the fit against the references. Adjusts, renders again."],
+  ["Asks when it’s your call", "When a sound is a matter of taste, it offers A, B, C to pick by ear, and remembers what you chose."],
 ];
 ---
 
 <section id="agent" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
   <div class="container-site">
-    <div class="max-w-3xl">
-      <p class="eyebrow">How the agent works</p>
-      <h2 class="title mt-4">Ask in words. Watch it happen in the app.</h2>
-      <p class="mt-6 text-lg leading-relaxed text-dim">
-        GrooveKit gives Claude {TOOL_COUNT} tools: in a chat right in the app’s sidebar, or in
-        Claude Code over the{" "}
-        <a href={LINKS.mcp} class="text-fg underline decoration-line underline-offset-4 hover:decoration-fg">Model Context Protocol</a>.
-        They’re the same engine API the interface is built on. Anything you can click, the agent
-        can do — and anything it does, you can see, change and undo.
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)] lg:items-end">
+      <div>
+        <p class="eyebrow">The agent</p>
+        <h2 class="title mt-4">Claude, with the whole studio in its hands.</h2>
+      </div>
+      <p class="text-lg leading-relaxed text-dim">
+        {TOOL_COUNT} tools over the{" "}
+        <a href={LINKS.mcp} class="text-fg underline decoration-line underline-offset-4 hover:decoration-fg">Model Context Protocol</a>,
+        built on the same engine API as the interface. Anything you can click, the agent can do;
+        anything it does, you can see, change and undo.
       </p>
     </div>
 
-    <div class="mt-16 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-14">
-      <!-- Steps -->
-      <ol class="space-y-4">
-        {steps.map((s) => (
-          <li class="rounded-2xl bg-panel p-6 ring-1 ring-line">
-            <div class="flex items-baseline gap-3">
-              <span class="font-mono text-xs text-accent">{s.n}</span>
-              <h3 class="text-lg font-semibold tracking-[-0.01em]">{s.title}</h3>
-            </div>
-            <p class="mt-2.5 leading-relaxed text-dim">{s.text}</p>
-            {s.code && (
-              <>
-                <p class="mt-4 text-sm text-faint">With Claude Code:</p>
-                <pre class="mt-2 overflow-x-auto rounded-lg bg-bg px-3.5 py-3 text-[12.5px] leading-relaxed text-fg ring-1 ring-line"><code><span class="text-faint select-none">$ </span>{s.code}</code></pre>
-              </>
-            )}
-          </li>
-        ))}
-      </ol>
-
-      <!-- Session -->
-      <figure class="min-w-0">
-        <div class="overflow-hidden rounded-2xl bg-[#0c0c0e] ring-1 ring-line">
-          <div class="flex h-9 items-center gap-2 border-b border-line bg-panel px-3.5">
-            <span class="size-3 rounded-full bg-control"></span>
-            <span class="size-3 rounded-full bg-control"></span>
-            <span class="size-3 rounded-full bg-control"></span>
-            <span class="ml-2 truncate font-mono text-[11px] text-faint">claude — ~/Music/GrooveKit/Scratch</span>
-          </div>
-          <ol class="space-y-4 p-4 font-mono text-[12.5px] leading-relaxed sm:p-5" aria-label="Example Claude Code session">
-            {session.map((line) => (
-              <li>
-                {line.kind === "user" && (
-                  <div class="rounded-lg bg-raised px-3.5 py-3 text-fg ring-1 ring-line">
-                    <span class="text-accent select-none">&gt; </span>
-                    <span class="font-sans text-[14px]">{line.text}</span>
-                  </div>
-                )}
-                {line.kind === "say" && (
-                  <p class="flex gap-2 font-sans text-[14px] text-fg">
-                    <span class="mt-[0.45em] size-2 shrink-0 rounded-full bg-fg/80" aria-hidden="true"></span>
-                    <span>{line.text}</span>
-                  </p>
-                )}
-                {line.kind === "call" && (
-                  <div>
-                    <div class="flex flex-wrap items-baseline gap-x-1.5">
-                      <span class="mt-[0.45em] size-2 shrink-0 self-start rounded-full bg-agent" aria-hidden="true"></span>
-                      <span class="text-faint">groovekit ·</span>
-                      <span class="font-semibold text-agent">{line.tool}</span>
-                    </div>
-                    {line.args && (
-                      <pre class="mt-1.5 ml-3.5 overflow-x-auto rounded-md bg-panel/70 px-3 py-2 text-[11.5px] leading-relaxed whitespace-pre text-dim ring-1 ring-line/70"><code>{line.args}</code></pre>
-                    )}
-                    <div class="mt-1.5 ml-3.5 border-l border-line pl-3 text-[12px] text-faint">
-                      {line.result.map((r, i) => (
-                        <div class:list={[i === 0 && line.ok && "text-ok"]}>
-                          {i === 0 && <span class="select-none">⎿ </span>}
-                          {r}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ol>
-        </div>
-        <figcaption class="mt-3 text-sm text-faint">
-          An illustrative Claude Code session. Tool names and arguments are GrooveKit’s real ones;
-          sample names and numbers will be yours. The chat in the app makes the same calls and shows
-          each as a one-line row.
-        </figcaption>
-      </figure>
+    <div class="mt-14 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {ways.map((w) => (
+        <article class="rounded-2xl bg-panel p-6 ring-1 ring-line sm:p-7">
+          <h3 class="text-lg font-semibold tracking-[-0.015em]">{w.title}</h3>
+          <p class="mt-2 leading-relaxed text-dim">{w.text}</p>
+          {w.code && (
+            <pre class="mt-4 overflow-x-auto rounded-lg bg-bg px-3.5 py-3 text-[12.5px] leading-relaxed text-fg ring-1 ring-line"><code><span class="text-faint select-none">$ </span>{w.code}</code></pre>
+          )}
+        </article>
+      ))}
     </div>
 
-    <!-- One engine, every client -->
-    <div class="mt-20 rounded-3xl bg-panel p-6 ring-1 ring-line sm:p-10">
-      <div class="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
-        <div>
-          <h3 class="text-2xl font-semibold tracking-[-0.025em]">One engine. You and the agent are peers.</h3>
-          <p class="mt-4 leading-relaxed text-dim">
-            The audio engine owns the song. The app and the agent are both clients of its JSON-RPC
-            API over WebSocket, sending the same typed commands. Each command becomes a history
-            entry, and every client gets the change as a live patch — that’s how the agent’s edits
-            appear in your window the moment it makes them.
-          </p>
-          <a href={LINKS.protocol} class="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline underline-offset-4">
-            Read the engine API
-            <svg viewBox="0 0 16 16" class="size-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"></path></svg>
-          </a>
+    <dl class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {steps.map(([t, d], i) => (
+        <div class="rounded-2xl bg-panel p-6 ring-1 ring-line">
+          <dt class="flex items-baseline gap-3 font-semibold">
+            <span class="font-mono text-xs text-accent">0{i + 1}</span>
+            {t}
+          </dt>
+          <dd class="mt-2 text-[14.5px] leading-relaxed text-dim">{d}</dd>
         </div>
+      ))}
+    </dl>
 
-        <div class="grid grid-cols-[minmax(0,1fr)] items-center gap-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.1fr)_auto_minmax(0,1fr)]" aria-label="Diagram: the GrooveKit app and Claude, from the app's chat or Claude Code through the MCP server, both talk to one engine over JSON-RPC.">
-          <div class="rounded-xl bg-raised p-4 ring-1 ring-line">
-            <div class="font-semibold">GrooveKit app</div>
-            <div class="mt-1 text-xs leading-snug text-faint">You: clicks, keys, knobs</div>
+    <!-- Architecture -->
+    <div class="mt-20 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-14">
+      <div>
+        <p class="eyebrow">Architecture</p>
+        <h3 class="mt-3 text-[clamp(1.5rem,3vw,2.1rem)] leading-[1.1] font-semibold tracking-[-0.03em] text-balance">One engine. Two kinds of client.</h3>
+        <p class="mt-4 leading-relaxed text-dim">
+          The engine is a C++ audio process that owns the project: it plays, records, renders,
+          hosts plugins and keeps the history. It speaks JSON-RPC over a local WebSocket:
+          commands in, live patches out. The app’s window is one client; the MCP server, which
+          turns {TOOL_COUNT} tools into those commands, is another. Both see the same song at the
+          same time, which is why the agent’s edits appear in your window as it makes them.
+        </p>
+        <p class="mt-4 leading-relaxed text-dim">
+          Listening, the models that hear samples and reference tracks, runs on your Mac. Only
+          the chat leaves it, to Anthropic with your key, or to Claude Code’s provider.
+        </p>
+        <a href={`${base}docs/`} class="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-accent underline-offset-4 hover:underline">
+          Read the docs <Icon name="arrow" class="size-3.5" />
+        </a>
+      </div>
+
+      <figure class="min-w-0" aria-label="Architecture: the app window and Claude (in the app or in Claude Code, through the MCP server) are clients of one engine, which owns the project folder and talks to your plugins, samples and audio hardware.">
+        <div class="gk-arch rounded-2xl bg-panel p-5 ring-1 ring-line sm:p-7" aria-hidden="true">
+          <!-- Clients -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="gk-arch-box">
+              <span class="gk-arch-kicker">You</span>
+              <span class="gk-arch-name">The app</span>
+              <span class="gk-arch-sub">React UI, Tauri</span>
+            </div>
+            <div class="gk-arch-box gk-arch-agent">
+              <span class="gk-arch-kicker">Claude</span>
+              <span class="gk-arch-name">Chat in the app</span>
+              <span class="gk-arch-sub">your API key</span>
+            </div>
+            <div class="gk-arch-box gk-arch-agent">
+              <span class="gk-arch-kicker">Claude</span>
+              <span class="gk-arch-name">Claude Code</span>
+              <span class="gk-arch-sub">or any MCP client</span>
+            </div>
           </div>
-          <div class="flex flex-col items-center text-[10px] text-faint sm:px-1" aria-hidden="true">
-            <span class="hidden sm:block">⇄</span><span class="sm:hidden">⇅</span>
+          <!-- Connectors to the MCP server -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="gk-arch-line"></div>
+            <div class="gk-arch-line"></div>
+            <div class="gk-arch-line"></div>
           </div>
-          <div class="rounded-xl bg-accent/10 p-4 ring-1 ring-accent/40">
-            <div class="font-semibold text-accent">Engine</div>
-            <div class="mt-1 text-xs leading-snug text-dim">Song, history, playback, render, analysis</div>
-            <div class="mt-2 font-mono text-[10.5px] text-faint">ws://127.0.0.1 · JSON-RPC</div>
+          <div class="grid grid-cols-3 gap-3">
+            <div class="gk-arch-line h-auto self-stretch"></div>
+            <div class="gk-arch-box gk-arch-agent col-span-2">
+              <span class="gk-arch-kicker">MCP server</span>
+              <span class="gk-arch-name">{TOOL_COUNT} tools</span>
+              <span class="gk-arch-sub">search, edit, render, measure, listen, master…</span>
+            </div>
           </div>
-          <div class="flex flex-col items-center text-[10px] text-faint sm:px-1" aria-hidden="true">
-            <span class="hidden sm:block">⇄</span><span class="sm:hidden">⇅</span>
+          <div class="grid grid-cols-3 gap-3">
+            <div class="gk-arch-line"></div>
+            <div class="gk-arch-line col-span-2"></div>
           </div>
-          <div class="rounded-xl bg-agent/10 p-4 ring-1 ring-agent/40">
-            <div class="font-semibold text-agent">Claude</div>
-            <div class="mt-1 text-xs leading-snug text-dim">In the app’s chat, or Claude Code via the GrooveKit MCP server</div>
+          <!-- Engine -->
+          <div class="gk-arch-bus">JSON-RPC over a local WebSocket · commands in, live patches out</div>
+          <div class="gk-arch-box gk-arch-engine mt-3">
+            <span class="gk-arch-kicker">Engine</span>
+            <span class="gk-arch-name">C++ · JUCE · Tracktion Engine</span>
+            <span class="gk-arch-sub">plays, records, renders, hosts plugins, keeps the history, hears samples and references</span>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div class="gk-arch-line"></div>
+            <div class="gk-arch-line"></div>
+            <div class="gk-arch-line"></div>
+          </div>
+          <!-- Your Mac -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="gk-arch-box gk-arch-mac">
+              <span class="gk-arch-name">Project folder</span>
+              <span class="gk-arch-sub">song.json, history, takes</span>
+            </div>
+            <div class="gk-arch-box gk-arch-mac">
+              <span class="gk-arch-name">Samples &amp; plugins</span>
+              <span class="gk-arch-sub">your library, VST3, AU</span>
+            </div>
+            <div class="gk-arch-box gk-arch-mac">
+              <span class="gk-arch-name">Audio &amp; MIDI</span>
+              <span class="gk-arch-sub">speakers, interface, hardware</span>
+            </div>
           </div>
         </div>
-      </div>
+      </figure>
     </div>
   </div>
 </section>

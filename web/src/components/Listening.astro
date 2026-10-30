@@ -1,0 +1,73 @@
+---
+/** Listening in detail: styles, song maps, figures, sound matching, picks, the taste model. */
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
+
+const parts = [
+  {
+    title: "Styles are folders",
+    text: "Put the tracks you love in a folder per style under ~/Music/GrooveKit/References: one for the techno you want to make, one for house. A style guide describes each in words and numbers, and the agent reads it before it builds.",
+  },
+  {
+    title: "Every track heard once",
+    text: "GrooveKit hears each reference into a song map, on your Mac, a few minutes a track: tempo and swing, loudness, how hard it hits the highs, each part’s level against the mix, the spectrum, which sounds it heard and how they sound.",
+  },
+  {
+    title: "The arrangement, bar by bar",
+    text: "Sections with their role (intro, groove, build, break, drop) and bars, which parts play in each (kick, rumble, bass, hats, percussion, music, vocal), energy, and the changes: a kick out for a bar, music opening over eight bars.",
+  },
+  {
+    title: "The kick and rumble, measured",
+    text: "Where the kick plays with least around it: the body’s note, how long it rings, click and grit, the rumble between kicks. The agent matches kicks in your library against these numbers, not a fingerprint.",
+  },
+  {
+    title: "Figures: what the music plays",
+    text: "Two bars of the music and of the bass where each is loudest, as notes on the 16th grid with their key. The agent writes stabs, chords and basslines in those rhythms and intervals, so a hard techno line hammers like the references.",
+  },
+  {
+    title: "Your ear decides",
+    text: "When a sound is taste, the agent offers up to twenty candidates to pick by ear, auditioned in the song. Your verdicts train a small taste model per style, and after fifty sounds without a pick it asks which way to go.",
+  },
+];
+---
+
+<section id="listening" class="scroll-mt-16 border-t border-line py-24 sm:py-32">
+  <div class="container-site">
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)] lg:items-end">
+      <div>
+        <p class="eyebrow">Listening</p>
+        <h2 class="title mt-4">It learns the style from your references.</h2>
+      </div>
+      <p class="text-lg leading-relaxed text-dim">
+        Models run on your Mac after a one-time download; no audio leaves it. Maps live in
+        ~/Music/GrooveKit/Maps, can be ticked in and out of use per song and style, exported and
+        imported as zips, and heard again when GrooveKit learns to hear more.
+      </p>
+    </div>
+
+    <div class="mt-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-12">
+      <dl class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:col-span-7">
+        {parts.map((p) => (
+          <div class="rounded-2xl bg-panel p-6 ring-1 ring-line">
+            <dt class="font-semibold">{p.title}</dt>
+            <dd class="mt-2 text-[14.5px] leading-relaxed text-dim">{p.text}</dd>
+          </div>
+        ))}
+      </dl>
+      <div class="grid grid-cols-2 gap-4 self-start lg:col-span-5">
+        {["map", "map-figures"].map((f, i) => (
+          <a href={`${base}shots/${f}.jpg`} class="block overflow-hidden rounded-xl bg-[#111113] ring-1 ring-line">
+            <img
+              src={`${base}shots/${f}.jpg`}
+              alt={i === 0 ? "A song map's measurements and arrangement" : "A song map's figures as two-bar piano rolls"}
+              width="522"
+              height="676"
+              loading="lazy"
+              decoding="async"
+              class="block h-auto w-full"
+            />
+          </a>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>

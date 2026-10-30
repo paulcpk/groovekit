@@ -247,3 +247,42 @@
     display: none;
   }
 }
+
+/* ---------------------------------------------------------- architecture */
+
+/* The one-engine diagram on the landing page (Agent.astro): boxes, the lines between them, the bus. */
+@layer components {
+  .gk-arch-box {
+    @apply flex min-w-0 flex-col rounded-xl bg-raised px-3 py-2.5 ring-1 ring-line sm:px-4 sm:py-3;
+  }
+  .gk-arch-agent {
+    @apply bg-agent/10 ring-agent/30;
+  }
+  .gk-arch-agent .gk-arch-kicker {
+    @apply text-agent;
+  }
+  .gk-arch-engine {
+    @apply items-center bg-accent/10 text-center ring-accent/30;
+  }
+  .gk-arch-engine .gk-arch-kicker {
+    @apply text-accent;
+  }
+  .gk-arch-mac {
+    @apply bg-bg;
+  }
+  .gk-arch-kicker {
+    @apply font-mono text-[10px] tracking-[0.12em] text-faint uppercase;
+  }
+  .gk-arch-name {
+    @apply mt-0.5 truncate text-[13px] font-semibold text-fg sm:text-sm;
+  }
+  .gk-arch-sub {
+    @apply mt-0.5 text-[11px] leading-snug text-faint sm:text-xs;
+  }
+  .gk-arch-line {
+    @apply mx-auto h-5 w-px bg-line;
+  }
+  .gk-arch-bus {
+    @apply rounded-full bg-bg px-3 py-1.5 text-center font-mono text-[10.5px] text-faint ring-1 ring-line;
+  }
+}
