@@ -486,6 +486,118 @@ TEST_CASE ("Kicks are measured the same way everywhere, and compared in words")
     CHECK (noteName (55) == "A1");
 }
 
+namespace
+{
+    /** One kick: a sine whose pitch dives from hz + dive to hz, decaying over decay seconds. */
+    std::vector<float> kickShot (double rate, double hz, double dive, double decay, double seconds = 0.5)
+    {
+        std::vector<float> x (static_cast<size_t> (seconds * rate));
+        double phase = 0;
+
+        for (size_t i = 0; i < x.size(); ++i)
+        {
+            const double t = static_cast<double> (i) / rate;
+            phase += 2 * juce::MathConstants<double>::pi * (hz + dive * std::exp (-t / 0.012)) / rate;
+            x[i] = static_cast<float> (0.8 * std::sin (phase) * std::exp (-t / decay));
+        }
+
+        return x;
+    }
+}
+
+TEST_CASE ("A kick's print hears its whole sound, tuned, and a groove's kick is rebuilt from its hits")
+{
+    constexpr double rate = 44100;
+    const auto a = printKick (kickShot (rate, 50, 150, 0.15), rate);
+    REQUIRE (a.has_value());
+    CHECK (a->frames == static_cast<int> (KickPrint::numFrames));
+    CHECK (std::abs (a->bodyHz - 50) < 5);
+    CHECK (a->sweep[0] > a->bodyHz * 1.5f);
+
+    const auto self = comparePrints (*a, *a);
+    CHECK (self.early < 0.01f);
+    CHECK (self.body < 0.01f);
+
+    // The same kick three semitones up: tuned, nearly the same.
+    const auto up = std::pow (2.0, 3 / 12.0);
+    const auto b = printKick (kickShot (rate, 50 * up, 150 * up, 0.15), rate);
+    const auto tuned = comparePrints (*b, *a);
+    CHECK (std::abs (tuned.semitones - 3) < 0.7);
+    CHECK (tuned.early < 0.35f);
+    CHECK (tuned.body < 0.35f);
+
+    // Barely diving and short: further, at the hit and over the body.
+    const auto c = printKick (kickShot (rate, 50, 15, 0.05), rate);
+    const auto apart = comparePrints (*c, *a);
+    INFO ("tuned " << tuned.early << " " << tuned.body << ", apart " << apart.early << " " << apart.body);
+    CHECK (apart.body > tuned.body + 0.3f);
+    REQUIRE (apart.sweep.has_value());
+    CHECK (*apart.sweep > tuned.sweep.value_or (0) + 0.2f);
+    CHECK (KickPrint::fromJson (Json::parse (a->toJson().dump()))->cells == a->cells);
+
+    // In a groove with claps on two and four and a hat on every offbeat: the hits lined up and
+    // their median taken, the claps' hits left out, and the kick comes back.
+    const double beat = 60 / 128.0;
+    juce::AudioBuffer<float> groove (2, static_cast<int> (16 * beat * rate));
+    groove.clear();
+    const auto shot = kickShot (rate, 50, 150, 0.15, beat);
+    juce::Random random (5);
+
+    for (int k = 0; k < 16; ++k)
+    {
+        const auto start = static_cast<int> (k * beat * rate) + (k % 3) * 7;  // a few samples off the grid
+
+        for (int i = 0; i < static_cast<int> (shot.size()) && start + i < groove.getNumSamples(); ++i)
+        {
+            const double t = i / rate;
+            float v = shot[static_cast<size_t> (i)];
+
+            if (k % 2 == 1 && t < 0.08)
+                v += static_cast<float> (0.5 * (random.nextFloat() * 2 - 1) * std::exp (-t / 0.02));
+
+            if (t > beat / 2 && t < beat / 2 + 0.03)
+                v += static_cast<float> (0.2 * (random.nextFloat() * 2 - 1));
+
+            for (int ch = 0; ch < 2; ++ch)
+                groove.setSample (ch, start + i, v);
+        }
+    }
+
+    KickTiming timing;
+    timing.beat = beat;
+    timing.downbeat = 0.0;
+    const auto rebuilt = rebuildKick (groove, rate, timing);
+    REQUIRE (rebuilt.has_value());
+    CHECK (rebuilt->hits >= 6);
+    CHECK (rebuilt->hits <= 9);
+    CHECK (rebuilt->seconds > 0.38);
+
+    const auto heard = printKick (rebuilt->audio, rate, rebuilt->seconds);
+    REQUIRE (heard.has_value());
+    const auto back = comparePrints (*heard, *a);
+    INFO ("rebuilt " << back.early << " " << back.body << " " << back.semitones);
+    CHECK (std::abs (back.semitones) < 0.7);
+    CHECK (back.early < apart.early);
+    CHECK (back.body < 0.35f);
+
+    // The weights learn from picks: chosen for its hit over one closer in the body.
+    MatchWeights weights;
+    MatchWeights::Costs same {};
+    same.fill (0.0f);
+    CHECK (weights.score (same) > 99.9f);
+
+    MatchWeights::Costs chosen {}, passed {};
+    chosen[MatchWeights::early] = 0.2f, chosen[MatchWeights::body] = 1.0f;
+    passed[MatchWeights::early] = 1.0f, passed[MatchWeights::body] = 0.3f;
+    const auto before = weights.weights[MatchWeights::early] / weights.weights[MatchWeights::body];
+
+    for (int i = 0; i < 10; ++i)
+        weights.learn (chosen, passed);
+
+    CHECK (weights.weights[MatchWeights::early] / weights.weights[MatchWeights::body] > before * 1.5f);
+    CHECK (MatchWeights::fromJson (weights.toJson()).weights == weights.weights);
+}
+
 TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and measured in the song")
 {
     const auto dir = freshDir ("maps-match");
@@ -547,6 +659,11 @@ TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and 
     CHECK (found["results"][0]["name"] == "Deep Kick 50.wav");
     CHECK (found["results"][0]["score"].get<double>() > found["results"][1]["score"].get<double>());
     CHECK (found["reference"]["clean"] == true);
+    CHECK (found["results"][0]["close"] == true);
+    CHECK (found["results"][1]["transpose"].get<int>() < 0);  // down to the reference's note
+
+    // Loops only when asked for: there are none.
+    CHECK (call ("match.kicks", { { "id", reference.id() }, { "loops", true } })["results"].empty());
 
     // Heard in a groove: written to a file to listen to, and measured like the reference.
     const auto deep = found["results"][0]["path"].get<std::string>();
@@ -559,6 +676,7 @@ TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and 
 
     // Put to the user: they pick the first, which then fits the style.
     const auto offered = call ("picks.offer", { { "title", "Which kick?" }, { "style", "Hard Techno" },
+                                                { "reference", { { "file", "/nowhere.wav" }, { "id", reference.id() } } },
                                                 { "candidates", { { { "path", deep } }, { { "path", shortKick } } } } });
     REQUIRE_FALSE (notifications.empty());
     CHECK (notifications.back()["method"] == "picks");
@@ -568,6 +686,10 @@ TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and 
     const auto ratings = listening.getTaste().forStyle ("Hard Techno");
     REQUIRE (ratings.size() == 1);
     CHECK (ratings[0].fits);
+
+    // The pick, from kicks matched to a map, teaches the matching.
+    CHECK (listening.getKickWeights().picks == 1);
+    CHECK (fs::exists (dir / "kick-weights.json"));
 
     // "Other": the user says what they want instead; no verdict on these.
     const auto again = call ("picks.offer", { { "title", "Which hats?" }, { "style", "Hard Techno" },

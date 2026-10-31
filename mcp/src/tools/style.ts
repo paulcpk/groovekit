@@ -70,24 +70,30 @@ export function registerStyleTools({ server, engine }: Tools) {
   server.registerTool(
     "melody",
     {
-      description: "Notes of a melody, placed on the song's grid (ticks from the melody's start, 960 a beat) in the song's key (or key) and a register, ready for addNotes. source voice: what the user hummed or sang in a voice message (the latest, or recording), its tempo worked out from the rhythm (tempo \"song\" takes it as hummed at the song's tempo), snapped to the scale. source reference: a stretch of one of the styles' reference tracks (track: words of its file name; from and length in seconds, default 24 s two fifths in), split into stems and transcribed: part lead (the top line of everything but drums and bass), chords (all of it) or bass; takes several seconds. Gives notes, length (whole bars), heardTempo, heardKey and transposed (semitones moved).",
+      description: "Notes of a melody, placed on the song's grid (ticks from the melody's start, 960 a beat) in the song's key (or key) and a register, ready for addNotes. source voice: what the user hummed or sang in a voice message (the latest, or recording), its tempo worked out from the rhythm (tempo \"song\" takes it as hummed at the song's tempo), snapped to the scale. source reference: a stretch of one of the styles' reference tracks (track: words of its file name; from and length in seconds, default 24 s two fifths in), split into stems and transcribed: part lead (the top line of everything but drums and bass), chords (all of it) or bass; takes several seconds. Gives notes, length (whole bars), heardTempo, heardKey and transposed (semitones moved). With versions (voice only), gives that many versions of the hummed line instead, each with notes, length, a label and scores: closeness (0-100, to the hum: its rhythm first, then its shape) and fit (0-100, its rhythm against the style's figures): as hummed in key first, then its rhythm and shape on the key's notes (when the hum was off key), its notes on the style's nearest rhythm, simpler as a short loop, half and double speed, and answering partner (a channel) in its gaps; bars loops each to that many bars.",
       inputSchema: {
         source: z.enum(["voice", "reference"]),
         recording: z.string().optional().describe("voice: which voice message (default the latest)"),
         tempo: z.enum(["song"]).optional().describe("voice: it was hummed at the song's tempo"),
         track: z.string().optional().describe("reference: words of the track's file name"),
-        style: z.string().optional().describe("reference: the style to look in (default all)"),
+        style: z.string().optional().describe("reference: the style to look in (default all); versions: the style whose rhythms to fit (default the song's)"),
         from: z.number().optional().describe("Seconds: where to start (reference), or where the melody starts in the voice message"),
         length: z.number().optional().describe("reference: seconds to take, 2-60 (default 24)"),
         part: z.enum(["lead", "chords", "bass"]).optional().describe("reference: default lead"),
         key: z.string().optional().describe("Move it into this key instead of the song's"),
         register: z.enum(["bass", "chords", "lead", "high"]).optional().describe("Octaves to move it into (bass C1-E3, chords C3-C5, lead C4-C6, high C5-C7)"),
         snapToScale: z.boolean().optional().describe("Snap notes to the key's scale (default: voice yes, reference no)"),
+        versions: z.number().int().min(1).max(10).optional().describe("voice: this many versions of the line to offer, not one"),
+        bars: z.number().int().min(1).max(8).optional().describe("versions: loop each to this many bars"),
+        partner: z.string().optional().describe("versions: a channel the line should answer"),
       },
       annotations: { readOnlyHint: true },
     },
-    ({ source, ...args }, extra: Extra) =>
-      attempt(() => longRunning(extra, "transcribing", (signal) => engine.call(source === "voice" ? "melody.voice" : "melody.reference", defined(args), { signal })))
+    ({ source, versions, ...args }, extra: Extra) =>
+      attempt(() => longRunning(extra, "transcribing", (signal) => {
+        if (source === "voice" && versions) return engine.call("melody.versions", defined({ ...args, count: versions }), { signal });
+        return engine.call(source === "voice" ? "melody.voice" : "melody.reference", defined(args), { signal });
+      }))
   );
 
   server.registerTool(

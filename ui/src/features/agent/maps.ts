@@ -99,11 +99,13 @@ export interface KickSound {
     25%), and what differs most. */
 export interface KickMatch {
   path: string; name: string; category: string; loop: boolean; tempo?: number;
-  score: number; measured: number; fingerprint?: number; differences: string[]; kick: string;
+  /** 0-100; close ones are worth offering. transpose: the semitones that tune it to the reference. */
+  score: number; close: boolean; transpose?: number; parts: Record<string, number>; fingerprint?: number; differences: string[]; kick: string;
 }
 
-export const matchKicks = (id: string, loops?: boolean) =>
-  call<{ results: KickMatch[]; searched: number; measuring: boolean }>("match.kicks", { id, limit: 12, ...(loops !== undefined ? { loops } : {}) });
+export const matchKicks = (id: string, loops: boolean) =>
+  call<{ results: KickMatch[]; searched: number; measuring: boolean; close: number; reference: { kickFile?: string; rebuiltFrom?: string } }>(
+    "match.kicks", { id, limit: 12, loops });
 
 /** How a whole track unfolds, bar by bar (bars count from 0; a section's end is excluded). */
 export interface Arrangement {

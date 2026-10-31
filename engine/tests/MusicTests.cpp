@@ -1,7 +1,11 @@
 #include "music/Keys.h"
 #include "music/Notes.h"
+#include "music/Versions.h"
 
 #include <juce_core/juce_core.h>
+
+#include <map>
+#include <set>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -199,6 +203,71 @@ TEST_CASE ("Notes are placed on the song's grid, in its key and register")
         CHECK (bass.notes[0].key == 36);
         CHECK (bass.transposed == -26);
     }
+}
+
+TEST_CASE ("A hummed line comes back in versions: in key, on the scale, the style's rhythm, simpler, faster, slower, answering")
+{
+    // Hummed at 100 BPM, a little off key (F# and C# in C minor): 8ths, a quarter, 8ths.
+    std::vector<HeardNote> heard {
+        { 1.00, 1.28, 60.1f, 1 }, { 1.31, 1.58, 63.0f, 1 }, { 1.59, 1.88, 66.2f, 1 }, { 1.90, 2.48, 61.0f, 1 },
+        { 2.50, 2.78, 67.0f, 1 }, { 2.80, 3.10, 65.0f, 1 },
+    };
+
+    FitOptions options;
+    options.songTempo = 140;
+    options.key = Key { 0, true };      // C minor
+    const auto line = fitMelody (heard, options);
+    auto rawOptions = options;
+    rawOptions.snapToScale = false;
+    rawOptions.sourceTempo = line.sourceTempo;
+    const auto raw = fitMelody (heard, rawOptions);
+
+    VersionOptions v;
+    v.key = options.key;
+    v.count = 10;
+    v.styleRhythms.push_back ({ { 0, 3, 6, 8, 11, 14 }, 16 });
+    v.partner = { { 0, 240, 36, 100 }, { 960, 240, 36, 100 }, { 1920, 240, 36, 100 }, { 2880, 240, 36, 100 } };
+    v.partnerLength = 3840;
+    v.partnerName = "Kick";
+
+    const auto versions = melodyVersions (line, raw, v);
+    REQUIRE (versions.size() >= 5);
+
+    // As hummed first, closest to itself.
+    CHECK (versions[0].name == "hummed");
+    CHECK (versions[0].closeness == 100);
+
+    std::map<std::string, MelodyVersion> byName;
+
+    for (auto& version : versions)
+    {
+        byName[version.name] = version;
+
+        // Every version in key, on the grid, within its length.
+        for (auto& n : version.notes)
+        {
+            CHECK (options.key->contains (n.key % 12));
+            CHECK (n.start % 120 == 0);
+            CHECK (n.start + n.length <= version.length);
+        }
+    }
+
+    // The style's rhythm: onsets on its 16ths, and it fits the style better than the hum does.
+    REQUIRE (byName.contains ("groove"));
+    for (auto& n : byName["groove"].notes)
+        CHECK (std::set<int> { 0, 3, 6, 8, 11, 14 }.contains (static_cast<int> ((n.start / 240) % 16)));
+    CHECK (byName["groove"].fit.value_or (0) > versions[0].fit.value_or (0));
+
+    // Half speed is twice as long; the simpler one has fewer notes.
+    REQUIRE (byName.contains ("half"));
+    CHECK (byName["half"].length == 2 * versions[0].length);
+    REQUIRE (byName.contains ("simpler"));
+    CHECK (byName["simpler"].notes.size() < versions[0].notes.size() * 2);
+
+    // Answering the kick: no note where it plays.
+    REQUIRE (byName.contains ("answer"));
+    for (auto& n : byName["answer"].notes)
+        CHECK ((n.start / 240) % 4 != 0);
 }
 
 TEST_CASE ("The top line of chords is the melody, the bottom one the bass")

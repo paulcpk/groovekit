@@ -16,7 +16,14 @@ export interface Offer {
   style?: string;
   reference?: { file: string; from?: number; title?: string };
   /** alone and rest: a candidate tried in the song, as two layers played in sync. */
-  candidates: { path?: string; audition?: string; label?: string; alone?: string; rest?: string }[];
+  candidates: { path?: string; audition?: string; label?: string; alone?: string; rest?: string; notes?: PickNote[] }[];
+}
+
+/** A note a candidate plays (ticks from its bar, 960 a beat). */
+interface PickNote {
+  start: number;
+  length: number;
+  key?: number;
 }
 
 // Offers arrive as "picks" notifications; a choice made anywhere closes the window.
@@ -34,6 +41,25 @@ listen("picks", (params: Offer | { id: number; choice: number }) => {
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRST".split("");
 const name = (path: string) => path.replace(/^.*\//, "").replace(/\.[^.]+$/, "");
+
+/** A candidate's notes as a strip of piano roll, on a time scale shared by the offer's candidates
+    (so a faster version looks faster) and its own pitch range. */
+function NoteStrip({ notes, ticks }: { notes: PickNote[]; ticks: number }) {
+  const keys = notes.map((n) => n.key ?? 60);
+  const low = Math.min(...keys) - 1, high = Math.max(...keys) + 1;
+  const rowHeight = 22 / Math.max(6, high - low + 1);
+  return (
+    <svg className="mt-1 block h-[22px] w-full rounded-[3px] bg-bg" viewBox={`0 0 ${ticks} 22`} preserveAspectRatio="none" aria-hidden>
+      {Array.from({ length: Math.floor(ticks / 3840) - 1 }, (_, b) => (
+        <line key={b} x1={(b + 1) * 3840} x2={(b + 1) * 3840} y1={0} y2={22} className="stroke-line" vectorEffect="non-scaling-stroke" />
+      ))}
+      {notes.map((n, i) => (
+        <rect key={i} x={n.start} width={Math.max(n.length - 30, 60)} y={(high - (n.key ?? 60)) * rowHeight} height={Math.max(rowHeight, 2)} rx={20}
+          className="fill-agent" />
+      ))}
+    </svg>
+  );
+}
 
 /** What plays for a candidate: its audition, else its sample (an instrument is always auditioned). */
 const fileOf = (c: Offer["candidates"][number]) => c.audition ?? c.path ?? "";
@@ -245,6 +271,7 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
           <div className="-mx-1 flex max-h-[52vh] flex-col gap-2 overflow-y-auto px-1 py-0.5">
           {offer.candidates.map((c, i) => {
             const file = fileOf(c);
+            const ticks = Math.max(3840, ...offer.candidates.flatMap((d) => (d.notes ?? []).map((n) => Math.ceil((n.start + n.length) / 3840) * 3840)));
             const playing = !!file && previewing === file;
             return (
               <div key={i} ref={(el) => void (rows.current[i] = el)}
@@ -260,6 +287,7 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs text-fg" title={c.path}>{c.label ?? (c.path ? name(c.path) : `Sound ${LETTERS[i]}`)}</div>
                   {c.label && c.path && <div className="truncate text-2xs text-faint">{name(c.path)}</div>}
+                  {c.notes && c.notes.length > 0 && <NoteStrip notes={c.notes} ticks={ticks} />}
                 </div>
                 <button type="button" onClick={() => choose(i)} className="h-6 shrink-0 rounded-[4px] bg-agent px-2.5 text-xs text-black hover:brightness-110">Pick</button>
               </div>

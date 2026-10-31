@@ -372,6 +372,81 @@ TEST_CASE ("Mastering converges on quiet material and keeps true peak under the 
     CHECK (r["result"]["truePeakDb"].get<double>() <= -0.9);
 }
 
+TEST_CASE ("Mastering like a reference closes the gap in loudness and tone, as one undoable change")
+{
+    Harness h;
+    auto kick = test::fixture ("kick.wav").string();
+    auto bass = test::fixture ("bass_a2.wav").string();
+
+    h.call ("execute", { { "commands", Json::array ({
+        Json::parse (R"({ "type": "addChannel", "channel": { "id": "k", "volumeDb": -12, "instrument": { "type": "sampler", "layers": [
+                         { "id": "l", "sample": ")" + kick + R"(", "pitchTracking": false } ] } } })"),
+        Json::parse (R"({ "type": "addChannel", "channel": { "id": "b", "volumeDb": -12, "instrument": { "type": "sampler", "layers": [
+                         { "id": "l", "sample": ")" + bass + R"(", "rootKey": 45, "mode": "gate" } ] } } })"),
+        Json::parse (R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [
+                         { "channel": "k", "start": 0, "length": 240 }, { "channel": "k", "start": 960, "length": 240 },
+                         { "channel": "k", "start": 1920, "length": 240 }, { "channel": "k", "start": 2880, "length": 240 },
+                         { "channel": "b", "start": 480, "length": 400, "key": 45 }, { "channel": "b", "start": 2400, "length": 400, "key": 48 } ] } })"),
+        Json::parse (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 30720, "pattern": "p" } })"),
+    }) } });
+
+    // The reference: the same song brighter, with less low end, and loud.
+    h.call ("execute", { { "commands", Json::array ({
+        Json::parse (R"({ "type": "addEffect", "insert": "master", "effect": { "type": "builtin", "id": "bright", "kind": "eq", "params": {
+                         "band1Type": 2, "band1Freq": 100, "band1GainDb": -4, "band7Type": 5, "band7Freq": 3000, "band7GainDb": 6 } } })"),
+        Json::parse (R"({ "type": "addEffect", "insert": "master", "effect": { "type": "builtin", "id": "loud", "kind": "limiter", "params": { "inputGainDb": 12, "ceilingDb": -1 } } })"),
+    }) } });
+
+    const auto reference = test::tempDir() / "master-match" / "reference.wav";
+    std::filesystem::create_directories (reference.parent_path());
+    REQUIRE (h.call ("render", { { "path", reference.string() } }).contains ("result"));
+    h.call ("execute", { { "commands", Json::array ({ Json { { "type", "removeEffect" }, { "insert", "master" }, { "effect", "bright" } },
+                                                      Json { { "type", "removeEffect" }, { "insert", "master" }, { "effect", "loud" } } }) } });
+
+    auto r = h.call ("master.match", { { "file", reference.string() }, { "from", 0 }, { "to", 16 } });
+    INFO (r.dump());
+    REQUIRE (r.contains ("result"));
+    const auto& m = r["result"];
+
+    // Louder and closer in tone than before; the files to compare are as loud as each other.
+    const auto target = m["reference"]["lufs"].get<double>();
+    CHECK (std::abs (m["after"]["lufs"].get<double>() - target) < std::abs (m["before"]["lufs"].get<double>() - target));
+    CHECK (std::abs (m["after"]["lufs"].get<double>() - target) <= 1.0);
+
+    auto toneGap = [&] (const Json& profile)
+    {
+        double sum = 0;
+
+        for (size_t k = 3; k < 26; ++k)
+            sum += std::abs (profile["tone"][k].get<double>() - m["reference"]["tone"][k].get<double>());
+
+        return sum / 23;
+    };
+
+    CHECK (toneGap (m["after"]) < toneGap (m["before"]) * 0.7);
+    CHECK (m["chain"]["eq"].size() > 0);
+
+    for (auto* name : { "before", "after", "reference" })
+    {
+        const auto audio = analysis::loadAudio (m["files"][name].get<std::string>());
+        CHECK (std::abs (analysis::integratedLufs (audio) - m["filesLufs"].get<double>()) < 0.5);
+    }
+
+    auto& effects = model::findInsert (h.session.getProject(), "master")->effects;
+    REQUIRE (effects.size() >= 3);
+    CHECK (model::getEffectId (effects.front()) == "match-eq");
+    CHECK (model::getEffectId (effects.back()) == "master-limiter");
+    const auto chainSize = effects.size();
+
+    // Again: the chain is replaced, not added to; one undo takes each run back.
+    REQUIRE (h.call ("master.match", { { "file", reference.string() }, { "from", 0 }, { "to", 16 }, { "targetLufs", -12 } }).contains ("result"));
+    CHECK (model::findInsert (h.session.getProject(), "master")->effects.size() == chainSize);
+    h.call ("undo");
+    h.call ("undo");
+    CHECK (model::findInsert (h.session.getProject(), "master")->effects.empty());
+    CHECK (model::findChannel (h.session.getProject(), "k") != nullptr);
+}
+
 TEST_CASE ("The API gives waveform peaks of audio files")
 {
     Harness h;

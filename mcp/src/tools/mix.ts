@@ -95,13 +95,14 @@ export function registerMixTools({ server, engine, groups, barRange }: Tools) {
   server.registerTool(
     "match_sound",
     {
-      description: "Finds and checks a kick and rumble like a reference's, measured in numbers (the note of the body, how long it rings, attack and click, grit, the rumble between kicks and its grit, width, spectrum, pattern), not just by its fingerprint. The reference is a song map (id, from song_maps list: its kick measured where it plays with least around it) or a library sample (path). find: the library's kicks and drum loops ranked by how close they are (score 0-100: measured 75%, fingerprint 25%), each with what differs most; loops true or false narrows to loops or one-shots. audition: renders samples (paths, up to 20) in a groove at the tempo (default the reference's), one-shots on the reference's pattern and loops stretched, measures each like the reference and says what differs and what to change; each has an audition file for offer_choice. channel: renders one channel of the song alone (start and end in bars, default the first 8) and measures it against the reference: score, differences and changes to make (tune, shorten, punch, EQ, grit, the rumble). A sample doesn't need to be perfect: pick the closest and close the gap with the changes, measuring again after each.",
+      description: "Finds and checks a kick and rumble like a reference's by its whole sound, not just by its fingerprint. The reference is a song map (id, from song_maps list) or a library sample (path). A map's kick is rebuilt the first time as a clean one-shot from its drums where it plays with least around it (several seconds; reference.kickFile is the one-shot). find: the library's kick one-shots (loops true for kick and drum loops instead) ranked by score 0-100: the level in every band over the first 400 ms, at the hit (click, attack, the start of the pitch dive) and over the body, compared after tuning (the semitones it needs count a little; transpose is the layer's transpose that brings its body to the reference's note), the pitch dive, the measurements (decay, click, grit, rumble) and the fingerprint, weighted as the user's picks have taught. Only the close ones come back (close true, at most limit), and when fewer than three are, the nearest few after them (close false) with a note and kessel: Kessel's settings for a kick like it (params by name, normalized, for a channel's plugin instrument) to offer as one of the candidates. Offer the close ones; don't fill the offer up with far ones. audition: renders samples (paths, up to 20) in a groove at the tempo (default the reference's), one-shots on the reference's pattern and loops stretched, measures each like the reference and says what differs and what to change; each has an audition file for offer_choice. channel: renders one channel of the song alone (start and end in bars, default the first 8) and measures it against the reference: score, differences and changes to make (tune, shorten, punch, EQ, grit, the rumble). A sample doesn't need to be perfect: pick the closest and close the gap with the changes, measuring again after each.",
       inputSchema: {
         action: z.enum(["find", "audition", "channel"]),
         id: z.string().optional().describe("A song map as the reference (style/title)"),
         path: z.string().optional().describe("Or a library sample as the reference"),
-        loops: z.boolean().optional().describe("find: true only loops, false only one-shots"),
+        loops: z.boolean().optional().describe("find: true for loops instead of one-shots"),
         limit: z.number().int().min(1).max(100).optional().describe("find: how many (default 20)"),
+        all: z.boolean().optional().describe("find: the nearest up to limit, close or not (when the user wants more to choose from)"),
         paths: z.array(z.string()).optional().describe("audition: the samples"),
         tempo: z.number().optional().describe("audition: BPM (default the reference's)"),
         channel: z.string().optional().describe("channel: the song's channel"),
@@ -110,11 +111,11 @@ export function registerMixTools({ server, engine, groups, barRange }: Tools) {
       },
       annotations: { readOnlyHint: true },
     },
-    ({ action, id, path, loops, limit, paths, tempo, channel, startBar, endBar }, extra: Extra) =>
+    ({ action, id, path, loops, limit, all, paths, tempo, channel, startBar, endBar }, extra: Extra) =>
       attempt(async () =>
         longRunning(extra, "matching", async (signal) => {
           const reference = id ? { id } : { path };
-          if (action === "find") return engine.call("match.kicks", { ...reference, ...defined({ loops, limit }) }, { signal });
+          if (action === "find") return engine.call("match.kicks", { ...reference, ...defined({ loops, limit, all }) }, { signal });
           if (action === "audition") return engine.call("match.audition", { ...reference, paths, ...defined({ tempo }) }, { signal });
           return engine.call("match.channel", { ...reference, channel, ...(await barRange(startBar, endBar)) }, { signal });
         })
@@ -131,8 +132,8 @@ export function registerMixTools({ server, engine, groups, barRange }: Tools) {
       inputSchema: {
         title: z.string().describe("What's being chosen: \"Which kick for the groove?\""),
         style: z.string().optional().describe("The style the pick is for (the song's)"),
-        reference: z.object({ file: z.string(), from: z.number().optional(), title: z.string().optional() }).optional()
-          .describe("The reference to compare with: its file and where to play from (seconds), as match_sound gives it"),
+        reference: z.object({ file: z.string(), from: z.number().optional(), title: z.string().optional(), id: z.string().optional() }).optional()
+          .describe("The reference to compare with: its file and where to play from (seconds), as match_sound gives it, with its id (the song map) so the pick teaches the kick matching"),
         candidates: z.array(z.object({
           path: z.string().optional().describe("A sample"),
           instrument: z.record(z.string(), z.unknown()).optional().describe("Or a whole instrument (a plugin such as Triad with a preset, or a sampler), as in addChannel"),

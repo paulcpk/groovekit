@@ -349,6 +349,7 @@ Json ApiHandler::dispatch (const std::string& method, const Json& params, Client
         { "listEffects", [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callSession (m, p, c); } },
         { "render",      [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callRender (m, p, c); } },
         { "master",      [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callRender (m, p, c); } },
+        { "master.match", [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callRender (m, p, c); } },
         { "analyzeMix",  [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callRender (m, p, c); } },
         { "analyze",     [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callRender (m, p, c); } },
         { "audio.peaks", [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callRender (m, p, c); } },

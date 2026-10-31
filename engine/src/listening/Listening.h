@@ -1,6 +1,7 @@
 #pragma once
 
 #include "KickIndex.h"
+#include "Maps.h"
 #include "NoteTranscriber.h"
 #include "SoundIndex.h"
 #include "Styles.h"
@@ -106,6 +107,36 @@ public:
 
     ReferenceNotes hearNotes (const std::string& style, const std::string& track, std::optional<double> from, double length, Role part);
 
+    //==============================================================================
+    /** A song map's kick, to match the library's against: its measurements (the map's, or measured
+        now for maps heard before kicks were) with its print, from a clean one-shot rebuilt from
+        the drums where the kick plays with the least around it (split from the track, the hits
+        lined up and their median taken). The one-shot is kept as a WAV beside the print. Kept in
+        the cache: the first time takes several seconds and needs the listening models and the
+        track's audio; without them, the map's measurements alone (no print, no file). None if
+        the map has no kick heard and can't be heard now. */
+    struct ReferenceKick
+    {
+        KickSound sound;
+        std::filesystem::path file;             // the rebuilt one-shot
+        int from = 0, to = 0, hits = 0;         // the bars it's from (from 0, to excluded), how many hits
+    };
+
+    std::optional<ReferenceKick> referenceKick (const SongMap&, bool hearNow = true);
+
+    /** The drums', bass's and music's levels against the whole (dB of their mean square), split
+        with the separator; none without the listening models. Blocks for about a fifth of the
+        audio's length. */
+    std::optional<std::map<std::string, float>> partLevels (const juce::AudioBuffer<float>&, double sampleRate);
+
+    /** How the parts of a kick match count, as learned from the user's picks so far. */
+    MatchWeights getKickWeights() const;
+
+    /** A pick from kicks matched to a map: the chosen one should rank before the others. Learns
+        only when the map's reference kick is in the cache. Kept, with the pick, beside the
+        kick index. */
+    void learnKickPick (const SongMap&, const std::string& chosen, const std::vector<std::string>& passed);
+
 private:
     library::SampleLibrary& library;
     Models models;
@@ -114,6 +145,10 @@ private:
     Styles styles;
     Taste taste;
     KickIndex kicks;
+    const std::filesystem::path kickFolder;     // beside the kick index: the weights, picks and reference kicks
+
+    mutable std::mutex kickMutex;
+    MatchWeights kickWeights;
 
     mutable std::mutex observerMutex;
     std::function<void (const model::Json&)> observer;

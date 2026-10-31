@@ -50,6 +50,31 @@ export function registerAudioTools({ server, engine, groups, barRange }: Tools) 
   );
 
   server.registerTool(
+    "master_like",
+    {
+      description: "Masters the song like a reference: a song map (id: its drop, from its arrangement), a style (the average of its maps in use) or an audio file (file with from and to in seconds). Measures the reference's drop and the song's loudest 16 bars (or startBar-endBar, its drop): loudness and peak-to-loudness, tonal balance in third octaves, each of four bands' punch (how much it still moves) and width, where the bass turns mono, and the drums', bass's and music's levels against the mix. Then sets a chain on master, before the limiter and after master's own effects, and renders and adjusts until it measures close (up to five renders, a minute or two): match-eq (a low shelf, five peaks, a high shelf; no band moves more than maxEqDb, default 6), match-dynamics (a four-band compressor that also sets each band's width), match-stereo (mono bass where the reference has it) and master-limiter at the reference's loudness (or targetLufs) under ceilingDb. One undoable change; running it again replaces the chain. Returns the reference's, before and after profiles, what still differs (remaining), the chain, balance (a part louder or quieter against the mix than in the reference: mastering can't fix that, so offer to fix the mix first and master again), and files: before, after and the reference's drop at the same loudness, to put to the user with offer_choice (after and before as candidates, reference as the reference) so they judge by ear, not by loudness. Say what it changed in a line or two; if the reference is club-loud and the user didn't ask for that, say so and offer a gentler targetLufs.",
+      inputSchema: {
+        id: z.string().optional().describe("A song map as the reference (style/title, from song_maps list)"),
+        style: z.string().optional().describe("Or a style: the average of its maps in use"),
+        file: z.string().optional().describe("Or an audio file"),
+        from: z.number().min(0).optional().describe("file: seconds where its drop starts"),
+        to: z.number().min(0).optional().describe("file: seconds where it ends (default from + 30)"),
+        targetLufs: z.number().min(-30).max(-4).optional().describe("Default the reference's loudness"),
+        ceilingDb: z.number().min(-12).max(0).optional().describe("Default -1"),
+        maxEqDb: z.number().min(0).max(12).optional().describe("Default 6"),
+        startBar: z.number().min(1).optional().describe("The song's drop; default its loudest 16 bars"),
+        endBar: z.number().min(1).optional(),
+      },
+    },
+    ({ startBar, endBar, ...rest }, extra: Extra) =>
+      attempt(async () =>
+        longRunning(extra, "mastering like the reference", async (signal) =>
+          engine.call("master.match", { ...(await barRange(startBar, endBar)), ...defined(rest), group: groups.next() }, { signal })
+        )
+      )
+  );
+
+  server.registerTool(
     "analyze_audio",
     {
       description: "The same measurements as render, for any audio file or a time range of it (seconds).",

@@ -27,6 +27,7 @@
 #include "session/AgentNotes.h"
 #include "session/Chats.h"
 #include "session/Presets.h"
+#include "session/MasterMatch.h"
 #include "session/RecentProjects.h"
 #include "session/Summary.h"
 #include "voice/Transcriber.h"
@@ -59,6 +60,9 @@ Json ApiHandler::callRender (const std::string& method, const Json& params, Clie
         deferred = masterToLoudnessSteps (context.getEngine(), session, options);
         return {};
     }
+
+    if (method == "master.match")
+        return matchMaster (params, client);
 
     if (method == "analyzeMix")
     {
@@ -418,6 +422,92 @@ Json ApiHandler::render (const Json& params)
     auto* result = &steps->result;
     steps->here ([run, result] { *result = std::move (run->result); });
     deferred = steps;
+    return {};
+}
+
+// Mastering like a reference: a song map's drop, a style's (its maps in use), or a stretch of a file.
+Json ApiHandler::matchMaster (const Json& params, Client& client)
+{
+    MatchMasterOptions options;
+    options.execute.origin = client.origin;
+    options.cacheFolder = getDefaultCacheDir() / "master-match";
+
+    if (auto v = optionalNumber (params, "targetLufs"))     options.targetLufs = *v;
+    if (auto v = optionalNumber (params, "ceilingDb"))      options.ceilingDb = std::clamp (*v, -12.0, 0.0);
+    if (auto v = optionalNumber (params, "maxEqDb"))        options.maxEqDb = std::clamp (*v, 0.0, 12.0);
+    if (auto v = optionalNumber (params, "start"))          options.render.start = static_cast<model::Ticks> (*v);
+    if (auto v = optionalNumber (params, "end"))            options.render.end = static_cast<model::Ticks> (*v);
+    if (params.contains ("group"))                          options.execute.group = readParam<std::string> (params, "group");
+
+    auto referenceOf = [] (const listening::SongMap& map) -> std::optional<MasterReference>
+    {
+        if (! std::filesystem::exists (map.track.path) || ! map.track.arrangement)
+            return {};
+
+        const auto& a = *map.track.arrangement;
+        std::vector<std::string> roles;
+        std::vector<std::pair<int, int>> sections;
+
+        for (auto& s : a.sections)
+            roles.push_back (s.role), sections.emplace_back (s.start, s.end);
+
+        const auto drop = dropOf (roles, sections, a.loudness, a.downbeat, a.barSeconds());
+
+        if (! drop)
+            return {};
+
+        return MasterReference { map.track.path, drop->first, drop->second, map.title };
+    };
+
+    if (params.contains ("file"))
+    {
+        const auto file = readParam<std::string> (params, "file");
+        const auto from = optionalNumber (params, "from").value_or (0);
+        const auto to = optionalNumber (params, "to").value_or (from + 30);
+
+        if (! std::filesystem::exists (file))
+            throw RpcError (invalidParams, "No file " + file);
+
+        options.references.push_back ({ file, from, to, std::filesystem::path (file).stem().string() });
+    }
+    else if (listening == nullptr)
+    {
+        throw RpcError (operationFailed, "listening isn't available in this engine: give a file");
+    }
+    else if (params.contains ("id"))
+    {
+        const auto id = readParam<std::string> (params, "id");
+        const auto map = listening->getStyles().getMaps().get (id);
+
+        if (map == nullptr)
+            throw RpcError (invalidParams, "No map for \"" + id + "\" (song_maps list)");
+
+        auto reference = referenceOf (*map);
+
+        if (! reference)
+            throw RpcError (operationFailed, "\"" + id + "\" has no arrangement heard or its audio is gone: hear it again (song_maps hear), or give its file with from and to");
+
+        options.references.push_back (*reference);
+    }
+    else
+    {
+        // A style's sound: up to eight of its maps in use, as one average.
+        const auto style = readParam<std::string> (params, "style");
+        auto& maps = listening->getStyles().getMaps();
+
+        for (auto& map : maps.all())
+            if (map->style == style && maps.isInUse (map->id()) && options.references.size() < 8)
+                if (auto reference = referenceOf (*map))
+                    options.references.push_back (*reference);
+
+        if (options.references.empty())
+            throw RpcError (invalidParams, "No heard tracks in use for the style \"" + style + "\" (song_maps list)");
+    }
+
+    if (listening != nullptr)
+        options.partLevels = [l = listening] (const juce::AudioBuffer<float>& audio, double rate) { return l->partLevels (audio, rate); };
+
+    deferred = matchMasterSteps (context.getEngine(), session, std::move (options));
     return {};
 }
 

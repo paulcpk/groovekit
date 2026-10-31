@@ -147,6 +147,7 @@ private:
     model::Json callMaps (const std::string& method, const model::Json& params);
     model::Json callVoices (const std::string& method, const model::Json& params);
     model::Json callMatch (const std::string& method, const model::Json& params);
+    model::Json matchMaster (const model::Json& params, Client&);
     model::Json callMix (const std::string& method, const model::Json& params, Client&);
     model::Json callChats (const std::string& method, const model::Json& params);
     model::Json callNotes (const std::string& method, const model::Json& params);

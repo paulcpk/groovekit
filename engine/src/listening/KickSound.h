@@ -1,5 +1,6 @@
 #pragma once
 
+#include "KickPrint.h"
 #include "model/JsonIO.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -28,6 +29,7 @@ struct KickSound
     std::vector<float> spectrum;            // eight bands, 30 Hz to 12 kHz, dB against the loudest
     std::string pattern;                    // sixteen steps of a bar, "x" where it plays; only with a bar grid
     int hits = 0;                           // how many hits it was measured from
+    std::optional<KickPrint> print;         // its whole sound: a one-shot's, or a groove's kick rebuilt
 
     model::Json toJson() const;
     static KickSound fromJson (const model::Json&);
@@ -48,6 +50,10 @@ struct KickTiming
     without a hit in the low end. */
 std::optional<KickSound> measureKick (const juce::AudioBuffer<float>&, double sampleRate, KickTiming = {});
 
+/** The kicks' hits (seconds) in stereo or mono audio, as measureKick finds them: the strong ones in
+    the low end, on the grid when there is one. */
+std::vector<double> kickHits (const juce::AudioBuffer<float>&, double sampleRate, const KickTiming&);
+
 /** How close a candidate is to a reference kick: score 0-100 (100 the same), each measurement's
     difference, and the biggest in words, most important first ("2 semitones higher"). A one-shot
     without rumble against a reference with one is noted, not counted. */
@@ -61,6 +67,24 @@ struct KickComparison
 };
 
 KickComparison compareKicks (const KickSound& candidate, const KickSound& reference);
+
+/** One kick rebuilt from the hits in a groove: the hits lined up to the sample and the median taken
+    of them, so whatever comes with only some of them (claps on two and four, a fill) falls away;
+    hits much brighter than the rest are left out first. Mono, from 20 ms before the hit, as long as
+    the hits are apart (at most 400 ms). None with fewer than three hits. */
+struct RebuiltKick
+{
+    std::vector<float> audio;
+    double seconds = 0;                     // how much of it after the hit is the kick's
+    int hits = 0;                           // how many hits it's the median of
+};
+
+std::optional<RebuiltKick> rebuildKick (const juce::AudioBuffer<float>&, double sampleRate, const KickTiming&);
+
+/** The parts of a candidate kick's match to a reference's, for MatchWeights: the prints compared
+    (when both have one), the semitones it needs tuning, the measurements compared as if tuned, and
+    the listening model's fingerprint (0-100, when known). */
+MatchWeights::Costs kickMatchCosts (const KickSound& candidate, const KickSound& reference, std::optional<float> fingerprint);
 
 /** The note name of a frequency: "G1". */
 std::string noteName (double hz);

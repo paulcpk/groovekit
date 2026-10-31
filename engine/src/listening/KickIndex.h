@@ -55,6 +55,7 @@ private:
     {
         int64_t size = 0, modified = 0;
         std::optional<KickSound> sound;     // none: measured, no kick in it
+        int version = 0;                    // measured by an older version: used until measured again
     };
 
     mutable std::mutex mutex;

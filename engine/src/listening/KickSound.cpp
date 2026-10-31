@@ -53,6 +53,93 @@ std::string noteName (double hz)
 }
 
 //==============================================================================
+namespace
+{
+    /** The kicks' hits in a low end (seconds): given, on the grid, or found; the strong ones only,
+        at most 64. None without a hit there. */
+    std::vector<double> strongHits (const std::vector<float>& low, double rate, const KickTiming& timing)
+    {
+        const auto n = low.size();
+
+        auto peakNear = [&] (double t)
+        {
+            float peak = 0;
+
+            for (auto i = static_cast<int64_t> (t * rate); i < static_cast<int64_t> ((t + 0.04) * rate) && i < static_cast<int64_t> (n); ++i)
+                if (i >= 0)
+                    peak = std::max (peak, std::abs (low[static_cast<size_t> (i)]));
+
+            return peak;
+        };
+
+        auto hits = timing.hits;
+
+        // On a grid: the sixteenths whose low end peaks strongly and higher than both neighbours'
+        // (a rumble swelling into the kick is still under the kick).
+        if (hits.empty() && timing.beat && timing.downbeat)
+        {
+            const auto step = *timing.beat / 4;
+            std::vector<float> peaks;
+
+            for (double t = *timing.downbeat; t < static_cast<double> (n) / rate; t += step)
+                peaks.push_back (peakNear (std::max (0.0, t - 0.01)));
+
+            const auto top = peaks.empty() ? 0.0f : *std::max_element (peaks.begin(), peaks.end());
+
+            for (size_t s = 0; s < peaks.size(); ++s)
+                if (peaks[s] >= top * 0.5f && (s == 0 || peaks[s] >= peaks[s - 1]) && (s + 1 == peaks.size() || peaks[s] >= peaks[s + 1]))
+                    hits.push_back (*timing.downbeat + static_cast<double> (s) * step);
+
+            if (hits.size() < 2)
+                hits.clear();
+        }
+
+        if (hits.empty())
+        {
+            analysis::Audio a;
+            a.sampleRate = rate;
+            a.buffer.setSize (1, static_cast<int> (n));
+            a.buffer.copyFrom (0, 0, low.data(), static_cast<int> (n));
+            hits = library::detectTransients (a);
+
+            // A one-shot starts with its hit, whatever the detector makes of the first milliseconds.
+            if (hits.empty() || hits.front() > 0.03)
+                hits.insert (hits.begin(), 0.0);
+        }
+
+        std::sort (hits.begin(), hits.end());
+        float strongest = 0;
+
+        for (auto t : hits)
+            strongest = std::max (strongest, peakNear (t));
+
+        if (strongest < 1e-4f)
+            return {};
+
+        std::vector<double> strong;
+
+        for (auto t : hits)
+            if (peakNear (t) >= strongest * 0.25f && (strong.empty() || t - strong.back() > 0.08))
+                strong.push_back (t);
+
+        if (strong.size() > 64)
+            strong.resize (64);
+
+        return strong;
+    }
+}
+
+std::vector<double> kickHits (const juce::AudioBuffer<float>& audio, double rate, const KickTiming& timing)
+{
+    const auto n = static_cast<size_t> (audio.getNumSamples());
+    std::vector<float> mid (n);
+
+    for (size_t i = 0; i < n; ++i)
+        mid[i] = 0.5f * (audio.getSample (0, static_cast<int> (i)) + audio.getSample (audio.getNumChannels() > 1 ? 1 : 0, static_cast<int> (i)));
+
+    return strongHits (filtered (mid, rate, 150, false), rate, timing);
+}
+
 std::optional<KickSound> measureKick (const juce::AudioBuffer<float>& audio, double rate, KickTiming timing)
 {
     const auto n = static_cast<size_t> (audio.getNumSamples());
@@ -78,70 +165,10 @@ std::optional<KickSound> measureKick (const juce::AudioBuffer<float>& audio, dou
     for (size_t b = 0; b < numBands; ++b)
         bands.push_back (band (mid, rate, bandEdges[b], bandEdges[b + 1]));
 
-    // The hits: given, or the strong ones in the low end.
-    auto peakNear = [&] (double t)
-    {
-        float peak = 0;
+    const auto strong = strongHits (low, rate, timing);
 
-        for (auto i = static_cast<int64_t> (t * rate); i < static_cast<int64_t> ((t + 0.04) * rate) && i < static_cast<int64_t> (n); ++i)
-            if (i >= 0)
-                peak = std::max (peak, std::abs (low[static_cast<size_t> (i)]));
-
-        return peak;
-    };
-
-    auto hits = timing.hits;
-
-    // On a grid: the sixteenths whose low end peaks strongly and higher than both neighbours'
-    // (a rumble swelling into the kick is still under the kick).
-    if (hits.empty() && timing.beat && timing.downbeat)
-    {
-        const auto step = *timing.beat / 4;
-        std::vector<float> peaks;
-
-        for (double t = *timing.downbeat; t < static_cast<double> (n) / rate; t += step)
-            peaks.push_back (peakNear (std::max (0.0, t - 0.01)));
-
-        const auto top = peaks.empty() ? 0.0f : *std::max_element (peaks.begin(), peaks.end());
-
-        for (size_t s = 0; s < peaks.size(); ++s)
-            if (peaks[s] >= top * 0.5f && (s == 0 || peaks[s] >= peaks[s - 1]) && (s + 1 == peaks.size() || peaks[s] >= peaks[s + 1]))
-                hits.push_back (*timing.downbeat + static_cast<double> (s) * step);
-
-        if (hits.size() < 2)
-            hits.clear();
-    }
-
-    if (hits.empty())
-    {
-        analysis::Audio a;
-        a.sampleRate = rate;
-        a.buffer.setSize (1, static_cast<int> (n));
-        a.buffer.copyFrom (0, 0, low.data(), static_cast<int> (n));
-        hits = library::detectTransients (a);
-
-        // A one-shot starts with its hit, whatever the detector makes of the first milliseconds.
-        if (hits.empty() || hits.front() > 0.03)
-            hits.insert (hits.begin(), 0.0);
-    }
-
-    std::sort (hits.begin(), hits.end());
-    float strongest = 0;
-
-    for (auto t : hits)
-        strongest = std::max (strongest, peakNear (t));
-
-    if (strongest < 1e-4f)
+    if (strong.empty())
         return {};
-
-    std::vector<double> strong;
-
-    for (auto t : hits)
-        if (peakNear (t) >= strongest * 0.25f && (strong.empty() || t - strong.back() > 0.08))
-            strong.push_back (t);
-
-    if (strong.size() > 64)
-        strong.resize (64);
 
     const auto seconds = static_cast<double> (n) / rate;
     std::vector<double> bodies, attacks, decays, widths;
@@ -269,6 +296,7 @@ Json KickSound::toJson() const
     if (rumbleDb)       j["rumbleDb"] = *rumbleDb;
     if (rumbleGritDb)   j["rumbleGritDb"] = *rumbleGritDb;
     if (! pattern.empty()) j["pattern"] = pattern;
+    if (print)          j["print"] = print->toJson();
 
     return j;
 }
@@ -288,6 +316,7 @@ KickSound KickSound::fromJson (const Json& j)
 
     if (j.contains ("rumbleDb"))     k.rumbleDb = j["rumbleDb"].get<float>();
     if (j.contains ("rumbleGritDb")) k.rumbleGritDb = j["rumbleGritDb"].get<float>();
+    if (j.contains ("print"))        k.print = KickPrint::fromJson (j["print"]);
 
     return k;
 }

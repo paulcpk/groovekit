@@ -126,6 +126,17 @@ StyleProfile::Track hearTrack (Separator&, Clap&, const std::filesystem::path&, 
                                const std::function<bool (double)>& progress = {}, bool wholeTrack = false, NoteTranscriber* = nullptr,
                                Separator::Stems* keepStems = nullptr);
 
+/** Where a track's kick plays with the least around it: a run of at least four bars where there
+    is one (a stray bar measures one hit), the least busy and then the longest, up to sixteen bars
+    (from 0, to excluded); clean when nothing but the low end plays there. */
+struct KickStretch
+{
+    int from = 0, to = 0;
+    bool clean = false;
+};
+
+std::optional<KickStretch> kickStretch (const Arrangement&);
+
 /** The figures the music and the bass play, from a whole track's stems and its arrangement: up
     to three two-bar stretches of each where the part is loudest (drops first), transcribed and
     put on the grid. Blocks for a second or two. */

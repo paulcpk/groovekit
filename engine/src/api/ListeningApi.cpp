@@ -520,6 +520,191 @@ namespace
     }
 }
 
+namespace
+{
+    /** A score from 0 to 100 above which a kick is close enough to offer: most of its parts
+        are hardly apart from the reference's. */
+    constexpr float closeScore = 58;
+
+    /** Kessel's settings for a kick like the reference's, from its measurements and its pitch
+        dive: a start to tune by ear and by match_sound channel. Normalized, by parameter name. */
+    Json kesselFor (const listening::KickSound& r)
+    {
+        auto norm = [] (float min, float max, std::optional<float> centre, float v)
+        {
+            juce::NormalisableRange<float> range (min, max);
+
+            if (centre)
+                range.setSkewForCentre (*centre);
+
+            return std::round (range.convertTo0to1 (std::clamp (v, min, max)) * 1000) / 1000;
+        };
+
+        Json p = Json::object();
+        Json natural = Json::object();
+        const auto body = r.print && r.print->bodyHz > 0 ? static_cast<double> (r.print->bodyHz) : r.bodyHz;
+
+        if (body > 0)
+        {
+            const auto note = static_cast<float> (69 + 12 * std::log2 (body / 440));
+            p["Tune"] = norm (22, 46, {}, note);
+            natural["Tune"] = listening::noteName (body);
+        }
+
+        // The dive: semitones over the body in each stretch, fitted to start * exp (-t / time).
+        if (r.print && body > 0)
+        {
+            static constexpr double centres[] = { 7.5, 18.5, 35, 57.5, 85, 125, 185 };
+            double sx = 0, sy = 0, sxx = 0, sxy = 0;
+            int count = 0;
+
+            for (size_t w = 0; w < r.print->sweep.size() && w < std::size (centres); ++w)
+            {
+                const auto st = r.print->sweep[w] > 0 ? 12 * std::log2 (r.print->sweep[w] / body) : 0.0;
+
+                if (st < 0.5)
+                    continue;
+
+                const auto y = std::log (st);
+                sx += centres[w], sy += y, sxx += centres[w] * centres[w], sxy += centres[w] * y, ++count;
+            }
+
+            if (count >= 2 && count * sxx - sx * sx > 0)
+            {
+                const auto slope = (count * sxy - sx * sy) / (count * sxx - sx * sx);
+                const auto start = std::exp ((sy - slope * sx) / count);
+                const auto time = slope < 0 ? -1 / slope : 400.0;
+                p["Pitch start"] = norm (0, 72, {}, static_cast<float> (start));
+                p["Pitch time"] = norm (2, 400, 40.0f, static_cast<float> (time));
+                natural["Pitch start"] = std::to_string (std::lround (start)) + " st";
+                natural["Pitch time"] = std::to_string (std::lround (time)) + " ms";
+            }
+        }
+
+        // Its level falls 60 dB over the decay after the hold; the measured decay is 12 dB down.
+        if (r.decayMs > 0)
+        {
+            const auto decay = static_cast<float> (std::max (20.0, (r.decayMs - 30) / 0.2));
+            p["Hold"] = norm (0, 1500, 120.0f, 30);
+            p["Decay"] = norm (20, 3000, 400.0f, decay);
+            natural["Decay"] = std::to_string (std::lround (decay)) + " ms";
+        }
+
+        const auto drive = std::clamp ((r.gritDb + 30) * 1.5f, 0.0f, 48.0f);
+        p["Drive"] = norm (0, 48, {}, drive);
+        natural["Drive"] = std::to_string (std::lround (drive)) + " dB";
+        p["Click level"] = std::round (std::clamp ((r.clickDb + 45) / 45, 0.0f, 1.0f) * 100) / 100;
+        p["Rumble"] = r.rumbleDb ? std::round (std::clamp ((*r.rumbleDb + 24) / 18, 0.0f, 1.0f) * 100) / 100 : 0.0f;
+
+        return { { "params", p }, { "settings", natural } };
+    }
+}
+
+/** The library's kicks ranked against a reference's: by its print (tuned), the semitones it needs,
+    its measurements and its fingerprint, weighted as the user's picks have taught. Only the close
+    ones, and the nearest few when fewer are, with Kessel's settings for one like it. */
+static Json matchKicks (listening::Listening& listening, library::SampleLibrary& library, const listening::KickSound& reference,
+                             const Json& about, bool loops, int limit, bool all, const std::vector<listening::Embedding>& prints)
+{
+    struct Found { std::string path; listening::KickSound sound; listening::MatchWeights::Costs costs; std::optional<float> print; float score; };
+    std::vector<Found> found;
+    int searched = 0;
+    auto& index = listening.getIndex();
+    const auto weights = listening.getKickWeights();
+
+    listening.getKicks().forEach ([&] (const std::string& path, const listening::KickSound& sound)
+    {
+        // The kick index holds library keys: no canonicalising per kick.
+        const auto entry = library.findByKey (path);
+
+        if (! entry || entry->classification.loop != loops)
+            return;
+
+        ++searched;
+        std::optional<float> print;
+
+        if (! prints.empty())
+            if (auto e = index.find (path))
+            {
+                float best = -1;
+
+                for (auto& p : prints)
+                    best = std::max (best, listening::similarity (*e, p));
+
+                print = std::clamp ((best - 0.3f) / 0.5f, 0.0f, 1.0f) * 100;
+            }
+
+        auto costs = listening::kickMatchCosts (sound, reference, print);
+        const auto score = weights.score (costs);
+        found.push_back ({ path, sound, costs, print, score });
+    });
+
+    std::sort (found.begin(), found.end(), [] (auto& a, auto& b) { return a.score > b.score; });
+    auto results = Json::array();
+    std::set<std::string> seen;
+    int close = 0;
+
+    for (size_t i = 0; i < found.size() && static_cast<int> (results.size()) < limit; ++i)
+    {
+        const auto& f = found[i];
+        const auto isClose = f.score >= closeScore;
+
+        // Past the close ones, only the nearest three, to offer when there's nothing closer.
+        if (! all && ! isClose && (close >= 3 || static_cast<int> (results.size()) >= 3))
+            break;
+
+        const auto entry = library.findByKey (f.path);
+
+        // The same sound in several folders (or under another name), once.
+        if (! seen.insert (std::filesystem::path (f.path).filename().string() + "@" + std::to_string (entry->size)).second
+            || ! seen.insert (f.sound.toJson().dump()).second)
+            continue;
+
+        // The measurements compared as tuned, for the words.
+        auto tuned = f.sound;
+        const auto semitones = f.sound.print && reference.print ? listening::comparePrints (*f.sound.print, *reference.print, reference.rumbleDb && *reference.rumbleDb > -15).semitones
+                             : f.sound.bodyHz > 0 && reference.bodyHz > 0 ? 12 * std::log2 (f.sound.bodyHz / reference.bodyHz) : 0.0;
+
+        if (std::abs (semitones) <= 12 && reference.bodyHz > 0)
+            tuned.bodyHz = reference.bodyHz;
+
+        Json parts = Json::object();
+
+        for (size_t p = 0; p < listening::MatchWeights::numParts; ++p)
+            if (f.costs[p])
+                parts[listening::MatchWeights::partName (static_cast<listening::MatchWeights::Part> (p))] = std::lround (100 * std::exp (-std::min (*f.costs[p], 3.0f)));
+
+        Json j { { "path", f.path }, { "name", std::filesystem::path (f.path).filename().string() }, { "category", entry->classification.category },
+                 { "loop", entry->classification.loop }, { "score", std::round (f.score) }, { "close", isClose }, { "parts", parts },
+                 { "differences", listening::compareKicks (tuned, reference).notes }, { "kick", f.sound.describe() } };
+
+        // The layer's transpose that brings its body to the reference's.
+        if (std::abs (semitones) >= 0.5)
+            j["transpose"] = -std::lround (semitones);
+
+        if (f.print)
+            j["fingerprint"] = std::round (*f.print);
+
+        if (entry->classification.tempo)
+            j["tempo"] = *entry->classification.tempo;
+
+        close += isClose ? 1 : 0;
+        results.push_back (std::move (j));
+    }
+
+    const auto progress = listening.getKicks().getProgress();
+    Json result { { "reference", about }, { "results", results }, { "close", close }, { "searched", searched }, { "measuring", progress.running } };
+
+    if (close < 3 && ! all)
+    {
+        result["note"] = close == 0 ? "No kick in the library comes close to this one: offer the nearest few, and offer to build it in Kessel from kessel's settings (then tune it with match_sound channel)"
+                                    : "Only " + std::to_string (close) + " of the library's kicks come close: offer those (and the nearest after them), and offer to build one in Kessel from kessel's settings";
+        result["kessel"] = kesselFor (reference);
+    }
+
+    return result;
+}
+
 // Sounds like a reference's: the library's kicks against a song map's (or a sample's), heard in a
 // groove, put to the user, and the song's own kick measured against it.
 Json ApiHandler::callMatch (const std::string& method, const Json& params)
@@ -726,13 +911,43 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
                     if (path.empty())
                         continue;       // an instrument: no sample to rate
 
+                    // Only the library's samples: renders put side by side (a master's before and
+                    // after) say nothing about the style's sounds.
                     const auto known = library != nullptr ? library->find (path) : std::nullopt;
-                    const auto key = known ? known->path : path;
+
+                    if (! known)
+                        continue;
+
+                    const auto& key = known->path;
 
                     if (choice == i)
                         listening->getTaste().rate (key, style, true);
                     else if (choice < 0)
                         listening->getTaste().rate (key, style, false);
+                }
+            }
+
+            // A pick from kicks matched to a song map teaches the matching what counts.
+            if (listening != nullptr && choice >= 0 && it->second.offer.contains ("reference"))
+            {
+                const auto mapId = it->second.offer["reference"].value ("id", std::string());
+
+                if (auto map = mapId.empty() ? nullptr : listening->getStyles().getMaps().get (mapId))
+                {
+                    std::vector<std::string> passed;
+                    std::string picked;
+
+                    for (int i = 0; i < static_cast<int> (candidates.size()); ++i)
+                    {
+                        const auto path = candidates[static_cast<size_t> (i)].value ("path", std::string());
+                        const auto known = path.empty() || library == nullptr ? std::nullopt : library->find (path);
+
+                        if (known)
+                            (i == choice ? picked : passed.emplace_back()) = known->path;
+                    }
+
+                    if (! picked.empty() && ! passed.empty())
+                        listening->learnKickPick (*map, picked, passed);
                 }
             }
 
@@ -809,85 +1024,52 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
     if (method == "match.kicks")
     {
         const auto limit = std::clamp (static_cast<int> (optionalNumber (params, "limit").value_or (20)), 1, 100);
-        std::optional<bool> loops;
+
+        // One-shots unless loops are asked for: a kick is chosen as a one-shot, then tuned.
+        bool loops = false;
 
         if (params.contains ("loops") && ! params["loops"].is_null())
             loops = readParam<bool> (params, "loops");
 
+        // Every one up to limit, close or not: when the user wants more than the close ones.
+        const bool all = params.value ("all", false);
+
         // The reference's own fingerprints, for loops and for single hits.
-        std::vector<listening::Embedding> loopPrints, hitPrints;
+        std::vector<listening::Embedding> prints;
 
         if (map != nullptr)
+            if (auto it = map->track.sounds.find (loops ? listening::Role::kick : listening::Role::kickHit); it != map->track.sounds.end())
+                prints = it->second;
+
+        auto steps = std::make_shared<Steps>();
+        auto* s = steps.get();
+
+        // Pooled: a map's kick is rebuilt from its track the first time (several seconds).
+        steps->pooled ([s, listening = listening, library = library, map, reference, about, loops, limit, all, prints]() mutable
         {
-            if (auto it = map->track.sounds.find (listening::Role::kick); it != map->track.sounds.end())
-                loopPrints = it->second;
-
-            if (auto it = map->track.sounds.find (listening::Role::kickHit); it != map->track.sounds.end())
-                hitPrints = it->second;
-        }
-
-        struct Found { std::string path; listening::KickSound sound; listening::KickComparison comparison; std::optional<float> print; float score; };
-        std::vector<Found> found;
-        int searched = 0;
-        auto& index = listening->getIndex();
-
-        listening->getKicks().forEach ([&] (const std::string& path, const listening::KickSound& sound)
-        {
-            // The kick index holds library keys: no canonicalising per kick.
-            const auto entry = library->findByKey (path);
-
-            if (! entry || (loops && entry->classification.loop != *loops))
-                return;
-
-            ++searched;
-            auto comparison = listening::compareKicks (sound, reference);
-            std::optional<float> print;
-            const auto& prints = entry->classification.loop ? loopPrints : hitPrints;
-
-            if (! prints.empty())
-                if (auto e = index.find (path))
+            if (map != nullptr)
+            {
+                if (auto kick = listening->referenceKick (*map))
                 {
-                    float best = -1;
+                    reference = kick->sound;
+                    about["kick"] = reference.describe();
 
-                    for (auto& p : prints)
-                        best = std::max (best, listening::similarity (*e, p));
+                    if (! kick->file.empty())
+                        about["kickFile"] = kick->file.string();
 
-                    print = std::clamp ((best - 0.3f) / 0.5f, 0.0f, 1.0f) * 100;
+                    if (kick->hits > 0)
+                        about["rebuiltFrom"] = std::to_string (kick->hits) + " hits";
                 }
+            }
 
-            const auto score = print ? 0.75f * comparison.score + 0.25f * *print : comparison.score;
-            found.push_back ({ path, sound, std::move (comparison), print, score });
+            if (! reference.print)
+                about["note"] = "matched by its measurements only: the listening models or the track's audio aren't here to rebuild its kick";
+
+            s->result = matchKicks (*listening, *library, reference, about, loops, limit, all, prints);
         });
 
-        std::sort (found.begin(), found.end(), [] (auto& a, auto& b) { return a.score > b.score; });
-        auto results = Json::array();
-        std::set<std::string> seen;
-
-        for (size_t i = 0; i < found.size() && static_cast<int> (results.size()) < limit; ++i)
-        {
-            const auto& f = found[i];
-            const auto entry = library->findByKey (f.path);
-
-            // The same sound in several folders (or under another name), once.
-            if (! seen.insert (std::filesystem::path (f.path).filename().string() + "@" + std::to_string (entry->size)).second
-                || ! seen.insert (f.sound.toJson().dump()).second)
-                continue;
-
-            Json j { { "path", f.path }, { "name", std::filesystem::path (f.path).filename().string() }, { "category", entry->classification.category },
-                     { "loop", entry->classification.loop }, { "score", std::round (f.score) }, { "measured", std::round (f.comparison.score) },
-                     { "differences", f.comparison.notes }, { "kick", f.sound.describe() } };
-
-            if (f.print)
-                j["fingerprint"] = std::round (*f.print);
-
-            if (entry->classification.tempo)
-                j["tempo"] = *entry->classification.tempo;
-
-            results.push_back (std::move (j));
-        }
-
-        const auto progress = listening->getKicks().getProgress();
-        return { { "reference", about }, { "results", results }, { "searched", searched }, { "measuring", progress.running } };
+        deferred = steps;
+        return {};
     }
 
     if (method == "match.audition")

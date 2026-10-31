@@ -16,6 +16,7 @@
 #include "live/AudioDevices.h"
 #include "live/LiveEngine.h"
 #include "music/Notes.h"
+#include "music/Versions.h"
 #include "plugins/PluginCatalog.h"
 #include "plugins/PluginWindows.h"
 #include "render/Encode.h"
@@ -219,7 +220,10 @@ namespace
 
 Json ApiHandler::callMelody (const std::string& method, const Json& params)
 {
-    if (method == "melody.voice")
+    // The notes hummed in a voice message (the latest, or the one named), where the melody is.
+    struct Hummed { std::string recording; music::Span span; std::vector<music::HeardNote> notes; };
+
+    auto hummed = [&]
     {
         if (voiceRecordings.empty())
             throw RpcError (operationFailed, "There's no voice message yet: record one with a melody hummed in it");
@@ -244,21 +248,136 @@ Json ApiHandler::callMelody (const std::string& method, const Json& params)
         if (! sung)
             throw RpcError (operationFailed, "No melody was heard in that voice message: hum or sing it on \"da\", a note at a time");
 
-        std::vector<music::HeardNote> notes;
+        Hummed h { it->first, *sung, {} };
 
         for (auto& n : music::segmentNotes (frames))
             if (n.start >= sung->start - 0.01 && n.end <= sung->end + 0.01)
-                notes.push_back (n);
+                h.notes.push_back (n);
 
+        return h;
+    };
+
+    if (method == "melody.voice")
+    {
+        const auto h = hummed();
         auto options = fitOptions (params, session.getProject(), true);
 
         if (params.value ("tempo", std::string()) == "song")
             options.sourceTempo = session.getProject().tempo;
 
-        auto j = melodyJson (music::fitMelody (notes, options), options);
-        j["recording"] = it->first;
-        j["from"] = sung->start;
-        j["to"] = sung->end;
+        auto j = melodyJson (music::fitMelody (h.notes, options), options);
+        j["recording"] = h.recording;
+        j["from"] = h.span.start;
+        j["to"] = h.span.end;
+        return j;
+    }
+
+    if (method == "melody.versions")
+    {
+        const auto h = hummed();
+        const auto& project = session.getProject();
+        auto options = fitOptions (params, project, true);
+
+        if (params.value ("tempo", std::string()) == "song")
+            options.sourceTempo = project.tempo;
+
+        const auto line = music::fitMelody (h.notes, options);
+
+        // The same at the tempo it was heard at, not snapped: its intervals as sung.
+        auto rawOptions = options;
+        rawOptions.snapToScale = false;
+        rawOptions.sourceTempo = line.sourceTempo;
+        const auto raw = music::fitMelody (h.notes, rawOptions);
+
+        music::VersionOptions versions;
+        versions.key = options.key;
+        versions.count = std::clamp (static_cast<int> (optionalNumber (params, "count").value_or (6)), 1, 10);
+        versions.bars = std::clamp (static_cast<int> (optionalNumber (params, "bars").value_or (0)), 0, 8);
+
+        // The style's rhythms: its figures' (the bass's for a bassline, the music's otherwise).
+        const auto style = params.value ("style", project.style.value_or (""));
+
+        if (listening != nullptr && ! style.empty())
+        {
+            const auto part = params.value ("register", std::string()) == "bass" ? "bass" : "music";
+            auto& maps = listening->getStyles().getMaps();
+
+            for (auto& map : maps.all())
+            {
+                if (map->style != style || ! maps.isInUse (map->id()))
+                    continue;
+
+                for (auto& f : map->track.figures)
+                {
+                    if (f.part != part || f.notes.empty())
+                        continue;
+
+                    music::VersionOptions::Rhythm r;
+                    r.steps = std::max (16, f.bars * 16);
+
+                    for (auto& n : f.notes)
+                        r.onsets.push_back (static_cast<int> ((n.start / 240) % r.steps));
+
+                    versions.styleRhythms.push_back (std::move (r));
+                }
+            }
+        }
+
+        // A part to answer: the channel's notes in the first pattern it plays in.
+        if (auto partner = params.value ("partner", std::string()); ! partner.empty())
+        {
+            const auto* channel = model::findChannel (project, partner);
+
+            if (channel == nullptr)
+                throw RpcError (invalidParams, "No channel \"" + partner + "\"");
+
+            for (auto& pattern : project.patterns)
+            {
+                for (auto& n : pattern.notes)
+                    if (n.channel == partner)
+                        versions.partner.push_back ({ n.start, n.length, n.key, n.velocity });
+
+                if (! versions.partner.empty())
+                {
+                    int64_t end = 0;
+
+                    for (auto& n : versions.partner)
+                        end = std::max<int64_t> (end, n.start + n.length);
+
+                    versions.partnerLength = pattern.length ? *pattern.length : ((end + 3839) / 3840) * 3840;
+                    versions.partnerName = channel->name.empty() ? partner : channel->name;
+                    break;
+                }
+            }
+        }
+
+        auto list = Json::array();
+
+        for (auto& v : music::melodyVersions (line, raw, versions))
+        {
+            auto notes = Json::array();
+
+            for (auto& n : v.notes)
+                notes.push_back ({ { "start", n.start }, { "length", n.length }, { "key", n.key }, { "velocity", n.velocity } });
+
+            Json j { { "name", v.name }, { "label", v.label }, { "notes", notes }, { "length", v.length }, { "closeness", v.closeness } };
+
+            if (v.fit)
+                j["fit"] = *v.fit;
+
+            list.push_back (std::move (j));
+        }
+
+        auto j = melodyJson (line, options);
+        j.erase ("notes");
+        j["versions"] = list;
+        j["recording"] = h.recording;
+        j["from"] = h.span.start;
+        j["to"] = h.span.end;
+
+        if (versions.styleRhythms.empty())
+            j["note"] = style.empty() ? "No style given: versions aren't fitted to a style's rhythms" : "The style has no figures heard yet: versions aren't fitted to its rhythms";
+
         return j;
     }
 

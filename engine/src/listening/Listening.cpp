@@ -1,5 +1,6 @@
 #include "Listening.h"
 #include "Maps.h"
+#include "Dsp.h"
 
 #include "analysis/Analysis.h"
 #include "library/SampleFeatures.h"
@@ -108,8 +109,21 @@ Listening::Listening (library::SampleLibrary& l, Files files)
       index (l, clap, files.soundIndex),
       styles (models, clap, files.maps.empty() ? files.styles.parent_path() / "maps" : files.maps, files.styles),
       taste (files.taste),
-      kicks (l, files.kicks.empty() ? files.styles.parent_path() / "kick-sounds.json" : files.kicks)
+      kicks (l, files.kicks.empty() ? files.styles.parent_path() / "kick-sounds.json" : files.kicks),
+      kickFolder ((files.kicks.empty() ? files.styles.parent_path() / "kick-sounds.json" : files.kicks).parent_path())
 {
+    try
+    {
+        std::ifstream in (kickFolder / "kick-weights.json");
+
+        if (in)
+            kickWeights = MatchWeights::fromJson (Json::parse (in));
+    }
+    catch (const std::exception&)
+    {
+        // The defaults, then.
+    }
+
     styles.setObserver ([this] { notify(); });
 
     // Carries on with the songs queued before a restart.
@@ -867,6 +881,287 @@ Json Listening::compare (const StyleProfile& profile, const std::filesystem::pat
              { "balance", balance },
              { "levels", levels },
              { "notes", noteList } };
+}
+
+//==============================================================================
+namespace
+{
+    constexpr int referenceKickVersion = 2;     // 2: hits moved back to where their attack starts
+
+    std::string kickCacheName (const SongMap& map, int from, int to)
+    {
+        const auto key = map.track.path + "@" + std::to_string (map.track.size) + "@" + std::to_string (map.track.modified) + "@"
+                       + std::to_string (from) + "-" + std::to_string (to) + "@" + std::to_string (referenceKickVersion);
+        return juce::String::toHexString (static_cast<juce::int64> (std::hash<std::string> {} (key))).toStdString();
+    }
+
+    void writeMonoWav (const std::vector<float>& audio, double rate, const std::filesystem::path& file)
+    {
+        juce::File out (file.string());
+        out.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (out.createOutputStream().release(), rate, 1, 24, {}, 0));
+
+        if (writer == nullptr)
+            return;
+
+        const float* channels[] = { audio.data() };
+        writer->writeFromFloatArrays (channels, 1, static_cast<int> (audio.size()));
+    }
+}
+
+std::optional<Listening::ReferenceKick> Listening::referenceKick (const SongMap& map, bool hearNow)
+{
+    const auto& track = map.track;
+    std::optional<KickStretch> stretch;
+
+    if (track.kick)
+        stretch = KickStretch { track.kick->from, track.kick->to, track.kick->clean };
+    else if (track.arrangement)
+        stretch = kickStretch (*track.arrangement);
+
+    if (! stretch || stretch->to <= stretch->from)
+        return {};
+
+    ReferenceKick result;
+    result.from = stretch->from;
+    result.to = stretch->to;
+
+    if (track.kick)
+        result.sound = track.kick->sound;
+
+    const auto folder = kickFolder / "kick-references";
+    const auto name = kickCacheName (map, stretch->from, stretch->to);
+    const auto cached = folder / (name + ".json");
+
+    try
+    {
+        std::ifstream in (cached);
+
+        if (in)
+        {
+            const auto j = Json::parse (in);
+            result.sound = KickSound::fromJson (j["sound"]);
+            result.hits = j.value ("hits", 0);
+
+            if (std::filesystem::exists (folder / (name + ".wav")))
+                result.file = folder / (name + ".wav");
+
+            return result;
+        }
+    }
+    catch (const std::exception&)
+    {
+        // Heard again.
+    }
+
+    auto mapOnly = [&]() -> std::optional<ReferenceKick>
+    {
+        if (! track.kick)
+            return {};
+
+        return result;
+    };
+
+    if (! hearNow || ! track.arrangement || ! models.getStatus().ready || ! std::filesystem::exists (track.path))
+        return mapOnly();
+
+    // The stretch, as the separator wants it: 44.1 kHz stereo.
+    const auto& a = *track.arrangement;
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (track.path)));
+
+    if (reader == nullptr || a.barSeconds() <= 0)
+        return mapOnly();
+
+    const auto start = a.downbeat + stretch->from * a.barSeconds();
+    const auto length = std::min ((stretch->to - stretch->from) * a.barSeconds(), static_cast<double> (reader->lengthInSamples) / reader->sampleRate - start);
+
+    if (start < 0 || length < 2)
+        return mapOnly();
+
+    const auto frames = static_cast<int> (length * reader->sampleRate);
+    juce::AudioBuffer<float> raw (2, frames);
+    reader->read (&raw, 0, frames, static_cast<juce::int64> (start * reader->sampleRate), true, true);
+
+    const auto size = static_cast<int> (length * Separator::sampleRate);
+    juce::AudioBuffer<float> chunk (2, size);
+    chunk.clear();
+
+    for (int c = 0; c < 2; ++c)
+    {
+        juce::AudioBuffer<float> channel (1, frames);
+        channel.copyFrom (0, 0, raw, std::min (c, static_cast<int> (reader->numChannels) - 1), 0, frames);
+        auto resampled = resampleMono (channel, reader->sampleRate, Separator::sampleRate);
+        chunk.copyFrom (c, 0, resampled.data(), std::min (size, static_cast<int> (resampled.size())));
+    }
+
+    Separator::Stems stems;
+
+    {
+        std::lock_guard lock (separatorMutex);
+
+        if (separator == nullptr)
+            separator = std::make_unique<Separator> (models);
+
+        stems = separator->separate (chunk);
+        separator.reset(); // a gigabyte, until it's next needed
+    }
+
+    KickTiming timing;
+    timing.beat = 60 / a.tempo;
+    timing.downbeat = 0.0;
+
+    // Measured here for maps heard before kicks were: on the drums and the bass, as hearing does.
+    if (! track.kick)
+    {
+        juce::AudioBuffer<float> low (2, stems.drums.getNumSamples());
+
+        for (int c = 0; c < 2; ++c)
+        {
+            low.copyFrom (c, 0, stems.drums, c, 0, low.getNumSamples());
+            low.addFrom (c, 0, stems.bass, c, 0, std::min (low.getNumSamples(), stems.bass.getNumSamples()));
+        }
+
+        auto sound = measureKick (low, Separator::sampleRate, timing);
+
+        if (! sound)
+            return {};
+
+        result.sound = *sound;
+    }
+
+    // The print from the drums alone: the bass's notes would be counted as the kick's body.
+    if (auto kick = rebuildKick (stems.drums, Separator::sampleRate, timing))
+    {
+        result.sound.print = printKick (kick->audio, Separator::sampleRate, kick->seconds);
+        result.hits = kick->hits;
+
+        try
+        {
+            std::filesystem::create_directories (folder);
+            writeMonoWav (kick->audio, Separator::sampleRate, folder / (name + ".wav"));
+            result.file = folder / (name + ".wav");
+        }
+        catch (const std::exception&)
+        {
+            // Matched without the file.
+        }
+    }
+
+    try
+    {
+        std::filesystem::create_directories (folder);
+        std::ofstream out (cached, std::ios::trunc);
+        out << Json { { "map", map.id() }, { "sound", result.sound.toJson() }, { "hits", result.hits } }.dump();
+    }
+    catch (const std::exception&)
+    {
+        // Heard again next time.
+    }
+
+    return result;
+}
+
+std::optional<std::map<std::string, float>> Listening::partLevels (const juce::AudioBuffer<float>& audio, double rate)
+{
+    if (! models.getStatus().ready || audio.getNumSamples() < static_cast<int> (rate))
+        return {};
+
+    const auto size = static_cast<int> (std::ceil (audio.getNumSamples() / rate * Separator::sampleRate));
+    juce::AudioBuffer<float> input (2, size);
+    input.clear();
+
+    for (int c = 0; c < 2; ++c)
+    {
+        juce::AudioBuffer<float> channel (1, audio.getNumSamples());
+        channel.copyFrom (0, 0, audio, std::min (c, audio.getNumChannels() - 1), 0, audio.getNumSamples());
+        auto resampled = resampleMono (channel, rate, Separator::sampleRate);
+        input.copyFrom (c, 0, resampled.data(), std::min (size, static_cast<int> (resampled.size())));
+    }
+
+    Separator::Stems stems;
+
+    {
+        std::lock_guard lock (separatorMutex);
+
+        if (separator == nullptr)
+            separator = std::make_unique<Separator> (models);
+
+        stems = separator->separate (input);
+        separator.reset(); // a gigabyte, until it's next needed
+    }
+
+    auto meanSquare = [] (const juce::AudioBuffer<float>& b)
+    {
+        double sum = 0;
+
+        for (int c = 0; c < b.getNumChannels(); ++c)
+            for (int i = 0; i < b.getNumSamples(); ++i)
+                sum += static_cast<double> (b.getSample (c, i)) * b.getSample (c, i);
+
+        return sum / std::max (1, b.getNumChannels() * b.getNumSamples());
+    };
+
+    const auto whole = db (meanSquare (input));
+    return std::map<std::string, float> { { "drums", db (meanSquare (stems.drums)) - whole }, { "bass", db (meanSquare (stems.bass)) - whole },
+                                          { "music", db (meanSquare (stems.other)) - whole } };
+}
+
+MatchWeights Listening::getKickWeights() const
+{
+    std::lock_guard lock (kickMutex);
+    return kickWeights;
+}
+
+void Listening::learnKickPick (const SongMap& map, const std::string& chosen, const std::vector<std::string>& passed)
+{
+    const auto reference = referenceKick (map, false);
+    const auto chosenSound = kicks.find (chosen);
+
+    if (! reference || ! chosenSound)
+        return;
+
+    const auto chosenCosts = kickMatchCosts (*chosenSound, reference->sound, {});
+    auto log = Json::array();
+
+    std::lock_guard lock (kickMutex);
+
+    for (auto& path : passed)
+    {
+        const auto sound = kicks.find (path);
+
+        if (! sound)
+            continue;
+
+        const auto costs = kickMatchCosts (*sound, reference->sound, {});
+        kickWeights.learn (chosenCosts, costs);
+        log.push_back (path);
+    }
+
+    if (log.empty())
+        return;
+
+    ++kickWeights.picks;
+
+    try
+    {
+        std::filesystem::create_directories (kickFolder);
+
+        {
+            std::ofstream out (kickFolder / "kick-weights.json", std::ios::trunc);
+            out << kickWeights.toJson().dump (2);
+        }
+
+        // Every pick, to learn from again when the matching changes.
+        std::ofstream picks (kickFolder / "kick-picks.jsonl", std::ios::app);
+        picks << Json { { "map", map.id() }, { "chosen", chosen }, { "passed", log }, { "time", juce::Time::currentTimeMillis() } }.dump() << "\n";
+    }
+    catch (const std::exception&)
+    {
+        // Learned for this session.
+    }
 }
 
 } // namespace gk::listening

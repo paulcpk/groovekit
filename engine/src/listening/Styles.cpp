@@ -1152,15 +1152,14 @@ void Styles::migrate (const std::filesystem::path& oldProfilesFolder)
     }
 }
 
-/** The kick and rumble of a track, measured on its drums and bass where the kick plays with the
-    least around it: a run of at least four bars where there is one (a stray bar measures one
-    hit), the least busy and then the longest, up to sixteen bars. */
-static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const Separator::Stems& stems)
+std::optional<KickStretch> kickStretch (const Arrangement& a)
 {
-    if (a.bars == 0 || ! a.parts.contains ("kick"))
+    const auto kick = a.parts.find ("kick");
+
+    if (a.bars == 0 || kick == a.parts.end())
         return {};
 
-    const auto& kickOn = a.parts["kick"].on;
+    const auto& kickOn = kick->second.on;
     auto busy = [&] (int b)
     {
         int count = 0;
@@ -1209,10 +1208,19 @@ static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const 
     if (! best)
         return {};
 
-    int from = best->from, to = best->to;
-    const int least = best->busy;
+    return KickStretch { best->from, std::min (best->to, best->from + 16), best->busy == 0 };
+}
 
-    to = std::min (to, from + 16);
+/** The kick and rumble of a track, measured on its drums and bass where the kick plays with the
+    least around it. */
+static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const Separator::Stems& stems)
+{
+    const auto stretch = kickStretch (a);
+
+    if (! stretch)
+        return {};
+
+    const int from = stretch->from, to = stretch->to;
     const auto rate = Separator::sampleRate;
     const auto start = static_cast<int> ((a.downbeat + from * a.barSeconds()) * rate);
     const auto count = std::min (static_cast<int> ((to - from) * a.barSeconds() * rate), stems.drums.getNumSamples() - start);
@@ -1239,7 +1247,7 @@ static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const 
     if (! sound)
         return {};
 
-    return StyleProfile::Track::Kick { *sound, from, to, least == 0 };
+    return StyleProfile::Track::Kick { *sound, from, to, stretch->clean };
 }
 
 StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::filesystem::path& path, std::optional<double> knownTempo,

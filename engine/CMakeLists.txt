@@ -4,6 +4,7 @@ add_library(gk_engine STATIC)
 target_sources(gk_engine PRIVATE
     src/EngineContext.cpp
     src/analysis/Analysis.cpp
+    src/analysis/MasterProfile.cpp
     src/analysis/MixAnalysis.cpp
     src/api/ApiHandler.cpp
     src/api/ApiServer.cpp
@@ -35,6 +36,7 @@ target_sources(gk_engine PRIVATE
     src/listening/Download.cpp
     src/listening/Groove.cpp
     src/listening/KickIndex.cpp
+    src/listening/KickPrint.cpp
     src/listening/KickSound.cpp
     src/listening/Listening.cpp
     src/listening/Maps.cpp
@@ -70,12 +72,14 @@ target_sources(gk_engine PRIVATE
     src/sampler/SampleCache.cpp
     src/music/Keys.cpp
     src/music/Notes.cpp
+    src/music/Versions.cpp
     src/sampler/Modulation.cpp
     src/sampler/SamplerEngine.cpp
     src/sampler/SamplerPlugin.cpp
     src/session/AgentNotes.cpp
     src/session/Chats.cpp
     src/session/Commands.cpp
+    src/session/MasterMatch.cpp
     src/session/Mastering.cpp
     src/session/Presets.cpp
     src/session/RecentProjects.cpp

@@ -17,18 +17,20 @@ export function KickMatches({ id, kick, file, from }: {
   id: string; kick: { sound: KickSound; bars: [number, number]; clean: boolean }; file?: string; from?: number;
 }) {
   const [results, setResults] = useState<KickMatch[]>();
-  const [loops, setLoops] = useState<boolean>();
+  const [loops, setLoops] = useState(false);
+  const [rebuilt, setRebuilt] = useState<string>();
   const [searching, setSearching] = useState(false);
   const [measuring, setMeasuring] = useState(false);
   const previewing = useEngine((s) => s.previewing);
   const k = kick.sound;
 
-  const find = (only?: boolean) => {
+  const find = (only: boolean) => {
     setLoops(only);
     setSearching(true);
     void matchKicks(id, only).then((r) => {
       setResults(r.results);
       setMeasuring(r.measuring);
+      setRebuilt(r.reference.kickFile);
     }, () => {}).finally(() => setSearching(false));
   };
 
@@ -74,7 +76,13 @@ export function KickMatches({ id, kick, file, from }: {
           className="flex h-6 items-center gap-1.5 rounded-[4px] bg-raised px-2 text-xs text-dim ring-1 ring-line hover:text-fg hover:ring-agent/50 disabled:opacity-50">
           <Search size={11} /> {searching ? "Listening…" : "Find kicks like it"}
         </button>
-        {results && ([[undefined, "All"], [false, "One-shots"], [true, "Loops"]] as const).map(([value, label]) => (
+        {rebuilt && (
+          <button type="button" onClick={() => void previewSample(rebuilt, 2)} title="The kick rebuilt from the track's drums: its hits lined up and their median taken"
+            className="flex h-6 items-center gap-1 rounded-[4px] px-1.5 text-2xs text-agent hover:text-fg">
+            {previewing === rebuilt ? <Square size={8} fill="currentColor" /> : <Play size={9} />} Its kick
+          </button>
+        )}
+        {results && ([[false, "One-shots"], [true, "Loops"]] as const).map(([value, label]) => (
           <button key={label} type="button" onClick={() => find(value)}
             className={cn("h-6 rounded-[4px] px-1.5 text-2xs", loops === value ? "bg-control text-fg" : "text-dim hover:text-fg")}>{label}</button>
         ))}
@@ -83,10 +91,11 @@ export function KickMatches({ id, kick, file, from }: {
       {results && (
         <div className="mt-1.5 flex flex-col">
           {results.length === 0 && (
-            <div className="text-2xs text-faint">{measuring ? "Your library's kicks are still being measured." : "No kicks measured in your library yet."}</div>
+            <div className="text-2xs text-faint">{measuring ? "Your library's kicks are still being measured." : "None of your library's kicks comes close."}</div>
           )}
           {results.map((r) => (
-            <div key={r.path} className="group flex items-start gap-2 rounded-[4px] px-1 py-1 hover:bg-hover" title={`${r.path}\n${r.kick}`}>
+            <div key={r.path} className={cn("group flex items-start gap-2 rounded-[4px] px-1 py-1 hover:bg-hover", !r.close && "opacity-60")}
+              title={`${r.path}\n${r.kick}${r.close ? "" : "\nNot close: the nearest there is"}`}>
               <button type="button" onClick={() => void previewSample(r.path, 4)}
                 className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] bg-control text-dim hover:text-fg">
                 {previewing === r.path ? <Square size={8} className="text-agent" fill="currentColor" /> : <Play size={9} />}
@@ -95,6 +104,7 @@ export function KickMatches({ id, kick, file, from }: {
                 <div className="flex items-baseline gap-1.5">
                   <span className="min-w-0 flex-1 truncate text-xs text-fg">{r.name}</span>
                   {r.loop && <span className="shrink-0 text-2xs text-faint">loop</span>}
+                  {r.transpose !== undefined && <span className="shrink-0 text-2xs text-faint tabular" title="Transpose it this much to tune it to the reference">{r.transpose > 0 ? "+" : ""}{r.transpose} st</span>}
                   <span className="shrink-0 text-2xs text-agent tabular">{Math.round(r.score)}</span>
                 </div>
                 {r.differences.length > 0 && <div className="truncate text-2xs text-faint">{r.differences.join(" · ")}</div>}

@@ -13,7 +13,8 @@ using model::Json;
 
 namespace
 {
-    constexpr int fileVersion = 2;      // 2: kick hits found on a loop's grid
+    constexpr int fileVersion = 4;      // 2: kick hits found on a loop's grid; 3: prints; 4: loops' kicks rebuilt from where their attack starts
+                                        // (older entries are used until measured again)
 }
 
 KickIndex::KickIndex (library::SampleLibrary& l, std::filesystem::path f) : library (l), file (std::move (f))
@@ -42,14 +43,16 @@ void KickIndex::load()
 
         const auto j = Json::parse (in);
 
-        if (j.value ("version", 0) != fileVersion)
+        const auto version = j.value ("version", 0);
+
+        if (version < 2 || version > fileVersion)
             return;
 
         const auto samples = j.value ("samples", Json::array());
 
         auto add = [&] (const std::string& path, const Json& e)
         {
-            Entry entry { e.value ("size", int64_t { 0 }), e.value ("modified", int64_t { 0 }), {} };
+            Entry entry { e.value ("size", int64_t { 0 }), e.value ("modified", int64_t { 0 }), {}, e.value ("version", version) };
 
             if (e.contains ("sound"))
                 entry.sound = KickSound::fromJson (e["sound"]);
@@ -86,7 +89,7 @@ void KickIndex::save() const
 
         for (auto& [path, e] : entries)
         {
-            Json j { { "path", path }, { "size", e.size }, { "modified", e.modified } };
+            Json j { { "path", path }, { "size", e.size }, { "modified", e.modified }, { "version", e.version } };
 
             if (e.sound)
                 j["sound"] = e.sound->toJson();
@@ -136,6 +139,7 @@ std::optional<KickSound> KickIndex::measureSample (const library::SampleEntry& e
     const auto count = static_cast<int> (std::min<juce::int64> (reader->lengthInSamples, static_cast<juce::int64> ((loop ? 30 : 4) * reader->sampleRate)));
     juce::AudioBuffer<float> audio (2, count);
     reader->read (&audio, 0, count, 0, true, true);
+    const auto rate = reader->sampleRate;
 
     KickTiming timing;
 
@@ -150,7 +154,28 @@ std::optional<KickSound> KickIndex::measureSample (const library::SampleEntry& e
         }
     }
 
-    return measureKick (audio, reader->sampleRate, timing);
+    auto sound = measureKick (audio, rate, timing);
+
+    if (! sound)
+        return {};
+
+    // Its whole sound: a one-shot's own, a loop's kick rebuilt from its hits.
+    if (! loop)
+    {
+        std::vector<float> mono (static_cast<size_t> (std::min (count, static_cast<int> (0.6 * rate))));
+
+        for (size_t i = 0; i < mono.size(); ++i)
+            mono[i] = 0.5f * (audio.getSample (0, static_cast<int> (i)) + audio.getSample (1, static_cast<int> (i)));
+
+        sound->print = printKick (mono, rate);
+    }
+    else if (timing.beat)
+    {
+        if (auto kick = rebuildKick (audio, rate, timing))
+            sound->print = printKick (kick->audio, rate, kick->seconds);
+    }
+
+    return sound;
 }
 
 void KickIndex::start (std::function<void (const Progress&)> onProgress)
@@ -183,7 +208,10 @@ void KickIndex::start (std::function<void (const Progress&)> onProgress)
             std::lock_guard lock (mutex);
             auto it = entries.find (sample.path);
 
-            if (it == entries.end() || it->second.size != sample.size || it->second.modified != sample.modified)
+            // Version 3 measured one-shots as 4 does.
+            const auto outdated = it != entries.end() && (it->second.version < 3 || (it->second.version < fileVersion && sample.classification.loop));
+
+            if (it == entries.end() || it->second.size != sample.size || it->second.modified != sample.modified || outdated)
                 todo.push_back (sample);
         }
 
@@ -209,7 +237,7 @@ void KickIndex::start (std::function<void (const Progress&)> onProgress)
             Progress now;
             {
                 std::lock_guard lock (mutex);
-                entries[todo[i].path] = { todo[i].size, todo[i].modified, sound };
+                entries[todo[i].path] = { todo[i].size, todo[i].modified, sound, fileVersion };
                 ++progress.measured;
                 progress.failed += failed ? 1 : 0;
                 now = progress;
