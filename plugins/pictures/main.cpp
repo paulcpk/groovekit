@@ -10,6 +10,7 @@
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_triad();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_quartet();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_sextet();
+juce::AudioProcessor* JUCE_CALLTYPE gkCreate_kessel();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_chamber();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_echo();
 
@@ -24,11 +25,14 @@ int main (int argc, char* argv[])
     juce::ScopedJuceInitialiser_GUI juce;
     const std::filesystem::path folder = argv[1];
     std::filesystem::create_directories (folder);
-    const std::pair<const char*, juce::AudioProcessor* (*)()> plugins[] {
-        { "Triad", gkCreate_triad }, { "Quartet", gkCreate_quartet }, { "Sextet", gkCreate_sextet }, { "Chamber", gkCreate_chamber }, { "Echo", gkCreate_echo },
+    // Each with what it plays for its picture: a chord for the synths, a kick for Kessel.
+    const std::vector<int> chord { 48, 55, 60, 63 }, kick { 60 };
+    const std::tuple<const char*, juce::AudioProcessor* (*)(), std::vector<int>> plugins[] {
+        { "Triad", gkCreate_triad, chord }, { "Quartet", gkCreate_quartet, chord }, { "Sextet", gkCreate_sextet, chord }, { "Kessel", gkCreate_kessel, kick },
+        { "Chamber", gkCreate_chamber, {} }, { "Echo", gkCreate_echo, {} },
     };
 
-    for (auto& [name, create] : plugins)
+    for (auto& [name, create, notes] : plugins)
     {
         std::unique_ptr<juce::AudioProcessor> processor (create());
         const bool synth = processor->acceptsMidi();
@@ -48,7 +52,7 @@ int main (int argc, char* argv[])
             if (block == 0)
             {
                 if (synth)
-                    for (auto note : { 48, 55, 60, 63 })
+                    for (auto note : notes)
                         midi.addEvent (juce::MidiMessage::noteOn (1, note, 0.8f), 0);
                 else
                     for (int i = 0; i < 400; ++i)

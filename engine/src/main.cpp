@@ -5,6 +5,7 @@
 #include "effects/BuiltinEffects.h"
 #include "library/SampleLibrary.h"
 #include "library/StarterPack.h"
+#include "listening/KickSound.h"
 #include "listening/Listening.h"
 #include "listening/Maps.h"
 #include "listening/Voices.h"
@@ -47,6 +48,9 @@ Usage:
       Hears a track as a reference is heard (whole, split into stems) and prints what was
       heard, with every note of the bass and the music and its sound. Downloads the listening
       models first if they're missing.
+  groovekit-engine kick <audio file> [--tempo <bpm>]
+      Measures the kick in a one-shot or a loop as the library's kicks are measured (body,
+      decay, click, grit, rumble with a tempo) and prints it.
   groovekit-engine effects
 
 Add --verbose to see engine log messages.
@@ -480,6 +484,27 @@ int main (int argc, char* argv[])
         else if (command == "hear" && args.positional.size() == 2)
         {
             result = hear (args);
+        }
+        else if (command == "kick" && args.positional.size() == 2)
+        {
+            juce::ScopedJuceInitialiser_GUI juce;
+            const auto audio = gk::analysis::loadAudio (args.positional[1]);
+            gk::listening::KickTiming timing;
+
+            if (auto v = args.get ("--tempo"))
+                timing.beat = 60 / std::stod (*v), timing.downbeat = 0.0;
+
+            if (auto sound = gk::listening::measureKick (audio.buffer, audio.sampleRate, timing))
+            {
+                auto out = sound->toJson();
+                out["text"] = sound->describe();
+                std::cout << out.dump() << "\n";
+                result = 0;
+            }
+            else
+            {
+                std::cerr << "no kick heard\n";
+            }
         }
         else if (command == "effects")
         {

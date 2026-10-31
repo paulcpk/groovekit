@@ -28,6 +28,7 @@ export const OWN_PLUGINS: Record<string, string> = {
   Triad: "three-oscillator synth",
   Quartet: "FM chords and stabs",
   Sextet: "six-oscillator pads and basses",
+  Kessel: "hard kicks with rumble",
   Chamber: "reverb",
   Echo: "delay",
 };

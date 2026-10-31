@@ -20,7 +20,12 @@ set_source_files_properties(
 
 # One plugin target, the GrooveKit way: a VST3 the app bundles, with JUCE kept inside it.
 function(gk_add_plugin name)
-    cmake_parse_arguments(GK "SYNTH" "CODE;BUNDLE_ID;DESCRIPTION" "SOURCES" ${ARGN})
+    cmake_parse_arguments(GK "SYNTH" "CODE;BUNDLE_ID;DESCRIPTION;PRODUCT" "SOURCES" ${ARGN})
+
+    # The name hosts show and the bundle's, when it isn't the target's (Groove-8: a target can't say it).
+    if(NOT GK_PRODUCT)
+        set(GK_PRODUCT ${name})
+    endif()
 
     if(GK_SYNTH)
         set(kind IS_SYNTH TRUE NEEDS_MIDI_INPUT TRUE VST3_CATEGORIES Instrument Synth)
@@ -29,7 +34,7 @@ function(gk_add_plugin name)
     endif()
 
     juce_add_plugin(${name}
-        PRODUCT_NAME "${name}"
+        PRODUCT_NAME "${GK_PRODUCT}"
         COMPANY_NAME "GrooveKit"
         COMPANY_WEBSITE "https://groovekit.org"
         BUNDLE_ID ${GK_BUNDLE_ID}
@@ -55,7 +60,7 @@ function(gk_add_plugin name)
     # Every plugin lands in one folder, where the engine and the app's packaging find them.
     add_custom_command(TARGET ${name}_VST3 POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${GK_PLUGINS_DIR}"
-        COMMAND ${CMAKE_COMMAND} -E rm -rf "${GK_PLUGINS_DIR}/${name}.vst3"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_BUNDLE_DIR:${name}_VST3>" "${GK_PLUGINS_DIR}/${name}.vst3"
-        COMMENT "Collecting ${name}.vst3")
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${GK_PLUGINS_DIR}/${GK_PRODUCT}.vst3"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_BUNDLE_DIR:${name}_VST3>" "${GK_PLUGINS_DIR}/${GK_PRODUCT}.vst3"
+        COMMENT "Collecting ${GK_PRODUCT}.vst3")
 endfunction()
