@@ -1045,7 +1045,7 @@ std::string describeVoices (const TrackVoices& t)
         if (v.chord >= 1.5f)
             out << ", chords of " << std::lround (v.chord);
 
-        out << ", " << std::lround (v.notesPerBar) << " notes a bar\n";
+        out << ", " << std::lround (v.notesPerBar) << (std::lround (v.notesPerBar) == 1 ? " note" : " notes") << " a bar\n";
         const size_t shown = 6;
 
         for (size_t r = 0; r < v.runs.size() && r < shown; ++r)

@@ -147,7 +147,7 @@ std::string VoiceLibrary::describe() const
     for (auto& r : roles)
     {
         out << r.name << " in " << r.tracks << " of " << tracks << ", " << library::noteName (r.lowest) << "-" << library::noteName (r.highest)
-            << ", " << std::lround (r.notesPerBar) << " notes a bar";
+            << ", " << std::lround (r.notesPerBar) << (std::lround (r.notesPerBar) == 1 ? " note" : " notes") << " a bar";
 
         if (r.chord >= 1.5f)
             out << ", chords of " << std::lround (r.chord);

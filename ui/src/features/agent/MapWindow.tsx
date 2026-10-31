@@ -172,7 +172,7 @@ function VoiceView({ voice: v }: { voice: Voice }) {
         <span className="font-medium text-fg">{v.role}</span>
         <span className="text-faint">
           {noteName(v.range[0])}{v.range[1] !== v.range[0] ? `–${noteName(v.range[1])}` : ""}
-          {v.sound ? ` · ${v.sound}` : ""}{v.chord >= 1.5 ? ` · chords of ${Math.round(v.chord)}` : ""} · {Math.round(v.notesPerBar)} notes a bar
+          {v.sound ? ` · ${v.sound}` : ""}{v.chord >= 1.5 ? ` · chords of ${Math.round(v.chord)}` : ""} · {Math.round(v.notesPerBar)} note{Math.round(v.notesPerBar) === 1 ? "" : "s"} a bar
         </span>
       </div>
       <div className="flex flex-col gap-1.5">
