@@ -1,9 +1,6 @@
-import type { Project } from "@groovekit/schema/project";
 import { useEffect, useState } from "react";
 import { DropdownItem, DropdownLabel, DropdownSub } from "@/components/menu";
-import { uniqueId } from "@/lib/model";
-import { engine, execute } from "@/state/engine";
-import { setUi } from "@/state/ui";
+import { engine } from "@/state/engine";
 
 export interface PluginInfo {
   uid: string;
@@ -38,28 +35,6 @@ export const OWN_PLUGINS: Record<string, string> = {
 /** The scanned plugins that are GrooveKit's own, in menu order. */
 export function ownPlugins(plugins: PluginInfo[] | null) {
   return Object.keys(OWN_PLUGINS).map((name) => plugins?.find((p) => p.manufacturer === "GrooveKit" && p.name === name)).filter((p): p is PluginInfo => !!p);
-}
-
-/** Instruments for a new channel: GrooveKit's own synths first, then every scanned plugin. */
-export function PluginPicker({ doc }: { doc: Project }) {
-  const plugins = usePlugins(true);
-  const own = ownPlugins(plugins);
-  const add = (p: PluginInfo) => {
-    const id = uniqueId(p.name, doc.channels);
-    void execute({
-      type: "addChannel",
-      channel: { id, name: p.name, instrument: { type: "plugin", plugin: { format: p.format, uid: p.uid, name: p.name, manufacturer: p.manufacturer } } },
-    }, { label: `Add ${p.name}` }).then(() => setUi({ selectedChannel: id }));
-  };
-
-  return (
-    <>
-      {own.map((p) => <DropdownItem key={p.uid} onSelect={() => add(p)}>{p.name} <span className="text-2xs text-faint">{OWN_PLUGINS[p.name]}</span></DropdownItem>)}
-      <DropdownSub label="Plugin instrument">
-        <PluginList instrument onPick={add} />
-      </DropdownSub>
-    </>
-  );
 }
 
 export function PluginList({ instrument, onPick }: { instrument: boolean; onPick: (p: PluginInfo) => void }) {

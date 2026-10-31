@@ -5,7 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Button, Empty, IconButton, Knob, ToggleChip } from "@/components/controls";
 import { ActivityLed } from "@/components/fader";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownTrigger } from "@/components/menu";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger } from "@/components/menu";
 import { droppedSample, isSampleDrag } from "@/features/playlist/geometry";
 import { importDroppedFiles, isFileDrag } from "@/features/shell/importFiles";
 import { newPattern } from "@/features/playlist/edits";
@@ -19,9 +19,12 @@ import { drawPeaks, usePeaks } from "@/lib/peaks";
 import { call, execute, useEngine } from "@/state/engine";
 import { setUi, useUi, type RackView } from "@/state/ui";
 import { openChannel } from "./channels";
-import { addEmptySampler, addSamplerChannel, replaceSample, routeToNewInsert, stepKey } from "./channels";
+import { addSamplerChannel, replaceSample, routeToNewInsert, stepKey } from "./channels";
 import { InsertItems } from "./ChannelBar";
-import { PluginPicker } from "./PluginPicker";
+import { InstrumentPicker } from "./InstrumentPicker";
+import { addInstrument, droppedInstrument, isInstrumentDrag, replaceInstrument } from "./instruments";
+import { copyMidiNotes, pasteMidiNotes } from "./midiNotes";
+import { keyNamesOf } from "@/features/piano/keyNames";
 
 interface Paint {
   channel: string;
@@ -45,11 +48,17 @@ export function ChannelRack() {
   useEffect(() => {
     const up = () => {
       const p = paintRef.current;
-      if (!p || p.committed || !pattern) return;
+      if (!p || p.committed) return;
       const committed = { ...p, committed: true };
       setPaint(committed);
-      // The engine sends the change before it answers, so the document has it by now.
-      void commitPaint(doc, pattern, p).finally(() => setPaint((current) => (current === committed ? null : current)));
+      // The engine sends the change before it answers, so the document has it by now. A song
+      // without a pattern gets one for the steps.
+      void (async () => {
+        if (!pattern) await newPattern(doc);
+        const song = useEngine.getState().doc!;
+        const target = pattern ?? song.patterns.find((x) => x.id === useUi.getState().selectedPattern);
+        if (target) await commitPaint(song, target, p);
+      })().finally(() => setPaint((current) => (current === committed ? null : current)));
     };
     window.addEventListener("pointerup", up);
     return () => window.removeEventListener("pointerup", up);
@@ -71,6 +80,16 @@ export function ChannelRack() {
   // The channel last right-clicked, for the one context menu all the rows share.
   const [menuChannel, setMenuChannel] = useState<string | null>(null);
 
+  // The instrument picker: for a new channel, or replacing a channel's instrument.
+  const [picking, setPicking] = useState<{ replace?: string } | null>(null);
+  const pickerChannel = picking?.replace ? doc.channels.find((c) => c.id === picking.replace) : undefined;
+
+  // Plugins' key names, asked once so a kit's steps go on its bass drum.
+  const pluginChannels = doc.channels.filter((c) => c.instrument.type === "plugin").map((c) => c.id).join();
+  useEffect(() => {
+    for (const c of useEngine.getState().doc?.channels ?? []) if (c.instrument.type === "plugin") void keyNamesOf(c);
+  }, [pluginChannels]);
+
   const onPaintStart = useCallback((channel: string, step: number, on: boolean) => setPaint({ channel, on, steps: new Set([step]) }), []);
   const onPaintEnter = useCallback((channel: string, step: number) =>
     setPaint((p) => (p && !p.committed && p.channel === channel && !p.steps.has(step) ? { ...p, steps: new Set([...p.steps, step]) } : p)), []);
@@ -79,8 +98,14 @@ export function ChannelRack() {
     <div ref={root} className="flex h-full">
       <div
         className="flex min-w-0 flex-1 flex-col"
-        onDragOver={(e) => (isSampleDrag(e) || isFileDrag(e)) && e.preventDefault()}
+        onDragOver={(e) => (isSampleDrag(e) || isFileDrag(e) || isInstrumentDrag(e)) && e.preventDefault()}
         onDrop={(e) => {
+          if (isInstrumentDrag(e)) {
+            e.preventDefault();
+            const choice = droppedInstrument(e);
+            if (choice) void addInstrument(doc, choice);
+            return;
+          }
           if (isFileDrag(e)) {
             e.preventDefault();
             void importDroppedFiles(e).then(async (samples) => {
@@ -94,7 +119,7 @@ export function ChannelRack() {
           void addSamplerChannel(doc, sample);
         }}
       >
-        <RackToolbar doc={doc} pattern={pattern} />
+        <RackToolbar doc={doc} pattern={pattern} onAdd={() => setPicking({})} />
         <ContextMenu>
         <ContextMenuTrigger asChild>
         <div className="min-h-0 flex-1 overflow-auto py-1"
@@ -103,35 +128,57 @@ export function ChannelRack() {
             if (row) setMenuChannel(row.dataset.channel!);
             else e.preventDefault();
           }}>
-          {channels.length === 0 ? (
-            <Empty>
-              {rackView === "arrangement"
-                ? "Samples dropped onto the playlist are listed here, each with its own sampler."
-                : "Drop samples from the browser here, or add a channel with +."}
-            </Empty>
+          {channels.length === 0 && rackView === "arrangement" ? (
+            <Empty>Samples dropped onto the playlist are listed here, each with its own sampler.</Empty>
           ) : (
-            channels.map((channel) => (
-              <ChannelRow
-                key={channel.id}
-                channel={channel} pattern={pattern} steps={steps}
-                selected={channel.id === selectedChannel}
-                paint={paint?.channel === channel.id ? paint : null}
-                onPaintStart={onPaintStart} onPaintEnter={onPaintEnter}
-              />
-            ))
+            <>
+              {channels.map((channel) => (
+                <ChannelRow
+                  key={channel.id}
+                  channel={channel} pattern={pattern} steps={steps}
+                  selected={channel.id === selectedChannel}
+                  paint={paint?.channel === channel.id ? paint : null}
+                  onPaintStart={onPaintStart} onPaintEnter={onPaintEnter}
+                />
+              ))}
+              <AddArea first={channels.length === 0} onClick={() => setPicking({})} />
+            </>
           )}
         </div>
         </ContextMenuTrigger>
-        {menuChannel && <ChannelMenu channelId={menuChannel} />}
+        {menuChannel && <ChannelMenu channelId={menuChannel} onReplace={() => setPicking({ replace: menuChannel })} />}
         </ContextMenu>
+        <InstrumentPicker open={picking !== null} onOpenChange={(open) => !open && setPicking(null)}
+          title={pickerChannel ? `Replace ${pickerChannel.name ?? pickerChannel.id}'s instrument` : "Add an instrument"}
+          onPick={(choice) => {
+            const song = useEngine.getState().doc!;
+            if (pickerChannel) void replaceInstrument(song, pickerChannel, choice);
+            else void addInstrument(song, choice);
+          }} />
       </div>
     </div>
   );
 }
 
+/** Below the channels, always, with room to scroll to it: a field to drop samples on (each
+    becomes a sampler) or to click for the instrument picker. */
+function AddArea({ first, onClick }: { first: boolean; onClick: () => void }) {
+  return (
+    <div className={cn("px-2 pt-2", first ? "h-full min-h-[140px] pb-2" : "pb-[100px]")}>
+      <button type="button" onClick={onClick}
+        className={cn("flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-line text-faint transition-colors hover:border-accent hover:bg-accent/5 hover:text-dim",
+          first ? "h-full min-h-[124px]" : "h-[76px]")}>
+        <Plus size={first ? 26 : 18} strokeWidth={1.5} />
+        <span className="text-xs">Drop samples here, or choose an instrument</span>
+      </button>
+    </div>
+  );
+}
+
 /** The menu for the channel last right-clicked (by id, so it follows the song's changes). */
-function ChannelMenu({ channelId }: { channelId: string }) {
+function ChannelMenu({ channelId, onReplace }: { channelId: string; onReplace: () => void }) {
   const channel = useEngine((s) => s.doc?.channels.find((c) => c.id === channelId));
+  const pattern = useEngine((s) => s.doc?.patterns.find((p) => p.id === useUi.getState().selectedPattern));
   if (!channel) return null;
   const arrangement = channel.group === "arrangement";
   const song = () => useEngine.getState().doc!;
@@ -163,6 +210,11 @@ function ChannelMenu({ channelId }: { channelId: string }) {
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => void duplicateChannel(song(), channel, false)}>Duplicate</ContextMenuItem>
       <ContextMenuItem onSelect={() => void duplicateChannel(song(), channel, true)}>Duplicate with notes</ContextMenuItem>
+      <ContextMenuItem onSelect={onReplace}>Replace instrument…</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled={!pattern} onSelect={() => pattern && copyMidiNotes(pattern, channel)}>Copy MIDI notes</ContextMenuItem>
+      <ContextMenuItem disabled={!pattern} onSelect={() => pattern && void pasteMidiNotes(song(), pattern, channel, false)}>Paste MIDI notes</ContextMenuItem>
+      <ContextMenuItem disabled={!pattern} onSelect={() => pattern && void pasteMidiNotes(song(), pattern, channel, true)}>Paste MIDI notes (add)</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem danger onSelect={() => void execute({ type: "removeChannel", channel: channel.id }, { label: `Delete ${channel.name ?? channel.id}` })}>Delete channel</ContextMenuItem>
     </ContextMenuContent>
@@ -222,7 +274,7 @@ function SwingKnob({ swing }: { swing: number }) {
   );
 }
 
-function RackToolbar({ doc, pattern }: { doc: Project; pattern: Pattern | undefined }) {
+function RackToolbar({ doc, pattern, onAdd }: { doc: Project; pattern: Pattern | undefined; onAdd: () => void }) {
   const [renaming, setRenaming] = useState(false);
   const bar = ticksPerBar(doc);
   const bars = pattern ? patternLength(pattern, doc) / bar : 1;
@@ -293,16 +345,7 @@ function RackToolbar({ doc, pattern }: { doc: Project; pattern: Pattern | undefi
       <div className="flex-1" />
       <RackViewPicker doc={doc} />
       <SwingKnob swing={doc.swing ?? 0} />
-      <Dropdown>
-        <DropdownTrigger asChild>
-          <Button size="sm"><Plus size={12} /> Channel</Button>
-        </DropdownTrigger>
-        <DropdownContent align="end">
-          <DropdownLabel>Or drop a sample from the browser</DropdownLabel>
-          <DropdownItem onSelect={() => void addEmptySampler(doc)}>Sampler</DropdownItem>
-          <PluginPicker doc={doc} />
-        </DropdownContent>
-      </Dropdown>
+      <Button size="sm" title="Add a channel with an instrument (or drop samples onto the rack)" onClick={onAdd}><Plus size={12} /> Instrument</Button>
     </div>
   );
 }
@@ -395,8 +438,17 @@ const ChannelRow = memo(function ChannelRow({ channel, pattern, steps, selected,
             )}
             title={channel.instrument.type === "plugin" ? "Open the plugin's window" : "Open the sampler"}
             onClick={() => openChannel(channel, true)}
-            onDragOver={(e) => channel.instrument.type !== "plugin" && (isSampleDrag(e) || isFileDrag(e)) && (e.preventDefault(), e.stopPropagation())}
+            onDragOver={(e) => (isInstrumentDrag(e) || (channel.instrument.type !== "plugin" && (isSampleDrag(e) || isFileDrag(e)))) && (e.preventDefault(), e.stopPropagation())}
             onDrop={(e) => {
+              // An instrument dropped on a channel's name replaces its instrument; a sample
+              // replaces a sampler's sample (on a plugin channel it makes a new sampler below).
+              if (isInstrumentDrag(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                const choice = droppedInstrument(e);
+                if (choice) void replaceInstrument(useEngine.getState().doc!, channel, choice);
+                return;
+              }
               if (channel.instrument.type === "plugin") return;
               e.stopPropagation();
               e.preventDefault();

@@ -319,7 +319,9 @@ TEST_CASE ("Groove-8 inside the engine edits the song, its own sequencer quiet")
     auto& bridge = live.getMachines();
     CHECK (bridge.getConnectedChannels() == std::vector<model::Id> { "g8" });
 
-    // What its step keys send: a hit on the bass drum, accented, and taken off again.
+    // What its step keys send: a hit on the bass drum, accented, and taken off again, in the
+    // pattern selected (a new song has Pattern 1 of its own too).
+    bridge.setFocus (model::Id ("p"));
     auto* host = bridge.findHost ("g8");
     REQUIRE (host != nullptr);
     host->setStep (36, 4, 1, 1, 0, 0);

@@ -547,7 +547,11 @@ TEST_CASE ("Notes from the app's keyboard play the live channel and record into 
     live.stop();
     CHECK_FALSE (live.isRecordingNotes());
 
-    auto& notes = session->getProject().patterns[0].notes;
+    // A new song has Pattern 1 of its own: the recording went into "p".
+    auto& patterns = session->getProject().patterns;
+    auto recorded = std::find_if (patterns.begin(), patterns.end(), [] (auto& p) { return p.id == "p"; });
+    REQUIRE (recorded != patterns.end());
+    auto& notes = recorded->notes;
     REQUIRE (notes.size() == 3);
     CHECK (notes[2].key == 64);
     CHECK (notes[2].velocity == 90);

@@ -1,6 +1,7 @@
-import { ChevronRight, Folder, FolderOpen, FolderOpenDot, Music, SlidersHorizontal, Waves } from "lucide-react";
+import { AudioWaveform, ChevronRight, Folder, FolderOpen, FolderOpenDot, KeyboardMusic, Music, SlidersHorizontal, Waves } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StarterSamples } from "./StarterSamples";
+import { addInstrument, endInstrumentDrag, instrumentName, SAMPLER, startInstrumentDrag, type InstrumentChoice } from "@/features/rack/instruments";
 import { OWN_PLUGINS, ownPlugins, type PluginInfo } from "@/features/rack/PluginPicker";
 import { openProject } from "@/features/shell/ProjectDialog";
 import { cn } from "@/lib/cn";
@@ -20,7 +21,8 @@ interface EffectPreset { name: string; params: Record<string, number>; mix?: num
 
 /** One line of the tree. Keys name what's expanded; sample folders use their path. */
 export type Row =
-  | { kind: "root"; key: "projects" | "presets" | "samples"; name: string; depth: 0 }
+  | { kind: "root"; key: "projects" | "instruments" | "presets" | "samples"; name: string; depth: 0 }
+  | { kind: "instrument"; choice: InstrumentChoice; depth: number }
   | { kind: "project"; project: ProjectEntry; current: boolean; depth: number }
   | { kind: "plugin"; plugin: PluginInfo; key: string; depth: number }
   | { kind: "category"; key: string; name: string; depth: number }
@@ -57,6 +59,7 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
   const [listings, setListings] = useState<Map<string, Listing>>(new Map());
   const [projects, setProjects] = useState<ProjectEntry[]>();
   const [plugins, setPlugins] = useState<PluginInfo[]>();
+  const [instruments, setInstruments] = useState<PluginInfo[]>();
   const [pluginPresets, setPluginPresets] = useState<Map<string, string[]>>(new Map());
   const [effectPresets, setEffectPresets] = useState<Map<string, { factory: EffectPreset[]; user: EffectPreset[] }>>(new Map());
   const [expanded, setExpanded] = useState(loadExpanded);
@@ -117,6 +120,14 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
   }, [connected, expanded.has("presets"), plugins, once]);
 
   useEffect(() => {
+    if (!connected || !expanded.has("instruments") || instruments) return;
+    once("instruments", async () => {
+      const r = await engine.call<{ plugins: PluginInfo[] }>("plugins.list", { instrument: true });
+      setInstruments(r.plugins);
+    });
+  }, [connected, expanded.has("instruments"), instruments, once]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(EXPANDED_KEY, JSON.stringify([...expanded]));
     } catch {
@@ -132,7 +143,7 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
         const kind = key.slice(7);
         if (!effectPresets.has(kind)) once(key, () => engine.call<{ factory: EffectPreset[]; user: EffectPreset[] }>("presets.list", { kind })
           .then((r) => setEffectPresets((m) => new Map(m).set(kind, r))));
-      } else if (!key.includes(":") && !["projects", "presets", "samples", "effects"].includes(key) && !listings.has(key)) {
+      } else if (!key.includes(":") && !["projects", "instruments", "presets", "samples", "effects"].includes(key) && !listings.has(key)) {
         load(key);
       }
     }
@@ -146,6 +157,22 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
       if (!projects) out.push({ kind: "note", text: "Loading…", depth: 1 });
       else if (projects.length === 0) out.push({ kind: "note", text: "No projects yet", depth: 1 });
       for (const p of projects ?? []) out.push({ kind: "project", project: p, current: p.path === project, depth: 1 });
+    }
+
+    // Instruments: the sampler and GrooveKit's own, then everyone else's by maker; dragged onto
+    // the rack (a new channel) or onto a channel's name (in place of its instrument).
+    out.push({ kind: "root", key: "instruments", name: "Instruments", depth: 0 });
+    if (expanded.has("instruments")) {
+      if (!instruments) out.push({ kind: "note", text: "Loading…", depth: 1 });
+      const own = ownPlugins(instruments ?? []);
+      for (const choice of [SAMPLER, ...own.map((plugin) => ({ kind: "plugin" as const, plugin }))]) out.push({ kind: "instrument", choice, depth: 1 });
+      const byMaker = new Map<string, PluginInfo[]>();
+      for (const p of instruments ?? []) if (!own.includes(p)) byMaker.set(p.manufacturer || "Other", [...(byMaker.get(p.manufacturer || "Other") ?? []), p]);
+      for (const [maker, list] of [...byMaker.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+        const key = `instruments:${maker}`;
+        out.push({ kind: "category", key, name: maker, depth: 1 });
+        if (expanded.has(key)) for (const plugin of list) out.push({ kind: "instrument", choice: { kind: "plugin", plugin }, depth: 2 });
+      }
     }
 
     out.push({ kind: "root", key: "presets", name: "Presets", depth: 0 });
@@ -197,7 +224,7 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
     }
 
     return out;
-  }, [listings, expanded, projects, project, plugins, pluginPresets, effectPresets]);
+  }, [listings, expanded, projects, project, plugins, instruments, pluginPresets, effectPresets]);
 
   useEffect(() => {
     const el = box.current;
@@ -228,6 +255,8 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
     const doc = useEngine.getState().doc;
     if (row.kind === "project") {
       if (!row.current) void openProject(row.project.path);
+    } else if (row.kind === "instrument" && doc) {
+      void addInstrument(doc, row.choice);
     } else if (row.kind === "pluginPreset" && doc) {
       const { plugin, preset } = row;
       const ref = { format: plugin.format, uid: plugin.uid, name: plugin.name, manufacturer: plugin.manufacturer, preset };
@@ -322,8 +351,11 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
 
             const key = keyOf(row);
             const open = key !== undefined && expanded.has(key);
-            const line = (icon: React.ReactNode, label: React.ReactNode, right?: React.ReactNode, extra?: { title?: string; onDoubleClick?: () => void; dim?: boolean }) => (
+            const line = (icon: React.ReactNode, label: React.ReactNode, right?: React.ReactNode, extra?: { title?: string; onDoubleClick?: () => void; dim?: boolean; drag?: InstrumentChoice }) => (
               <div key={`${row.kind}:${key ?? i}`} title={extra?.title}
+                draggable={!!extra?.drag}
+                onDragStart={extra?.drag ? (e) => startInstrumentDrag(e, extra.drag!) : undefined}
+                onDragEnd={extra?.drag ? endInstrumentDrag : undefined}
                 onClick={() => {
                   select();
                   if (key) toggle(key);
@@ -340,7 +372,8 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
 
             switch (row.kind) {
               case "root": {
-                const icon = row.key === "projects" ? <FolderOpenDot size={12} className="shrink-0 text-accent" /> : row.key === "presets"
+                const icon = row.key === "projects" ? <FolderOpenDot size={12} className="shrink-0 text-accent" />
+                  : row.key === "instruments" ? <KeyboardMusic size={12} className="shrink-0 text-accent" /> : row.key === "presets"
                   ? <SlidersHorizontal size={12} className="shrink-0 text-accent" /> : <Waves size={12} className="shrink-0 text-accent" />;
                 return line(icon, <span className="font-semibold">{row.name}</span>);
               }
@@ -348,6 +381,12 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
                 return line(<Music size={12} className={cn("shrink-0", row.current ? "text-accent" : "text-dim")} />, row.project.name,
                   row.current ? "open" : new Date(row.project.modified).toLocaleDateString(),
                   { title: `${row.project.path}\nDouble-click or Enter to open`, onDoubleClick: () => activate(row) });
+              case "instrument":
+                return line(row.choice.kind === "sampler" ? <AudioWaveform size={12} className="shrink-0 text-dim" /> : <KeyboardMusic size={12} className="shrink-0 text-dim" />,
+                  <>{instrumentName(row.choice)} <span className="text-2xs text-faint">{row.choice.kind === "sampler" ? "samples, one-shots, loops" : OWN_PLUGINS[row.choice.plugin.name] ?? ""}</span></>,
+                  row.choice.kind === "plugin" && row.choice.plugin.manufacturer !== "GrooveKit" ? row.choice.plugin.format : undefined,
+                  { title: "Drag onto the channel rack for a new channel, or onto a channel's name to replace its instrument; double-click or Enter adds it",
+                    onDoubleClick: () => activate(row), drag: row.choice });
               case "plugin":
                 return line(open ? <FolderOpen size={12} className="shrink-0 text-accent" /> : <Folder size={12} className="shrink-0 text-dim" />,
                   <>{row.plugin.name} <span className="text-2xs text-faint">{OWN_PLUGINS[row.plugin.name]}</span></>);

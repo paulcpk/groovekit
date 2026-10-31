@@ -129,6 +129,10 @@ std::unique_ptr<Session> Session::open (const std::filesystem::path& dir)
 
     auto doc = exists ? readJsonFile (songFile) : createEmptyProject();
 
+    // A new song starts with a pattern of one bar, so steps and notes always have somewhere to go.
+    if (! exists)
+        doc["patterns"].push_back ({ { "id", "pattern" }, { "name", "Pattern 1" }, { "length", 3840 }, { "notes", Json::array() } });
+
     // A song from an older GrooveKit is converted. From before rows (5), its history is set aside:
     // its changes were recorded against the old layout and names and can't be undone in the new
     // ones.

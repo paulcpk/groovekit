@@ -21,8 +21,48 @@ export const GENERAL_MIDI_DRUMS: Record<number, string> = {
     key a pattern plays, so all 47 don't crowd the view. */
 const GENERAL_MIDI_CORE = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51];
 
-/** Plugins' key names by channel, plugin and preset, asked of the engine once. */
+/** Plugins' key names by channel, plugin and preset, asked of the engine once; and those
+    already answered, for code that can't wait. */
 const pluginNames = new Map<string, Promise<Record<string, string>>>();
+const answered = new Map<string, Map<number, string>>();
+
+const pluginKey = (channel: Channel) => channel.instrument.type === "plugin"
+  ? `${channel.id}|${channel.instrument.plugin.uid}|${channel.instrument.plugin.preset ?? ""}` : "";
+
+function askPlugin(channel: Channel) {
+  const key = pluginKey(channel);
+  if (!pluginNames.has(key)) {
+    pluginNames.set(key, engine.call<{ keyNames: Record<string, string> }>("plugins.keyNames", { channel: channel.id })
+      .then((r) => r.keyNames ?? {}, () => ({}))
+      .then((names) => {
+        answered.set(key, new Map(Object.entries(names).map(([k, v]) => [Number(k), v])));
+        return names;
+      }));
+  }
+  return pluginNames.get(key)!;
+}
+
+/** The names of a channel's keys as far as they're known now (a plugin's once the engine has
+    answered), without waiting. */
+export function knownKeyNames(channel: Channel): Map<number, string> {
+  if (channel.keyNames === "generalMidi") return new Map(Object.entries(GENERAL_MIDI_DRUMS).map(([k, v]) => [Number(k), v]));
+  if (channel.instrument.type === "sampler") return layerNames(channel);
+  return answered.get(pluginKey(channel)) ?? new Map();
+}
+
+/** The names of a channel's keys, asking the engine if need be. */
+export async function keyNamesOf(channel: Channel): Promise<Map<number, string>> {
+  if (channel.instrument.type === "plugin" && channel.keyNames !== "generalMidi") await askPlugin(channel);
+  return knownKeyNames(channel);
+}
+
+/** The key a channel's steps play: a kit's bass drum (or its lowest named key), else none. */
+export function namedStepKey(channel: Channel): number | undefined {
+  const names = knownKeyNames(channel);
+  if (names.size === 0) return undefined;
+  for (const [key, name] of names) if (/bass drum|kick/i.test(name)) return key;
+  return Math.min(...names.keys());
+}
 
 /** The names of a channel's keys: General MIDI's when the channel says so, else what its
     instrument declares (a plugin's pitch names, or a sampler's layers on keys of their own,
@@ -30,17 +70,13 @@ const pluginNames = new Map<string, Promise<Record<string, string>>>();
 export function useKeyNames(channel: Channel): Map<number, string> {
   const fromLayers = channel.instrument.type === "sampler" ? layerNames(channel) : null;
   const plugin = channel.instrument.type === "plugin" ? channel.instrument.plugin : null;
-  const cacheKey = plugin ? `${channel.id}|${plugin.uid}|${plugin.preset ?? ""}` : "";
-  const [fromPlugin, setFromPlugin] = useState<Map<number, string>>(new Map());
+  const cacheKey = pluginKey(channel);
+  const [fromPlugin, setFromPlugin] = useState<Map<number, string>>(() => answered.get(cacheKey) ?? new Map());
 
   useEffect(() => {
     if (!plugin || channel.keyNames === "generalMidi") return;
     let current = true;
-    if (!pluginNames.has(cacheKey)) {
-      pluginNames.set(cacheKey, engine.call<{ keyNames: Record<string, string> }>("plugins.keyNames", { channel: channel.id })
-        .then((r) => r.keyNames ?? {}, () => ({})));
-    }
-    void pluginNames.get(cacheKey)!.then((names) => {
+    void askPlugin(channel).then((names) => {
       if (current) setFromPlugin(new Map(Object.entries(names).map(([k, v]) => [Number(k), v])));
     });
     return () => {
