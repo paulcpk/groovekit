@@ -17,6 +17,7 @@ import { PlaylistToolbar } from "./PlaylistToolbar";
 import { RowHeader } from "./RowHeader";
 import { Ruler } from "./Ruler";
 import { useClipDrag } from "./useClipDrag";
+import { usePlaylistKeys } from "./usePlaylistKeys";
 import { useRowDrag } from "./useRowDrag";
 import { useRubberBand } from "./useRubberBand";
 import { CHUNK, useViewport } from "./useViewport";
@@ -31,8 +32,10 @@ export function Playlist() {
   const doc = useEngine((s) => s.doc)!;
   const { playlistZoom, rowHeight, snap, selectedClips } = useUi(useShallow((s) =>
     ({ playlistZoom: s.playlistZoom, rowHeight: s.rowHeight, snap: s.snap, selectedClips: s.selectedClips })));
+  const root = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  usePlaylistKeys(root);
   // The clip last right-clicked, for the one context menu all the clips share.
   const [menu, setMenu] = useState<{ clipId: string; at: number } | null>(null);
 
@@ -94,7 +97,7 @@ export function Playlist() {
   const gridStyle: React.CSSProperties = { width, height: g.rowHeight };
 
   return (
-    <div className="flex h-full flex-col bg-bg" data-tour="playlist">
+    <div ref={root} className="flex h-full flex-col bg-bg" data-tour="playlist">
       <PlaylistToolbar doc={doc} />
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-auto">
         {/* One context menu serves every clip: a right-click on a clip names it (openClipMenu)

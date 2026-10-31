@@ -7,6 +7,7 @@ import { audioSource, baseName, patternLength, ticksPerBar, uniqueId } from "@/l
 import { getPeaks } from "@/lib/peaks";
 import { execute, reportError, toast } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
+import { copiesOf } from "./clipOps";
 import type { DraggedSample } from "./geometry";
 
 /** A drag of clips in progress: which, and how far so far. */
@@ -34,12 +35,7 @@ export async function commitDrag(state: DragState, doc: Project) {
       changes: { start: c.start + state.dTicks, ...(state.dRows ? { row: rowAfter(c) } : {}) },
     })), { label: `Move ${what}` });
   } else if (state.mode === "copy") {
-    const taken = new Set(doc.playlist.clips.map((c) => c.id));
-    const copies = clips.map((c) => {
-      const id = uniqueId(c.id.replace(/-\d+$/, ""), taken);
-      taken.add(id);
-      return { ...c, id, start: c.start + state.dTicks, row: rowAfter(c) };
-    });
+    const copies = copiesOf(doc, clips, (c) => ({ start: c.start + state.dTicks, row: rowAfter(c) }));
     await execute(copies.map((clip) => ({ type: "addClip" as const, clip })), { label: `Copy ${what}` });
     setUi({ selectedClips: copies.map((c) => c.id) });
   } else if (state.mode === "resize") {

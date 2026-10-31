@@ -33,7 +33,7 @@ export function PlaylistToolbar({ doc }: { doc: Project }) {
           <DropdownItem onSelect={() => void newPattern(doc)}>New pattern</DropdownItem>
         </DropdownContent>
       </Dropdown>
-      <div className="text-2xs text-faint">Click a lane to place it · drag to select · Alt-drag to copy</div>
+      <div className="text-2xs text-faint">Click a lane to place it · drag to select · Alt-drag to copy · ⌘C ⌘V ⌘D</div>
       <div className="flex-1" />
       <IconButton size="sm" title="Follow the playhead" active={followPlayhead} onClick={() => setUi({ followPlayhead: !followPlayhead })}>
         <ScrollText size={13} />

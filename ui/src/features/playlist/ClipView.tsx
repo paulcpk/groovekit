@@ -13,7 +13,7 @@ import { execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { openWindow } from "@/state/windows";
 import { AudioContent, AutomationContent, PatternContent } from "./ClipContent";
-import { makeAudioUnique, splitAtPlayhead, splitClips } from "./clipOps";
+import { duplicateClips, makeAudioUnique, splitAtPlayhead, splitClips } from "./clipOps";
 import { CLIP_HEADER_H } from "./geometry";
 
 export function clipColor(clip: Clip, doc: Project) {
@@ -162,18 +162,6 @@ export function ClipMenu({ clipId, at }: { clipId: string; at: number }) {
   const targets = selection.includes(clip.id) ? doc.playlist.clips.filter((c) => selection.includes(c.id)) : [clip];
   const plural = targets.length > 1 ? ` ${targets.length} clips` : "";
 
-  const duplicate = () => {
-    const taken = new Set(doc.playlist.clips.map((c) => c.id));
-    const span = Math.max(...targets.map((c) => c.start + c.length)) - Math.min(...targets.map((c) => c.start));
-    const copies = targets.map((c) => {
-      const id = uniqueId(c.id.replace(/-\d+$/, ""), taken);
-      taken.add(id);
-      return { ...c, id, start: c.start + span };
-    });
-    void execute(copies.map((c) => ({ type: "addClip" as const, clip: c })), { label: `Duplicate${plural || " clip"}` });
-    setUi({ selectedClips: copies.map((c) => c.id) });
-  };
-
   const makeUnique = () => {
     if (clip.type !== "pattern") return;
     const pattern = doc.patterns.find((p) => p.id === clip.pattern);
@@ -202,7 +190,7 @@ export function ClipMenu({ clipId, at }: { clipId: string; at: number }) {
           <ContextMenuSeparator />
         </>
       )}
-      <ContextMenuItem onSelect={duplicate}>Duplicate{plural}</ContextMenuItem>
+      <ContextMenuItem shortcut="⌘D" onSelect={() => duplicateClips(targets)}>Duplicate{plural}</ContextMenuItem>
       <ContextMenuItem onSelect={() => splitClips(at, [clip.id])} disabled={at <= clip.start || at >= clip.start + clip.length}>Split here</ContextMenuItem>
       <ContextMenuItem shortcut="⌘E" onSelect={() => splitAtPlayhead()}>Split at playhead</ContextMenuItem>
       <ContextMenuItem onSelect={() => void execute(targets.map((c) => ({ type: "updateClip" as const, clip: c.id, changes: { mute: !clip.mute } })),

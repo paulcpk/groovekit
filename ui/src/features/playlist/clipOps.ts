@@ -1,6 +1,8 @@
 import type { AudioClip, AutomationPoint, Clip, Project } from "@groovekit/schema/project";
 import type { Command } from "@groovekit/schema/protocol";
-import { audioSource, uniqueId } from "@/lib/model";
+import { copiedClips, copyClips } from "@/lib/clipClipboard";
+import { audioSource, ticksPerBar, uniqueId } from "@/lib/model";
+import { PasteTrail, placement, type Span } from "@/lib/placement";
 import { execute, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
@@ -87,4 +89,71 @@ export async function makeAudioUnique(doc: Project, clip: AudioClip) {
     { type: "addChannel", channel: { ...channel, id, name: `${channel.name || channel.id} 2` }, index: doc.channels.indexOf(channel) + 1 },
     { type: "updateClip", clip: clip.id, changes: { channel: id } },
   ], { label: "Make clip unique" });
+}
+
+/** Copies of clips with ids of their own (pattern-2, pattern-3...), changed as given. */
+export function copiesOf(doc: Project, clips: Clip[], change: (clip: Clip) => Partial<Clip>): Clip[] {
+  const taken = new Set(doc.playlist.clips.map((c) => c.id));
+  return clips.map((c) => {
+    const id = uniqueId(c.id.replace(/-\d+$/, ""), taken);
+    taken.add(id);
+    return { ...c, ...change(c), id } as Clip;
+  });
+}
+
+const spans = (clips: Clip[]): Span[] => clips.map((c) => ({ lane: c.row, start: c.start, length: c.length }));
+
+/** Where the clips pasted last went, so pasting them again goes on after them. */
+const pastes = new PasteTrail();
+
+/** Adds copies of clips moved by `shift` (from the placement rule: their own times when nothing
+    in their rows is in the way, else from the next bar line after them), in their rows. The
+    copies become the selection; it all undoes in one step. */
+function addCopies(doc: Project, clips: Clip[], shift: number, verb: string) {
+  const copies = copiesOf(doc, clips, (c) => ({ start: c.start + shift }));
+  void execute(copies.map((clip) => ({ type: "addClip" as const, clip })), { label: `${verb} ${copies.length === 1 ? "clip" : `${copies.length} clips`}` });
+  setUi({ selectedClips: copies.map((c) => c.id) });
+}
+
+/** The selected clips, in the song's order. */
+function selectedClips(doc: Project) {
+  const ids = useUi.getState().selectedClips;
+  return doc.playlist.clips.filter((c) => ids.includes(c.id));
+}
+
+/** ⌘C: the selected clips onto the clipboard. */
+export function copySelectedClips() {
+  const doc = useEngine.getState().doc;
+  const clips = doc ? selectedClips(doc) : [];
+  if (clips.length) copyClips(clips);
+  return clips.length > 0;
+}
+
+/** ⌘V: the copied clips back into the playlist, each paste after the last. */
+export function pasteClips() {
+  const doc = useEngine.getState().doc;
+  const clips = copiedClips();
+  if (!doc || !clips.length) return false;
+  addCopies(doc, clips, pastes.place("playlist", spans(clips), spans(doc.playlist.clips), ticksPerBar(doc)), "Paste");
+  return true;
+}
+
+/** ⌘D, or Duplicate in a clip's menu: copies of the clips (the selection unless given) placed
+    as a paste would place them, in one step. */
+export function duplicateClips(clips?: Clip[]) {
+  const doc = useEngine.getState().doc;
+  const chosen = clips ?? (doc ? selectedClips(doc) : []);
+  if (!doc || !chosen.length) return false;
+  addCopies(doc, chosen, placement(spans(chosen), spans(doc.playlist.clips), ticksPerBar(doc)), "Duplicate");
+  return true;
+}
+
+/** Delete: the selected clips out of the song, in one step. */
+export function deleteSelectedClips() {
+  const doc = useEngine.getState().doc;
+  const clips = doc ? selectedClips(doc) : [];
+  if (!clips.length) return false;
+  void execute(clips.map((c) => ({ type: "removeClip" as const, clip: c.id })), { label: clips.length === 1 ? "Delete clip" : `Delete ${clips.length} clips` });
+  setUi({ selectedClips: [] });
+  return true;
 }

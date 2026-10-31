@@ -7,6 +7,9 @@ import { Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTri
 import { newPattern } from "@/features/playlist/edits";
 import { stepKey } from "@/features/rack/channels";
 import { cn } from "@/lib/cn";
+import { typing, useClickedLast } from "@/lib/clickedLast";
+import { copiedNotes, copyNotes } from "@/lib/noteClipboard";
+import { PasteTrail, placement, type Span } from "@/lib/placement";
 import { useLivePosition } from "@/lib/playhead";
 import { floorTo, snapTo, startDrag } from "@/lib/drag";
 import { colorFor, noteName, patternLength, STEP, ticksPerBar, ticksPerBeat } from "@/lib/model";
@@ -26,8 +29,8 @@ const black = new Set([1, 3, 6, 8, 10]);
 /** The piano view's rows: every key, the highest at the top. */
 const PIANO_ROWS = Array.from({ length: 128 }, (_, i) => 127 - i);
 
-/** Notes copied with ⌘C, pasted into any pattern or channel with ⌘V. */
-let noteClipboard: Note[] = [];
+/** Where the notes pasted last went, so pasting them again goes on after them. */
+const pastes = new PasteTrail();
 
 export function PianoRoll() {
   const doc = useEngine((s) => s.doc)!;
@@ -127,17 +130,9 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
       .finally(() => setDraft(null));
   };
 
-  // Editing keys act on the piano roll while it's what was clicked last.
+  // Editing keys act on the piano roll while it's what was clicked last (its own menus aside).
   const root = useRef<HTMLDivElement>(null);
-  const active = useRef(false);
-
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      active.current = !!root.current?.contains(e.target as Node);
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    return () => window.removeEventListener("pointerdown", onDown, true);
-  }, []);
+  const active = useClickedLast(root);
 
   const quantize = () => {
     const targets = selected.size ? selected : new Set(stored.map((_, i) => i));
@@ -147,8 +142,7 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (!active.current || t?.tagName === "INPUT" || t?.tagName === "TEXTAREA") return;
+      if (!active.current || typing(e)) return;
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       const all = new Set(stored.map((_, i) => i));
@@ -167,14 +161,19 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
         setSelected(all);
       } else if (mod && k === "c" && chosen.length) {
         handled();
-        noteClipboard = chosen.map((n) => ({ ...n }));
+        copyNotes(chosen);
       } else if (mod && (k === "v" || k === "d")) {
-        // Paste puts copied notes back at their times; duplicate repeats the selection right after itself.
-        const source = k === "v" ? noteClipboard : chosen;
+        // Paste (the copied notes) and duplicate (the selection) place by the shared rule: at the
+        // notes' own times when nothing on their keys is in the way, else from the grid step after
+        // them; pasting again goes on after the last paste.
+        const source = k === "v" ? copiedNotes() : chosen;
         if (!source.length) return;
         handled();
-        const span = k === "d" ? Math.ceil((Math.max(...source.map((n) => n.start + n.length)) - Math.min(...source.map((n) => n.start))) / step) * step : 0;
-        const added = source.map((n) => ({ ...n, channel: channelId, start: n.start + span }));
+        const spans = (list: Note[]): Span[] => list.map((n) => ({ lane: n.key ?? 60, start: n.start, length: n.length }));
+        const shift = k === "v"
+          ? pastes.place(`${pattern.id}/${channelId}`, spans(source), spans(stored), step)
+          : placement(spans(source), spans(stored), step);
+        const added = source.map((n) => ({ ...n, channel: channelId, start: n.start + shift }));
         const next = [...stored, ...added];
         const end = Math.max(...next.map((n) => n.start + n.length));
         // A pattern with a set length grows (in whole bars) to keep the new notes in its loop.
@@ -203,6 +202,9 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
       } else if (k === "q" && !mod) {
         handled();
         quantize();
+      } else if (e.key === "Escape" && selected.size) {
+        // Not used up: an open menu or dialog closes on it too.
+        setSelected(new Set());
       }
     };
     window.addEventListener("keydown", onKey, true);
