@@ -29,6 +29,8 @@ export const OWN_PLUGINS: Record<string, string> = {
   Quartet: "FM chords and stabs",
   Sextet: "six-oscillator pads and basses",
   Kessel: "hard kicks with rumble",
+  "Groove-8": "analogue rhythm machine, the booming one",
+  "Groove-9": "rhythm machine, the punchy one",
   Chamber: "reverb",
   Echo: "delay",
 };

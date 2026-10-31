@@ -1,5 +1,5 @@
 // Copies the engine build into src-tauri/binaries under the name Tauri bundles sidecars by:
-// groovekit-engine-<target triple>, and GrooveKit's own plugins (Triad, Quartet, Sextet, Chamber, Echo) into
+// groovekit-engine-<target triple>, and GrooveKit's own plugins (Triad, Quartet, Sextet, Kessel, Groove-8, Groove-9, Chamber, Echo) into
 // src-tauri/plugins, which the app carries in Resources/Plug-Ins. Uses the release build if
 // there is one, else the debug build.
 

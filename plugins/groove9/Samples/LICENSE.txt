@@ -1,0 +1,15 @@
+Groove-9's hats and cymbals
+===========================
+
+hat-closed.flac, hat-open.flac, crash.flac and ride.flac are recordings of a modern model of the
+original machine's hats and cymbals (which were samples on the original too), from the MckAudio
+sample packs, renamed:
+
+    https://github.com/MckAudio/MckSamplePacks (commit 5db40e8fe26785c256845a5bb38921b2654a887f)
+    By: MckAudio
+    Licence: CC0 1.0 Universal (public domain dedication)
+    https://creativecommons.org/publicdomain/zero/1.0/
+
+To the extent possible under law, the author has waived all copyright and related or neighbouring
+rights to these recordings. They are used here as they were published, decoded and played back at
+the pitch the Tune knob sets.

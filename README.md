@@ -105,6 +105,7 @@ GrooveKit's own instruments and effects come with the app as VST3s, ready in any
 - **Quartet**: four-operator FM with eight algorithms, a chord memory (minor sevenths and ninths, house voicings, fourths), an analogue layer, a filter, a chorus and a keyboard on its panel; the synth for house chords, techno stabs, keys and FM basses, in the shape of a classic digital synth.
 - **Sextet**: six oscillators that morph between shapes and modulate, ring and sync each other, two filters, three envelopes, three LFOs, a ten-slot modulation matrix and drive, chorus, delay and reverb; pads, long chords, trance sounds and raw basslines.
 - **Kessel**: a kick machine for hard kicks (hardstyle, hardcore, hard techno): a click, a body whose pitch dives to a tuned tail, distortion with a crunch boost before it, a clean sub, a rumble that ducks under the next kick, one-knob compression and a clipper; a screen draws the kick as you turn the knobs, and a die rolls a new one.
+- **Groove-8** and **Groove-9**: GrooveKit's homages to the two classic rhythm machines of 1980 and 1983, laid out like them: every voice a modelled circuit with the knobs it had (Groove-9's hats and cymbals are recordings, as the original's were), tuned against recordings of the originals, a step sequencer with sixteen patterns, accent, shuffle and (on Groove-9) flam that plays with the song, and General MIDI drum notes; 25 kits each.
 - **Chamber**: an algorithmic reverb from small rooms to endless washes, with early reflections, modulation, ducking and freeze, played from an X/Y pad.
 - **Echo**: a stereo delay synced to the tempo, with ping-pong and dual times, tape saturation and wow, diffusion, dub feedback, ducking and freeze, played from an X/Y pad.
 
@@ -112,7 +113,7 @@ GrooveKit's own instruments and effects come with the app as VST3s, ready in any
 
 - `engine/` — C++ engine: model, commands and history, API server, compiler to Tracktion, sampler, mixer, effects, renderer, analysis, CLI
 - `schema/` — JSON Schemas for the project and the command protocol, and the C++/TypeScript generator (`pnpm codegen`)
-- `plugins/` — GrooveKit's own JUCE VST3s: `triad/`, `quartet/` and `sextet/` (synths), `kessel/` (kicks), `chamber/` (reverb), `echo/` (delay), and `common/` (their shared look, presets and DSP)
+- `plugins/` — GrooveKit's own JUCE VST3s: `triad/`, `quartet/` and `sextet/` (synths), `kessel/` (kicks), `groove8/` and `groove9/` (rhythm machines, sharing `rhythm/`), `chamber/` (reverb), `echo/` (delay), and `common/` (their shared look, presets and DSP)
 - `mcp/` — the MCP server for agents
 - `ui/` — the app: React UI and the Tauri desktop shell
 - `tests/` — render test songs and the fixture samples they use
