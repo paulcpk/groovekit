@@ -71,6 +71,12 @@
           "type": "string",
           "enum": ["kick", "rumble", "drums", "bass", "percussion", "clap", "hats", "synth", "vocal", "fx"]
         },
+        "keyNames": {
+          "description": "Where the names of the channel's keys come from, for the piano roll's drum rows: instrument (those a plugin declares, or a sampler's layers on keys of their own) or generalMidi (the General MIDI drum map, for drum plugins that name none).",
+          "type": "string",
+          "enum": ["instrument", "generalMidi"],
+          "default": "instrument"
+        },
         "instrument": { "$ref": "#/$defs/Instrument" }
       }
     },

@@ -79,7 +79,7 @@ export function registerLibraryTools({ server, engine }: Tools) {
   server.registerTool(
     "describe_plugin",
     {
-      description: "Loads a plugin and lists its presets and parameters (id, name, normalized value, display text), plus a pluginRef to use in commands. Instruments like the Digitakt have thousands of parameters: filter with query (words in the name, e.g. \"T1 filter\").",
+      description: "Loads a plugin and lists its presets and parameters (id, name, normalized value, display text), the names it gives its keys (keyNames, a drum plugin's \"36\": \"Bass Drum\"; write its notes on those keys), plus a pluginRef to use in commands. Instruments like the Digitakt have thousands of parameters: filter with query (words in the name, e.g. \"T1 filter\").",
       inputSchema: {
         uid: z.string().describe("From plugins"),
         query: z.string().optional(),

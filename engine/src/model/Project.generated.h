@@ -106,6 +106,36 @@ inline void readValue (Reader& r, const Json& j, ChannelPart& out)
     r.fail ("unknown value \"" + s + "\"");
 }
 
+enum class ChannelKeyNames
+{
+    instrument,
+    generalMidi
+};
+
+inline const char* toString (ChannelKeyNames v)
+{
+    switch (v)
+    {
+        case ChannelKeyNames::instrument: return "instrument";
+        case ChannelKeyNames::generalMidi: return "generalMidi";
+    }
+
+    return "";
+}
+
+inline Json toJson (ChannelKeyNames v) { return toString (v); }
+
+inline void readValue (Reader& r, const Json& j, ChannelKeyNames& out)
+{
+    std::string s;
+    readValue (r, j, s);
+
+    if (s == "instrument") { out = ChannelKeyNames::instrument; return; }
+    if (s == "generalMidi") { out = ChannelKeyNames::generalMidi; return; }
+
+    r.fail ("unknown value \"" + s + "\"");
+}
+
 enum class SamplerFilterType
 {
     off,
@@ -1183,6 +1213,8 @@ struct Channel
     ChannelGroup group = ChannelGroup::rack;
     /** What the channel plays in the mix. Its insert's slot EQ (the effect with id "slot") keeps it to that part's range: kick, rumble and bass the lows, percussion loops the low mids, synths the low and upper mids, claps and effects the upper mids, hats the upper mids and highs. */
     std::optional<ChannelPart> part;
+    /** Where the names of the channel's keys come from, for the piano roll's drum rows: instrument (those a plugin declares, or a sampler's layers on keys of their own) or generalMidi (the General MIDI drum map, for drum plugins that name none). */
+    ChannelKeyNames keyNames = ChannelKeyNames::instrument;
     Instrument instrument;
 
     bool operator== (const Channel&) const = default;
@@ -1190,7 +1222,7 @@ struct Channel
 
 inline void readValue (Reader& r, const Json& j, Channel& out)
 {
-    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "solo", "insert", "group", "part", "instrument" });
+    r.expectObject (j, { "id", "name", "color", "volumeDb", "pan", "mute", "solo", "insert", "group", "part", "keyNames", "instrument" });
 
     r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name); });
@@ -1202,6 +1234,7 @@ inline void readValue (Reader& r, const Json& j, Channel& out)
     r.optional (j, "insert", [&] (const Json& v) { readValue (r, v, out.insert); r.checkPattern (out.insert, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.optional (j, "group", [&] (const Json& v) { readValue (r, v, out.group); });
     r.optional (j, "part", [&] (const Json& v) { readValue (r, v, out.part.emplace()); });
+    r.optional (j, "keyNames", [&] (const Json& v) { readValue (r, v, out.keyNames); });
     r.required (j, "instrument", [&] (const Json& v) { readValue (r, v, out.instrument); });
 }
 
@@ -1224,6 +1257,7 @@ inline Json toJson (const Channel& v)
     if (v.part)
         j["part"] = toJson (*v.part);
 
+    j["keyNames"] = toJson (v.keyNames);
     j["instrument"] = toJson (v.instrument);
     return j;
 }

@@ -1775,6 +1775,16 @@ void LiveEngine::takeCapturedNotes()
 {
     auto messages = capture.take();
 
+    if (onInputNotes && ! messages.empty())
+    {
+        std::vector<std::pair<int, int>> played;
+
+        for (auto& [message, ms] : messages)
+            played.emplace_back (message.getNoteNumber(), message.isNoteOn() ? message.getVelocity() : 0);
+
+        onInputNotes (played);
+    }
+
     if (! noteRecording || messages.empty() || compiled.edit == nullptr)
         return;
 

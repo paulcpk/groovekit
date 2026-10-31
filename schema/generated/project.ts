@@ -2,6 +2,7 @@
 
 export type ChannelGroup = "rack" | "arrangement";
 export type ChannelPart = "kick" | "rumble" | "drums" | "bass" | "percussion" | "clap" | "hats" | "synth" | "vocal" | "fx";
+export type ChannelKeyNames = "instrument" | "generalMidi";
 export type SamplerFilterType = "off" | "lowpass" | "lowpass24" | "highpass" | "highpass24" | "bandpass" | "notch";
 export type LfoShape = "sine" | "triangle" | "square" | "saw" | "random";
 export type SamplerLayerMode = "oneShot" | "gate";
@@ -272,6 +273,8 @@ export interface Channel {
   group?: ChannelGroup;
   /** What the channel plays in the mix. Its insert's slot EQ (the effect with id "slot") keeps it to that part's range: kick, rumble and bass the lows, percussion loops the low mids, synths the low and upper mids, claps and effects the upper mids, hats the upper mids and highs. */
   part?: ChannelPart;
+  /** Where the names of the channel's keys come from, for the piano roll's drum rows: instrument (those a plugin declares, or a sampler's layers on keys of their own) or generalMidi (the General MIDI drum map, for drum plugins that name none). */
+  keyNames?: ChannelKeyNames;
   instrument: Instrument;
 }
 

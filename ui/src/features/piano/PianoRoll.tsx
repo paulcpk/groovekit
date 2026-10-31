@@ -13,10 +13,18 @@ import { colorFor, noteName, patternLength, STEP, ticksPerBar, ticksPerBeat } fr
 import { auditionNote } from "@/features/shell/actions";
 import { engine, execute, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
+import { drumRows, useHeldKeys, useKeyNames } from "./keyNames";
 
 const KEYS_W = 56;
+/** The keyboard's width when its keys have names, and the drum view's row labels. */
+const NAMED_KEYS_W = 132;
+const DRUM_KEYS_W = 156;
+/** The drum view's rows are at least this tall, so their names read. */
+const DRUM_ROW_H = 22;
 const VELOCITY_H = 64;
 const black = new Set([1, 3, 6, 8, 10]);
+/** The piano view's rows: every key, the highest at the top. */
+const PIANO_ROWS = Array.from({ length: 128 }, (_, i) => 127 - i);
 
 /** Notes copied with ⌘C, pasted into any pattern or channel with ⌘V. */
 let noteClipboard: Note[] = [];
@@ -68,10 +76,29 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
   const bar = ticksPerBar(doc);
   const loop = patternLength(pattern, doc);
   const width = Math.max(loop, 4 * bar) * px + 200;
-  const height = 128 * keyH;
 
   const stored = useMemo(() => pattern.notes.filter((n) => n.channel === channelId), [pattern.notes, channelId]);
   const others = useMemo(() => pattern.notes.filter((n) => n.channel !== channelId), [pattern.notes, channelId]);
+
+  // The rows: every key (piano), or a row for each key the channel names or the pattern plays
+  // (drums), which channels with named keys start in.
+  const names = useKeyNames(channel);
+  const chosenView = useUi((s) => s.pianoViews[channelId]);
+  const drums = (chosenView ?? (names.size > 0 ? "drums" : "piano")) === "drums";
+  const rowH = drums ? Math.max(keyH, DRUM_ROW_H) : keyH;
+  const played = [...new Set(stored.map((n) => n.key ?? 60))];
+  const rows = drums ? drumRows(channel, names, played, stepKey(channel)) : PIANO_ROWS;
+  const rowOf = new Map(rows.map((k, i) => [k, i]));
+  const topOf = (key: number) => (rowOf.get(key) ?? -1) * rowH;
+  const shown = (key: number) => rowOf.has(key);
+  const height = rows.length * rowH;
+
+  /** A key moved by so many keys (piano) or rows (drums), kept on the keyboard. */
+  const shiftKey = (key: number, by: number) => {
+    if (!drums) return Math.min(127, Math.max(0, key + by));
+    const row = rowOf.get(key);
+    return row === undefined ? key : rows[Math.min(rows.length - 1, Math.max(0, row + by))];
+  };
   const [draft, setDraft] = useState<Note[] | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const notes = draft ?? stored;
@@ -83,6 +110,7 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
+    if (drums) return;
     const keys = stored.map((n) => n.key ?? 60);
     const centre = keys.length ? (Math.max(...keys) + Math.min(...keys)) / 2 : stepKey(channel);
     el.scrollTop = (127 - centre) * keyH - el.clientHeight / 2;
@@ -162,10 +190,11 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
         setSelected(new Set(added.map((_, i) => stored.length + i)));
       } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && selected.size) {
         handled();
-        const dk = (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1);
-        save(stored.map((n, i) => (selected.has(i) ? { ...n, key: Math.min(127, Math.max(0, (n.key ?? 60) + dk)) } : n)), "Transpose notes");
+        // Up a key in the piano view (an octave with Shift), up a row in the drum view.
+        const dk = (e.key === "ArrowUp" ? 1 : -1) * (drums ? -1 : e.shiftKey ? 12 : 1);
+        save(stored.map((n, i) => (selected.has(i) ? { ...n, key: shiftKey(n.key ?? 60, dk) } : n)), drums ? "Move notes" : "Transpose notes");
         const first = chosen[0];
-        if (first) auditionNote(channelId, Math.min(127, Math.max(0, (first.key ?? 60) + dk)));
+        if (first) auditionNote(channelId, shiftKey(first.key ?? 60, dk));
       } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && selected.size) {
         handled();
         const dt = (e.key === "ArrowRight" ? 1 : -1) * step;
@@ -184,7 +213,34 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
 
   const pointToNote = (e: { clientX: number; clientY: number }, el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    return { tick: (e.clientX - r.left) / px, key: 127 - Math.floor((e.clientY - r.top) / keyH) };
+    const row = Math.min(rows.length - 1, Math.max(0, Math.floor((e.clientY - r.top) / rowH)));
+    return { tick: (e.clientX - r.left) / px, key: rows[row] };
+  };
+
+  /** The drum view: a click puts a hit on the row's step or takes it off; dragging along the row
+      does the same to each step it passes. */
+  const toggleHits = (e: React.PointerEvent<HTMLDivElement>, el: HTMLElement) => {
+    const { tick, key } = pointToNote(e, el);
+    const size = step > 1 ? step : STEP;
+    const at = (notes: Note[], start: number) => notes.findIndex((n) => (n.key ?? 60) === key && n.start >= start && n.start < start + size);
+    const first = floorTo(tick, size);
+    const adding = at(stored, first) < 0;
+    const done = new Set<number>();
+    let next = stored;
+    const apply = (start: number) => {
+      if (start < 0 || done.has(start)) return;
+      done.add(start);
+      const index = at(next, start);
+      if (adding && index < 0) next = [...next, { channel: channelId, start, length: size, key, velocity: 100 }];
+      else if (!adding && index >= 0) next = next.filter((_, i) => i !== index);
+      setDraft(next);
+    };
+    if (adding) auditionNote(channelId, key);
+    setSelected(new Set());
+    apply(first);
+    const label = names.get(key) ?? noteName(key);
+    startDrag(e, (_dx, _dy, ev) => apply(floorTo(pointToNote(ev, el).tick, size)),
+      () => save(next, `${adding ? "Add" : "Remove"} ${label}`), "pointer");
   };
 
   const onGridDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -202,11 +258,16 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
         const [xa, xb] = [Math.min(box.x0, box.x1), Math.max(box.x0, box.x1)];
         const [ya, yb] = [Math.min(box.y0, box.y1), Math.max(box.y0, box.y1)];
         const hit = stored.flatMap((n, i) => {
-          const top = (127 - (n.key ?? 60)) * keyH;
-          return n.start * px < xb && (n.start + n.length) * px > xa && top < yb && top + keyH > ya ? [i] : [];
+          const top = topOf(n.key ?? 60);
+          return shown(n.key ?? 60) && n.start * px < xb && (n.start + n.length) * px > xa && top < yb && top + rowH > ya ? [i] : [];
         });
         setSelected(new Set([...before, ...hit]));
       }, () => setRubber(null), "crosshair");
+      return;
+    }
+
+    if (drums) {
+      toggleHits(e, el);
       return;
     }
 
@@ -259,20 +320,23 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
       } else {
         const n = base[index];
         const dt = snapTo(n.start + (at.tick - origin.tick), s) - n.start;
-        const dk = at.key - origin.key;
+        // By keys on the piano, by rows in the drum view (so notes stay on named rows).
+        const dk = drums ? (rowOf.get(at.key) ?? 0) - (rowOf.get(origin.key) ?? 0) : at.key - origin.key;
         const minStart = Math.min(...[...sel].map((i) => base[i].start));
         const shift = Math.max(-minStart, dt);
         if (dk !== lastDk) {
           lastDk = dk;
-          auditionNote(channelId, Math.min(127, Math.max(0, (n.key ?? 60) + dk)));
+          auditionNote(channelId, shiftKey(n.key ?? 60, dk));
         }
-        const moved = base.flatMap((m, i) => (sel.has(i) ? [{ ...m, start: m.start + shift, key: Math.min(127, Math.max(0, (m.key ?? 60) + dk)) }] : []));
+        const moved = base.flatMap((m, i) => (sel.has(i) ? [{ ...m, start: m.start + shift, key: shiftKey(m.key ?? 60, dk) }] : []));
         next = copy ? [...base, ...moved] : base.map((m, i) => (sel.has(i) ? moved[[...sel].sort((a, b) => a - b).indexOf(i)] : m));
       }
       setDraft(next);
     }, (_dx, _dy, _ev, moved) => {
       if (!moved) {
-        setDraft(null);
+        // In the drum view a click on a hit takes it off, as on a drum machine.
+        if (drums && edge === "body" && !e.shiftKey) removeNote(index);
+        else setDraft(null);
         return;
       }
       if (edge === "right") lastLength.current = next[index].length;
@@ -282,33 +346,39 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
   };
 
   const removeNote = (index: number) => {
-    save(stored.filter((_, i) => i !== index), "Delete note");
+    const key = stored[index]?.key ?? 60;
+    save(stored.filter((_, i) => i !== index), drums ? `Remove ${names.get(key) ?? noteName(key)}` : "Delete note");
     setSelected(new Set());
   };
 
+  // Bar, beat and grid lines across; along, the keys (black and white) or the drum view's rows.
+  const columns = [
+    "linear-gradient(to right, var(--color-grid-strong) 1px, transparent 1px)",
+    "linear-gradient(to right, #222226 1px, transparent 1px)",
+    step > 1 && step < ticksPerBeat(doc) && step * px >= 5 ? "linear-gradient(to right, #1e1e22 1px, transparent 1px)" : "linear-gradient(transparent, transparent)",
+  ];
+  const lanes = drums
+    ? `repeating-linear-gradient(to bottom, #1b1b1f 0px, #1b1b1f ${rowH - 1}px, #141417 ${rowH - 1}px, #141417 ${rowH}px, #18181c ${rowH}px, #18181c ${2 * rowH - 1}px, #141417 ${2 * rowH - 1}px, #141417 ${2 * rowH}px)`
+    : `repeating-linear-gradient(to bottom, ${Array.from({ length: 12 }, (_, i) => {
+      const key = 11 - i;
+      const c = black.has(key) ? "#16161a" : "#1b1b1f";
+      return `${c} ${i * keyH}px, ${c} ${(i + 1) * keyH - 1}px, #141417 ${(i + 1) * keyH - 1}px, #141417 ${(i + 1) * keyH}px`;
+    }).join(", ")})`;
   const gridBackground: React.CSSProperties = {
     width, height,
-    backgroundImage: [
-      "linear-gradient(to right, var(--color-grid-strong) 1px, transparent 1px)",
-      "linear-gradient(to right, #222226 1px, transparent 1px)",
-      step > 1 && step < ticksPerBeat(doc) && step * px >= 5 ? "linear-gradient(to right, #1e1e22 1px, transparent 1px)" : "linear-gradient(transparent, transparent)",
-      `repeating-linear-gradient(to bottom, ${Array.from({ length: 12 }, (_, i) => {
-        const key = 11 - i;
-        const c = black.has(key) ? "#16161a" : "#1b1b1f";
-        return `${c} ${i * keyH}px, ${c} ${(i + 1) * keyH - 1}px, #141417 ${(i + 1) * keyH - 1}px, #141417 ${(i + 1) * keyH}px`;
-      }).join(", ")})`,
-    ].join(", "),
-    backgroundSize: `${bar * px}px 100%, ${ticksPerBeat(doc) * px}px 100%, ${Math.max(1, step) * px}px 100%, 100% ${12 * keyH}px`,
-    backgroundPosition: `0 0, 0 0, 0 0, 0 ${(128 % 12) * keyH - 12 * keyH}px`,
+    backgroundImage: [...columns, lanes].join(", "),
+    backgroundSize: `${bar * px}px 100%, ${ticksPerBeat(doc) * px}px 100%, ${Math.max(1, step) * px}px 100%, 100% ${drums ? 2 * rowH : 12 * keyH}px`,
+    backgroundPosition: `0 0, 0 0, 0 0, 0 ${drums ? 0 : (128 % 12) * keyH - 12 * keyH}px`,
   };
+  const keysWidth = drums ? DRUM_KEYS_W : names.size ? NAMED_KEYS_W : KEYS_W;
 
   return (
     <div ref={root} className="flex h-full flex-col">
-      <PianoToolbar doc={doc} pattern={pattern} channelId={channelId} onQuantize={quantize} selection={selected.size} />
+      <PianoToolbar doc={doc} pattern={pattern} channelId={channelId} onQuantize={quantize} selection={selected.size} drums={drums} named={names.size > 0} />
       <div className="flex min-h-0 flex-1">
-        <div className="flex shrink-0 flex-col border-r border-line bg-panel" style={{ width: KEYS_W }}>
+        <div className="flex shrink-0 flex-col border-r border-line bg-panel" style={{ width: keysWidth }}>
           <div className="relative min-h-0 flex-1 overflow-hidden" ref={keysRef}>
-            <Keyboard keyH={keyH} scroller={scroller} channel={channelId} />
+            <Keyboard rows={rows} rowH={rowH} drums={drums} names={names} scroller={scroller} channel={channelId} />
           </div>
           <div className="flex shrink-0 items-start justify-end border-t border-line p-1 text-[9px] text-faint" style={{ height: VELOCITY_H }}>Velocity</div>
         </div>
@@ -329,15 +399,15 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
                 <div className="pointer-events-none absolute z-20 border border-accent/80 bg-accent/10"
                   style={{ left: Math.min(rubber.x0, rubber.x1), top: Math.min(rubber.y0, rubber.y1), width: Math.abs(rubber.x1 - rubber.x0), height: Math.abs(rubber.y1 - rubber.y0) }} />
               )}
-              {others.map((n, i) => (
+              {others.map((n, i) => shown(n.key ?? 60) && (
                 <div key={`o${i}`} className="pointer-events-none absolute rounded-[2px] bg-fg/10"
-                  style={{ left: n.start * px, top: (127 - (n.key ?? 60)) * keyH, width: n.length * px, height: keyH - 1 }} />
+                  style={{ left: n.start * px, top: topOf(n.key ?? 60), width: n.length * px, height: rowH - 1 }} />
               ))}
-              {notes.map((n, i) => (
+              {notes.map((n, i) => shown(n.key ?? 60) && (
                 <div
                   key={i}
                   className={cn("absolute rounded-[2px] text-[9px] leading-none text-black/70", selected.has(i) ? "ring-1 ring-fg" : "ring-1 ring-black/50")}
-                  style={{ left: n.start * px, top: (127 - (n.key ?? 60)) * keyH, width: Math.max(3, n.length * px - 1), height: keyH - 1, background: color, opacity: 0.55 + ((n.velocity ?? 100) / 127) * 0.45 }}
+                  style={{ left: n.start * px, top: topOf(n.key ?? 60), width: Math.max(3, n.length * px - 1), height: rowH - 1, background: color, opacity: 0.55 + ((n.velocity ?? 100) / 127) * 0.45 }}
                   onPointerDown={(e) => {
                     const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
                     onNoteDown(e, i, x > n.length * px - 6 ? "right" : "body");
@@ -351,7 +421,7 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
                     removeNote(i);
                   }}
                 >
-                  {keyH >= 11 && n.length * px > 24 && <span className="pl-0.5">{noteName(n.key ?? 60)}</span>}
+                  {!drums && keyH >= 11 && n.length * px > 24 && <span className="pl-0.5">{noteName(n.key ?? 60)}</span>}
                   <div className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize" />
                 </div>
               ))}
@@ -365,22 +435,42 @@ function Editor({ doc, pattern, channelId }: { doc: Project; pattern: Pattern; c
   );
 }
 
-/** The keys play the channel while held. */
-function Keyboard({ keyH, scroller, channel }: { keyH: number; scroller: React.RefObject<HTMLDivElement | null>; channel: string }) {
-  const keys = Array.from({ length: 128 }, (_, i) => 127 - i);
+/** The keys, which play the channel while held: the whole keyboard with the names of named keys
+    beside their notes, or the drum view's rows, each a name over its key. Keys held on a MIDI
+    keyboard light up, so which key plays what shows as it's played. */
+function Keyboard({ rows, rowH, drums, names, scroller, channel }: {
+  rows: number[]; rowH: number; drums: boolean; names: Map<number, string>; scroller: React.RefObject<HTMLDivElement | null>; channel: string;
+}) {
+  const held = useHeldKeys((s) => s.held);
   const play = (e: React.PointerEvent, key: number) => {
     if (e.button !== 0) return;
     void engine.call("live.noteOn", { channel, key, velocity: 100 }).catch(() => {});
     startDrag(e, () => {}, () => void engine.call("live.noteOff", { key }).catch(() => {}));
   };
   return (
-    <div style={{ height: 128 * keyH }} onWheel={(e) => scroller.current && (scroller.current.scrollTop += e.deltaY)}>
-      {keys.map((k) => (
-        <div key={k} onPointerDown={(e) => play(e, k)}
-          className={cn("flex cursor-pointer items-center justify-end border-b border-black/40 pr-1 text-[9px] active:brightness-75", black.has(k % 12) ? "bg-[#202024] text-faint" : "bg-[#cfcfd4] text-[#3a3a40]")} style={{ height: keyH }}>
-          {k % 12 === 0 && keyH >= 9 ? noteName(k) : ""}
-        </div>
-      ))}
+    <div style={{ height: rows.length * rowH }} onWheel={(e) => scroller.current && (scroller.current.scrollTop += e.deltaY)}>
+      {rows.map((k, i) => {
+        const name = names.get(k);
+        const lit = held.has(k);
+        if (drums) {
+          return (
+            <div key={k} onPointerDown={(e) => play(e, k)} title={`${name ?? noteName(k)}: ${noteName(k)}, key ${k}`}
+              className={cn("flex cursor-pointer items-center gap-1.5 border-b border-black/40 px-1.5 active:brightness-75", lit ? "bg-accent/40" : i % 2 ? "bg-[#1d1d21]" : "bg-[#222226]")}
+              style={{ height: rowH }}>
+              <span className={cn("min-w-0 flex-1 truncate text-2xs", name ? "text-fg" : "text-faint")}>{name ?? noteName(k)}</span>
+              <span className="shrink-0 text-[9px] text-faint tabular-nums">{noteName(k)} · {k}</span>
+            </div>
+          );
+        }
+        return (
+          <div key={k} onPointerDown={(e) => play(e, k)} title={name ? `${name}: ${noteName(k)}, key ${k}` : undefined}
+            className={cn("flex cursor-pointer items-center justify-end gap-1 border-b border-black/40 pr-1 text-[9px] active:brightness-75",
+              lit ? "bg-accent text-black" : black.has(k % 12) ? "bg-[#202024] text-faint" : "bg-[#cfcfd4] text-[#3a3a40]")} style={{ height: rowH }}>
+            {name && rowH >= 9 && <span className="min-w-0 flex-1 truncate pl-1 font-medium">{name}</span>}
+            {(k % 12 === 0 || name) && rowH >= 9 ? noteName(k) : ""}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -424,7 +514,9 @@ function VelocityLane({ notes, px, width, color, selected, onChange, onPreview }
   );
 }
 
-function PianoToolbar({ doc, pattern, channelId, onQuantize, selection }: { doc: Project; pattern: Pattern; channelId: string; onQuantize: () => void; selection: number }) {
+function PianoToolbar({ doc, pattern, channelId, onQuantize, selection, drums, named }: {
+  doc: Project; pattern: Pattern; channelId: string; onQuantize: () => void; selection: number; drums: boolean; named: boolean;
+}) {
   const { pianoZoom, pianoKeyHeight, pianoSnap } = useUi(useShallow((s) => ({ pianoZoom: s.pianoZoom, pianoKeyHeight: s.pianoKeyHeight, pianoSnap: s.pianoSnap })));
   const grid = GRIDS.find((g) => g.ticks === pianoSnap) ?? GRIDS[3];
   const channel = doc.channels.find((c) => c.id === channelId)!;
@@ -468,8 +560,38 @@ function PianoToolbar({ doc, pattern, channelId, onQuantize, selection }: { doc:
           ))}
         </DropdownContent>
       </Dropdown>
+      <div className="flex rounded-md bg-control p-0.5" title="Piano: the whole keyboard. Drums: a row for each key the instrument names or the pattern plays">
+        {(["piano", "drums"] as const).map((v) => (
+          <button key={v} type="button"
+            className={cn("rounded px-2 py-0.5 text-2xs capitalize", (v === "drums") === drums ? "bg-raised text-fg" : "text-faint hover:text-dim")}
+            onClick={() => setUi({ pianoViews: { ...useUi.getState().pianoViews, [channelId]: v } })}>{v}</button>
+        ))}
+      </div>
+      {drums && (
+        <Dropdown>
+          <DropdownTrigger asChild>
+            <Button size="sm" title="Where the rows' names come from">
+              <span className="text-faint">Names</span> <span className="text-fg">{channel.keyNames === "generalMidi" ? "General MIDI" : named ? "From instrument" : "None"}</span> <ChevronDown size={11} />
+            </Button>
+          </DropdownTrigger>
+          <DropdownContent>
+            <DropdownItem checked={channel.keyNames !== "generalMidi"}
+              onSelect={() => void execute({ type: "updateChannel", channel: channelId, changes: { keyNames: "instrument" } }, { label: "Key names from the instrument" })}>
+              From the instrument
+            </DropdownItem>
+            <DropdownItem checked={channel.keyNames === "generalMidi"}
+              onSelect={() => void execute({ type: "updateChannel", channel: channelId, changes: { keyNames: "generalMidi" } }, { label: "General MIDI drum names" })}>
+              General MIDI drums (36 bass drum, 38 snare, 42 closed hat…)
+            </DropdownItem>
+          </DropdownContent>
+        </Dropdown>
+      )}
       <Button size="sm" title="Snap note starts to the grid (Q)" onClick={onQuantize}>Quantize{selection ? ` ${selection}` : ""}</Button>
-      <div className="truncate text-2xs text-faint">Click to draw · Shift-drag selects · Alt-drag copies · ⌘ while dragging ignores the grid · ↑↓ transpose · ⌘C ⌘V ⌘D · double-click deletes</div>
+      <div className="truncate text-2xs text-faint">
+        {drums
+          ? "Click a step to put a hit on it or take it off · drag along a row to fill · Shift-drag selects · ↑↓ move a row · ⌘C ⌘V ⌘D"
+          : "Click to draw · Shift-drag selects · Alt-drag copies · ⌘ while dragging ignores the grid · ↑↓ transpose · ⌘C ⌘V ⌘D · double-click deletes"}
+      </div>
       <div className="flex-1" />
       <div className="flex items-center">
         <IconButton size="sm" title="Shorter keys" onClick={() => setUi({ pianoKeyHeight: Math.max(6, pianoKeyHeight - 2) })}><Minus size={12} /></IconButton>

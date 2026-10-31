@@ -38,6 +38,23 @@ namespace gk
 
 namespace
 {
+    /** The names a plugin gives its keys (a drum plugin's "Bass Drum" on 36), by key: VST3's
+        pitch names, which most drum instruments declare. Empty when it names none. */
+    Json keyNamesOf (juce::AudioPluginInstance& instance)
+    {
+        auto names = Json::object();
+
+        for (int key = 0; key < 128; ++key)
+            if (auto name = instance.getNameForMidiNoteNumber (key, 1); name && name->isNotEmpty())
+                names[std::to_string (key)] = name->toStdString();
+
+        return names;
+    }
+}
+
+
+namespace
+{
     /** Magnitudes in dB (full scale sine = 0) on 160 bins spaced evenly in log frequency from
         20 Hz to 20 kHz, each the loudest FFT bin within it, Hann windowed. */
     Json spectrumBins (const std::vector<float>& samples, double sampleRate)
@@ -496,6 +513,11 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params, Cli
                 presets.push_back (instance->getProgramName (i).toStdString());
 
         result["presets"] = presets;
+
+        if (auto* instance = external->getAudioPluginInstance())
+            if (auto names = keyNamesOf (*instance); ! names.empty())
+                result["keyNames"] = names;
+
         plugin = nullptr;
         EditGraveyard::getInstance().bury (std::move (edit));
         result["matchingParameters"] = matching;
@@ -503,6 +525,46 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params, Cli
         result["pluginRef"] = { { "format", PluginCatalog::formatName (*desc) }, { "uid", uid }, { "name", desc->name.toStdString() },
                                 { "manufacturer", desc->manufacturerName.toStdString() } };
         return result;
+    }
+
+    if (method == "keyNames")
+    {
+        // The names a channel's plugin gives its keys: from the instance playing, or one loaded
+        // for the purpose when nothing plays it.
+        const auto channelId = readParam<std::string> (params, "channel");
+
+        if (live != nullptr)
+            if (auto external = dynamic_cast<tracktion::ExternalPlugin*> (live->findPlugin ("channel:" + channelId)))
+                if (auto* instance = external->getAudioPluginInstance())
+                    return { { "keyNames", keyNamesOf (*instance) } };
+
+        const auto& project = session.getProject();
+        auto channel = std::find_if (project.channels.begin(), project.channels.end(), [&] (auto& c) { return c.id == channelId; });
+
+        if (channel == project.channels.end())
+            throw RpcError (invalidParams, "no channel \"" + channelId + "\"");
+
+        const auto* plugin = std::get_if<model::PluginInstrument> (&channel->instrument);
+
+        if (plugin == nullptr)
+            return { { "keyNames", Json::object() } };
+
+        auto desc = plugins->find (plugin->plugin.uid);
+
+        if (! desc)
+            return { { "keyNames", Json::object() } };
+
+        auto edit = tracktion::Edit::createSingleTrackEdit (context.getEngine(), tracktion::Edit::forRendering);
+        auto loaded = edit->getPluginCache().createNewPlugin (tracktion::ExternalPlugin::xmlTypeName, *desc);
+        auto names = Json::object();
+
+        if (auto external = dynamic_cast<tracktion::ExternalPlugin*> (loaded.get()))
+            if (auto* instance = external->getAudioPluginInstance())
+                names = keyNamesOf (*instance);
+
+        loaded = nullptr;
+        EditGraveyard::getInstance().bury (std::move (edit));
+        return { { "keyNames", names } };
     }
 
     if (method == "captureState" || method == "openEditor" || method == "closeEditor")

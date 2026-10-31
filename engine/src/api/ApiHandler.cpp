@@ -120,6 +120,20 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
             broadcast (notification ("levels", { { "inserts", Json (std::move (inserts)) }, { "channels", Json (std::move (channels)) } }).dump());
         };
 
+    if (live != nullptr)
+        live->onInputNotes = [this] (const std::vector<std::pair<int, int>>& played)
+        {
+            if (! broadcast)
+                return;
+
+            auto list = Json::array();
+
+            for (auto [key, velocity] : played)
+                list.push_back ({ key, velocity });
+
+            broadcast (notification ("inputNotes", { { "notes", list } }).dump());
+        };
+
     // What was done in a plugin's window goes into the project when the window closes.
     if (live != nullptr)
         PluginWindowBehaviour::onWindowClosed = [this, alive = alive] (tracktion::Plugin& plugin)

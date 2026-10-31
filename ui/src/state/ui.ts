@@ -31,6 +31,8 @@ export interface UiState {
   pianoKeyHeight: number;
   /** The piano roll's grid in ticks (its own, apart from the playlist's snap); 1 is off. */
   pianoSnap: number;
+  /** The piano roll's view per channel: the whole keyboard, or a row for each named or played key. */
+  pianoViews: Record<string, "piano" | "drums">;
   followPlayhead: boolean;
   settingsOpen: boolean;
   recordOpen: boolean;
@@ -71,6 +73,7 @@ export const useUi = create<UiState>(() => ({
   pianoZoom: 80,
   pianoKeyHeight: 12,
   pianoSnap: 240,
+  pianoViews: {},
   followPlayhead: true,
   settingsOpen: false,
   recordOpen: false,
@@ -85,7 +88,7 @@ export const useUi = create<UiState>(() => ({
 
 const persisted: (keyof UiState)[] = [
   "sidebarTab", "sidebarOpen", "bottomPanel", "bottomOpen", "bottomHeight", "sidebarWidth",
-  "rackView", "playlistZoom", "rowHeight", "snap", "pianoZoom", "pianoKeyHeight", "pianoSnap", "followPlayhead", "typingKeyboard", "typingOctave", "recordQuantize", "loopDrop",
+  "rackView", "playlistZoom", "rowHeight", "snap", "pianoZoom", "pianoKeyHeight", "pianoSnap", "pianoViews", "followPlayhead", "typingKeyboard", "typingOctave", "recordQuantize", "loopDrop",
 ];
 
 function save(state: UiState) {

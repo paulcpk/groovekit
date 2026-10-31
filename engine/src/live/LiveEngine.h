@@ -204,6 +204,10 @@ public:
     /** Called on the message thread about 30 times a second while there's signal, and once when it stops. */
     std::function<void (const Levels&)> onLevels;
 
+    /** Notes coming in from the MIDI inputs and the app's keyboard, as they arrive (key and
+        velocity, 0 for a release), so the UI can light the keys played. */
+    std::function<void (const std::vector<std::pair<int, int>>&)> onInputNotes;
+
     /** Auditions a sample file on the audio device, independent of the song. */
     SamplePreview& getPreview()         { return preview; }
 
