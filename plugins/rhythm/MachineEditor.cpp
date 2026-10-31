@@ -1,5 +1,7 @@
 #include "MachineEditor.h"
 
+#include <set>
+
 namespace rhythm
 {
 
@@ -7,6 +9,9 @@ namespace
 {
     constexpr int margin = 16, topHeight = 84, bottomTop = 388, plateHeight = 44;
     constexpr int levelSize = 44, knobSize = 38, pairSize = 34, smallSize = 26, labelHeight = 13;
+
+    /** A hit at this velocity or more is accented. */
+    constexpr int accentThreshold = 110;
 
     /** The dot between words on the panel's printing. */
     const juce::String dot = juce::String::charToString (0x00b7);
@@ -19,7 +24,19 @@ class MachineEditor::Knob : public juce::Component
 {
 public:
     Knob (juce::AudioProcessorValueTreeState& state, const KnobSpec& k, const Style& s, bool level)
-        : attachment (state, k.paramId, slider), label (k.label), style (s), small (k.small)
+        : Knob (k, s, level)
+    {
+        attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, k.paramId, slider);
+        auto* param = state.getParameter (k.paramId);
+        jassert (param != nullptr);
+        slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
+        slider.setTooltip (param->getName (64));
+    }
+
+    /** A knob for a value that isn't the machine's parameter (GrooveKit's, while connected): the
+        owner sets its range and listens to it. */
+    Knob (const KnobSpec& k, const Style& s, bool level)
+        : label (k.label), style (s), small (k.small)
     {
         slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -27,10 +44,6 @@ public:
         slider.setMouseDragSensitivity (200);
         slider.setVelocityModeParameters (0.6, 1, 0.05, true, juce::ModifierKeys::shiftModifier);
         slider.getProperties().set ("level", level);
-        auto* param = state.getParameter (k.paramId);
-        jassert (param != nullptr);
-        slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
-        slider.setTooltip (param->getName (64));
         slider.onValueChange = [this] { repaint(); };
         slider.addMouseListener (this, false);
         addAndMakeVisible (slider);
@@ -59,7 +72,7 @@ public:
     juce::Slider slider;
 
 private:
-    juce::AudioProcessorValueTreeState::SliderAttachment attachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     juce::String label;
     const Style& style;
     const bool small;
@@ -196,8 +209,9 @@ private:
 };
 
 //==============================================================================
-/** The sixteen step keys: lit where the selected instrument plays in this pattern, a marker
-    running along under the step that plays. Click a key to set or clear its step. */
+/** The sixteen step keys: lit where the selected instrument plays in this pattern (connected to
+    GrooveKit, on this page of its pattern), a marker running along under the step that plays.
+    Click a key to set or clear its step; connected, drag across keys to set or clear them all. */
 class MachineEditor::StepKeys : public juce::Component
 {
 public:
@@ -206,11 +220,30 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto& s = editor.spec.style;
-        const auto pattern = editor.currentPattern();
         const auto row = editRow();
-        const auto bits = editor.machine.patterns.getRow (pattern, row);
-        const auto running = editor.machine.sequencer.currentStep.load();
-        const auto last = juce::jlimit (1, numSteps, juce::roundToInt (editor.machine.value (id::lastStep)));
+        uint32_t bits = 0;
+        int running = -1, last = numSteps;
+
+        if (editor.hostMode())
+        {
+            const auto& link = editor.machine.link;
+            const auto first = editor.page * numSteps;
+
+            for (int i = 0; i < numSteps; ++i)
+                if (editor.hostStep (row, first + i))
+                    bits |= 1u << i;
+
+            if (link.isHostPlaying() && link.getPlayStep() >= first && link.getPlayStep() < first + numSteps)
+                running = link.getPlayStep() - first;
+
+            last = juce::jlimit (0, numSteps, link.getPattern().lengthSteps - first);
+        }
+        else
+        {
+            bits = editor.machine.patterns.getRow (editor.currentPattern(), row);
+            running = editor.machine.sequencer.currentStep.load();
+            last = juce::jlimit (1, numSteps, juce::roundToInt (editor.machine.value (id::lastStep)));
+        }
 
         for (int i = 0; i < numSteps; ++i)
         {
@@ -260,15 +293,56 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        for (int i = 0; i < numSteps; ++i)
+        const auto i = keyAt (e.position);
+
+        if (i < 0)
+            return;
+
+        if (! editor.hostMode())
         {
-            if (keyArea (i).expanded (2, 12).contains (e.position))
-            {
-                editor.machine.patterns.toggle (editor.currentPattern(), editRow(), i);
-                repaint();
-                return;
-            }
+            editor.machine.patterns.toggle (editor.currentPattern(), editRow(), i);
+            repaint();
+            return;
         }
+
+        // Connected: the first key decides whether the drag sets or clears, and the whole
+        // gesture is one change in GrooveKit.
+        auto* host = editor.host();
+
+        if (host == nullptr)
+            return;
+
+        const auto step = editor.page * numSteps + i;
+        painting = ! editor.hostStep (editRow(), step);
+        painted = 1u << i;
+        editing = true;
+        host->beginEdit();
+        editor.setHostStep (editRow(), step, painting);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        const auto i = keyAt (e.position);
+
+        if (! editing || i < 0 || (painted >> i & 1) != 0 || editor.host() == nullptr)
+            return;
+
+        painted |= 1u << i;
+        const auto step = editor.page * numSteps + i;
+
+        if (editor.hostStep (editRow(), step) != painting)
+            editor.setHostStep (editRow(), step, painting);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (! editing)
+            return;
+
+        editing = false;
+
+        if (auto* host = editor.host())
+            host->endEdit();
     }
 
     /** Repaints when the pattern, the row, its steps or the running step changed. */
@@ -277,7 +351,7 @@ public:
         const auto pattern = editor.currentPattern();
         const auto row = editRow();
         const auto now = std::make_tuple (pattern, row, editor.machine.patterns.version.load(), editor.machine.sequencer.currentStep.load(),
-                                          juce::roundToInt (editor.machine.value (id::lastStep)));
+                                          juce::roundToInt (editor.machine.value (id::lastStep)), editor.machine.link.getChangeCount(), editor.page);
 
         if (now != shown)
         {
@@ -288,7 +362,9 @@ public:
 
 private:
     MachineEditor& editor;
-    std::tuple<int, int, uint32_t, int, int> shown { -1, -1, 0, -2, 0 };
+    std::tuple<int, int, uint32_t, int, int, uint32_t, int> shown { -1, -1, 0, -2, 0, 0, -1 };
+    bool editing = false, painting = false;
+    uint32_t painted = 0;
 
     int editRow() const     { return juce::roundToInt (editor.machine.value (id::editRow)); }
 
@@ -297,11 +373,20 @@ private:
         const auto cell = static_cast<float> (getWidth()) / numSteps;
         return juce::Rectangle<float> (static_cast<float> (i) * cell + 4, 20, cell - 8, static_cast<float> (getHeight()) - 56);
     }
+
+    int keyAt (juce::Point<float> p) const
+    {
+        for (int i = 0; i < numSteps; ++i)
+            if (keyArea (i).expanded (2, 12).contains (p))
+                return i;
+
+        return -1;
+    }
 };
 
 //==============================================================================
 /** The instrument select: a key per row, the one being edited lit; a dot shows the rows that
-    play in this pattern. */
+    play in this pattern (connected, in GrooveKit's). */
 class MachineEditor::RowSelect : public juce::Component
 {
 public:
@@ -321,7 +406,7 @@ public:
         {
             const auto r = cellArea (i).reduced (2, 1);
             const bool on = i == selected;
-            const bool used = editor.machine.patterns.getRow (pattern, i) != 0;
+            const bool used = editor.hostMode() ? editor.hostRowUsed (i) : editor.machine.patterns.getRow (pattern, i) != 0;
             g.setColour (juce::Colours::black.withAlpha (0.4f));
             g.fillRoundedRectangle (r.translated (0, 1.2f), 3);
             const auto top = on ? s.accent : (i >= editor.machine.numVoiceRows ? s.strip.brighter (0.32f) : s.strip.brighter (0.2f));
@@ -350,7 +435,8 @@ public:
 
     void update()
     {
-        const auto v = editor.machine.patterns.version.load() + static_cast<uint32_t> (editor.currentPattern()) * 7919u;
+        const auto v = editor.machine.patterns.version.load() + static_cast<uint32_t> (editor.currentPattern()) * 7919u
+                     + editor.machine.link.getChangeCount() * 104729u;
 
         if (v != shown)
         {
@@ -373,17 +459,16 @@ private:
 };
 
 //==============================================================================
-/** The screen: the pattern's number and name, the host's tempo and where the sequencer is. */
-class MachineEditor::Screen : public juce::Component
+/** The screen: the pattern's number and name, the host's tempo and where the sequencer is.
+    Connected to GrooveKit: the name of GrooveKit's pattern and the page shown, + and - to page,
+    and a click on it loads one of the machine's grooves into that pattern. */
+class MachineEditor::Screen : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit Screen (MachineEditor& e) : editor (e)
     {
         for (auto* b : { &down, &up })
-        {
             addAndMakeVisible (*b);
-            b->setTooltip (b == &down ? "Previous pattern" : "Next pattern");
-        }
 
         down.onClick = [this] { step (-1); };
         up.onClick = [this] { step (1); };
@@ -412,39 +497,67 @@ public:
             g.drawHorizontalLine (static_cast<int> (y), glass.getX() + 2, glass.getRight() - 2);
 
         auto inner = glass.reduced (10, 5).withTrimmedRight (26);
+        const bool host = editor.hostMode();
         const auto pattern = editor.currentPattern();
         const auto bright = s.accent.brighter (0.3f), dim = s.accent.withAlpha (0.45f);
 
-        // The pattern's number, large, and its name.
+        // The pattern's number (connected: the page's), large, and its name.
         auto numberArea = inner.removeFromLeft (52);
         g.setColour (dim);
         g.setFont (printFont (8));
-        g.drawText ("PATTERN", numberArea.withHeight (12), juce::Justification::topLeft);
+        g.drawText (host ? "PAGE" : "PATTERN", numberArea.withHeight (12), juce::Justification::topLeft);
         g.setColour (s.accent.withAlpha (0.12f));
         g.setFont (juce::Font (juce::FontOptions ("Menlo", 30, juce::Font::bold)));
         g.drawText ("88", numberArea.withTrimmedTop (10), juce::Justification::centredLeft);
         g.setColour (bright);
-        g.drawText (juce::String (pattern + 1).paddedLeft ('0', 2), numberArea.withTrimmedTop (10), juce::Justification::centredLeft);
+        g.drawText (juce::String ((host ? editor.page : pattern) + 1).paddedLeft ('0', 2), numberArea.withTrimmedTop (10), juce::Justification::centredLeft);
 
         inner.removeFromLeft (8);
-        const auto name = editor.machine.patterns.getName (pattern);
+        const auto& link = editor.machine.link;
+        juce::String name;
+
+        if (! host)
+            name = editor.machine.patterns.getName (pattern).isEmpty() ? juce::String ("Pattern ") + juce::String (pattern + 1) : editor.machine.patterns.getName (pattern);
+        else if (! link.isLinked())
+            name = "Waiting for GrooveKit";
+        else if (! link.getPattern().exists)
+            name = "No pattern yet";
+        else
+            name = link.getPattern().name;
+
         g.setFont (printFont (12.5f));
         g.setColour (bright);
-        g.drawText (name.isEmpty() ? juce::String ("Pattern ") + juce::String (pattern + 1) : name, inner.withHeight (inner.getHeight() * 0.5f), juce::Justification::centredLeft);
+        g.drawText (name, inner.withHeight (inner.getHeight() * 0.5f), juce::Justification::centredLeft, true);
 
         // The tempo from the host and the sequencer's state.
         const auto tempo = editor.machine.hostTempo.load();
-        const bool seq = editor.machine.value (id::seq) >= 0.5f;
-        const bool playing = editor.machine.hostPlaying.load();
-        const auto stepNow = editor.machine.sequencer.currentStep.load();
         juce::String status;
 
-        if (! seq)
-            status = "SEQ OFF  " + dot + "  PLAYED BY MIDI";
-        else if (! playing)
-            status = "SEQ ON  " + dot + "  WAITING FOR THE HOST";
+        if (host)
+        {
+            const auto pages = editor.numPages();
+            const auto lengthText = juce::String (link.getPattern().lengthSteps) + " STEPS";
+
+            if (! link.isLinked())
+                status = "GROOVEKIT";
+            else if (link.isHostPlaying() && link.getPlayStep() >= 0)
+                status = "STEP " + juce::String (link.getPlayStep() % numSteps + 1).paddedLeft ('0', 2) + "  " + dot + "  PAGE " + juce::String (link.getPlayStep() / numSteps + 1);
+            else
+                status = lengthText + "  " + dot + "  " + juce::String (pages) + (pages == 1 ? " PAGE" : " PAGES");
+        }
         else
-            status = "STEP " + juce::String (stepNow + 1).paddedLeft ('0', 2) + " / " + juce::String (juce::roundToInt (editor.machine.value (id::lastStep)));
+        {
+            const bool seq = editor.machine.value (id::seq) >= 0.5f;
+            const bool playing = editor.machine.hostPlaying.load();
+            const auto stepNow = editor.machine.sequencer.currentStep.load();
+
+            if (! seq)
+                status = "SEQ OFF  " + dot + "  PLAYED BY MIDI";
+            else if (! playing)
+                status = "SEQ ON  " + dot + "  WAITING FOR THE HOST";
+            else
+                status = "STEP " + juce::String (stepNow + 1).paddedLeft ('0', 2) + " / " + juce::String (juce::roundToInt (editor.machine.value (id::lastStep)));
+        }
 
         auto lower = inner.withTrimmedTop (inner.getHeight() * 0.5f);
         g.setFont (printFont (9));
@@ -458,25 +571,61 @@ public:
         g.drawText ("BPM", lower, juce::Justification::centredRight);
     }
 
+    void mouseDown (const juce::MouseEvent&) override
+    {
+        if (! editor.machine.link.isLinked())
+            return;
+
+        // The grooves the machine comes with, written into GrooveKit's pattern.
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Load a groove into " + (editor.machine.link.getPattern().exists ? editor.machine.link.getPattern().name : juce::String ("a new pattern")));
+        const auto& grooves = editor.machine.factoryPatterns;
+
+        for (size_t i = 0; i < grooves.size(); ++i)
+            menu.addItem (static_cast<int> (i) + 1, "Load groove: " + juce::String (grooves[i].name));
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                            [safe = juce::Component::SafePointer<Screen> (this)] (int chosen)
+                            {
+                                if (safe != nullptr && chosen > 0)
+                                    safe->editor.loadGroove (chosen - 1);
+                            });
+    }
+
     void update()
     {
         const auto now = std::make_tuple (editor.currentPattern(), editor.machine.hostTempo.load(), editor.machine.hostPlaying.load(),
-                                          editor.machine.sequencer.currentStep.load(), editor.machine.value (id::seq) >= 0.5f, editor.machine.patterns.version.load());
+                                          editor.machine.sequencer.currentStep.load(), editor.machine.value (id::seq) >= 0.5f, editor.machine.patterns.version.load(),
+                                          editor.machine.link.getChangeCount(), editor.page);
 
         if (now != shown)
         {
             shown = now;
             repaint();
         }
+
+        // The tips follow the mode.
+        const bool host = editor.hostMode();
+        down.setTooltip (host ? "Previous page" : "Previous pattern");
+        up.setTooltip (host ? "Next page" : "Next pattern");
+        setTooltip (editor.machine.link.isLinked() ? "Click to load one of the machine's grooves into this pattern" : juce::String());
     }
 
 private:
     MachineEditor& editor;
     juce::TextButton down { "-" }, up { "+" };
-    std::tuple<int, double, bool, int, bool, uint32_t> shown { -1, 0.0, false, -2, false, 0 };
+    std::tuple<int, double, bool, int, bool, uint32_t, uint32_t, int> shown { -1, 0.0, false, -2, false, 0, 0, -1 };
 
     void step (int delta)
     {
+        if (editor.hostMode())
+        {
+            editor.page = juce::jlimit (0, editor.lastPage(), editor.page + delta);
+            editor.stepKeys->repaint();
+            repaint();
+            return;
+        }
+
         auto* param = editor.machine.state.getParameter (id::pattern);
         const auto next = (editor.currentPattern() + delta + numPatterns) % numPatterns;
         param->beginChangeGesture();
@@ -487,7 +636,7 @@ private:
 
 //==============================================================================
 /** Start and stop: a big key that switches the sequencer on and off, its light beating with the
-    quarters while it runs. */
+    quarters while it runs. Connected to GrooveKit, it plays and stops GrooveKit's pattern. */
 class MachineEditor::StartKey : public juce::Component, public juce::SettableTooltipClient
 {
 public:
@@ -495,50 +644,74 @@ public:
         : editor (e), attachment (*e.machine.state.getParameter (id::seq), [this] (float v) { on = v >= 0.5f; repaint(); })
     {
         attachment.sendInitialUpdate();
-        setTooltip ("Start and stop the sequencer (it plays while the host plays)");
     }
 
     void paint (juce::Graphics& g) override
     {
         const auto& s = editor.spec.style;
+        const bool host = editor.hostMode();
+        const bool lit = host ? editor.machine.link.isHostPlaying() : on;
         auto key = getLocalBounds().toFloat().reduced (2).withTrimmedTop (18);
         g.setColour (juce::Colours::black.withAlpha (0.5f));
         g.fillRoundedRectangle (key.translated (0, 2.5f), 6);
-        key = key.translated (0, on ? 1.2f : 0);
-        const auto top = on ? s.accent : s.keyTop;
-        g.setGradientFill (juce::ColourGradient (top.brighter (0.1f), 0, key.getY(), on ? s.accent.darker (0.3f) : s.keyBottom, 0, key.getBottom(), false));
+        key = key.translated (0, lit ? 1.2f : 0);
+        const auto top = lit ? s.accent : s.keyTop;
+        g.setGradientFill (juce::ColourGradient (top.brighter (0.1f), 0, key.getY(), lit ? s.accent.darker (0.3f) : s.keyBottom, 0, key.getBottom(), false));
         g.fillRoundedRectangle (key, 6);
         g.setColour (s.keyEdge);
         g.drawRoundedRectangle (key.reduced (0.5f), 6, 1);
-        g.setColour (on ? s.strip : s.keyInk);
+        g.setColour (lit ? s.strip : s.keyInk);
         g.setFont (printFont (11));
         g.drawText ("START", key.withHeight (key.getHeight() * 0.5f).translated (0, 6), juce::Justification::centred);
         g.setFont (printFont (9, false));
         g.drawText ("STOP", key.withTrimmedTop (key.getHeight() * 0.5f).translated (0, -4), juce::Justification::centred);
 
-        const auto stepNow = editor.machine.sequencer.currentStep.load();
-        const auto beat = on && editor.machine.hostPlaying.load() && stepNow >= 0 && stepNow % 4 == 0;
-        drawLed (g, { getWidth() / 2.0f, 8 }, 4.5f, s.led, on ? (beat ? 1.0f : 0.45f) : 0.0f);
+        const auto stepNow = runningStep();
+        const auto beat = lit && stepNow >= 0 && stepNow % 4 == 0 && (host || editor.machine.hostPlaying.load());
+        drawLed (g, { getWidth() / 2.0f, 8 }, 4.5f, s.led, lit ? (beat ? 1.0f : 0.45f) : 0.0f);
     }
 
-    void mouseDown (const juce::MouseEvent&) override   { attachment.setValueAsCompleteGesture (on ? 0.0f : 1.0f); }
+    void mouseDown (const juce::MouseEvent&) override
+    {
+        if (! editor.hostMode())
+        {
+            attachment.setValueAsCompleteGesture (on ? 0.0f : 1.0f);
+            return;
+        }
+
+        if (auto* host = editor.host())
+        {
+            if (editor.machine.link.isHostPlaying())
+                host->stop();
+            else
+                host->play();
+        }
+    }
 
     void update()
     {
-        const auto stepNow = editor.machine.sequencer.currentStep.load();
+        const auto now = std::make_tuple (runningStep(), editor.machine.link.getChangeCount());
 
-        if (stepNow != shownStep)
+        if (now != shown)
         {
-            shownStep = stepNow;
+            shown = now;
             repaint();
         }
+
+        setTooltip (editor.hostMode() ? "Play this pattern on a loop in GrooveKit, or stop"
+                                      : "Start and stop the sequencer (it plays while the host plays)");
     }
 
 private:
     MachineEditor& editor;
     juce::ParameterAttachment attachment;
     bool on = false;
-    int shownStep = -2;
+    std::tuple<int, uint32_t> shown { -2, 0 };
+
+    int runningStep() const
+    {
+        return editor.hostMode() ? editor.machine.link.getPlayStep() : editor.machine.sequencer.currentStep.load();
+    }
 };
 
 //==============================================================================
@@ -588,12 +761,60 @@ MachineEditor::MachineEditor (MachineProcessor& p, PanelSpec panel)
     for (auto* c : std::initializer_list<juce::Component*> { stepKeys.get(), rowSelect.get(), screen.get(), startKey.get(), &clear, &copy, &paste })
         addAndMakeVisible (c);
 
-    clear.setTooltip ("Clear this pattern");
-    copy.setTooltip ("Copy this pattern");
-    paste.setTooltip ("Paste the copied pattern here");
-    clear.onClick = [this] { machine.patterns.clear (currentPattern()); };
+    // Connected to GrooveKit, Last Step and Shuffle are its pattern's length and its song's swing.
+    hostLastStep = std::make_unique<Knob> (KnobSpec { {}, "Last Step", true }, spec.style, false);
+    hostShuffle = std::make_unique<Knob> (KnobSpec { {}, "Shuffle", true }, spec.style, false);
+    addChildComponent (*hostLastStep);
+    addChildComponent (*hostShuffle);
+
+    auto& length = hostLastStep->slider;
+    length.setRange (1, maxHostSteps, 1);
+    length.setTooltip ("The pattern's length in steps");
+    length.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v)); };
+    length.onValueChange = [this]
+    {
+        hostLastStep->repaint();
+
+        // A turn is sent once it ends: a pattern playing on a loop starts again when its length changes.
+        if (! hostLastStep->slider.isMouseButtonDown())
+            sendLength();
+    };
+    length.onDragEnd = [this] { sendLength(); };
+
+    auto& swing = hostShuffle->slider;
+    swing.setRange (0, 1);
+    swing.setDoubleClickReturnValue (true, 0);
+    swing.setTooltip ("The song's swing");
+    swing.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (50 + v * 25)) + "%"; };
+    swing.onDragStart = [this] { if (auto* h = host()) h->beginEdit(); };
+    swing.onDragEnd = [this] { if (auto* h = host()) h->endEdit(); };
+    swing.onValueChange = [this]
+    {
+        hostShuffle->repaint();
+
+        if (auto* h = host())
+            h->setShuffle (static_cast<float> (hostShuffle->slider.getValue()));
+    };
+
+    // The flam time moves the pattern's flams once the knob comes to rest.
+    if (machine.flamRow >= 0)
+        sequencerKnobs.back()->slider.onDragEnd = [this] { if (auto* h = host()) h->setFlamTime (flamMs()); };
+
+    clear.onClick = [this]
+    {
+        if (hostMode())
+            clearHostRow();
+        else
+            machine.patterns.clear (currentPattern());
+    };
     copy.onClick = [this]
     {
+        if (hostMode())
+        {
+            copyHostRow();
+            return;
+        }
+
         for (int r = 0; r < maxRows; ++r)
             clipboard[static_cast<size_t> (r)] = machine.patterns.getRow (currentPattern(), r);
 
@@ -603,6 +824,12 @@ MachineEditor::MachineEditor (MachineProcessor& p, PanelSpec panel)
     };
     paste.onClick = [this]
     {
+        if (hostMode())
+        {
+            pasteHostRow();
+            return;
+        }
+
         if (! hasClipboard)
             return;
 
@@ -614,6 +841,7 @@ MachineEditor::MachineEditor (MachineProcessor& p, PanelSpec panel)
     paste.setEnabled (false);
 
     setSize (width, height);
+    updateMode();
     startTimerHz (30);
 }
 
@@ -638,6 +866,8 @@ int MachineEditor::currentPattern() const
 
 void MachineEditor::timerCallback()
 {
+    updateMode();
+
     for (auto& widgets : columnWidgets)
         widgets.plate->update();
 
@@ -645,6 +875,269 @@ void MachineEditor::timerCallback()
     rowSelect->update();
     screen->update();
     startKey->update();
+}
+
+//==============================================================================
+bool MachineEditor::hostMode() const
+{
+    return machine.link.isLinked() || HostLink::isInsideGrooveKit();
+}
+
+gkmachine::IHost* MachineEditor::host() const
+{
+    return machine.link.getHost();
+}
+
+float MachineEditor::flamMs() const
+{
+    return machine.flamRow >= 0 ? machine.value (id::flam) : 0.0f;
+}
+
+int MachineEditor::numPages() const
+{
+    return std::max (1, (machine.link.getPattern().lengthSteps + numSteps - 1) / numSteps);
+}
+
+int MachineEditor::lastPage() const
+{
+    // One page past the end, to add to the pattern there.
+    return std::min (numPages(), maxHostSteps / numSteps - 1);
+}
+
+bool MachineEditor::hostStep (int row, int step) const
+{
+    bool any = false, all = true;
+
+    for (auto& hit : machine.link.getPattern().hits)
+    {
+        if (hit.step != step)
+            continue;
+
+        const auto hitRow = machine.rowForNote (hit.key);
+
+        if (row < machine.numVoiceRows)
+        {
+            if (hitRow == row)
+                return true;
+
+            continue;
+        }
+
+        // The accent and flam rows: lit where every hit of the machine's voices on the step has one.
+        if (! juce::isPositiveAndBelow (hitRow, machine.numVoiceRows))
+            continue;
+
+        any = true;
+        all = all && (row == machine.accentRow ? hit.velocity >= accentThreshold : hit.flam != 0);
+    }
+
+    return any && all;
+}
+
+bool MachineEditor::hostRowUsed (int row) const
+{
+    std::set<int> steps;
+
+    for (auto& hit : machine.link.getPattern().hits)
+        steps.insert (hit.step);
+
+    return std::any_of (steps.begin(), steps.end(), [&] (int step) { return hostStep (row, step); });
+}
+
+std::vector<int> MachineEditor::hostKeys (int row, int fromStep, int numStepsToSearch) const
+{
+    // The keys that play the row: the one it plays now, and any other on the page that plays it.
+    std::vector<int> keys { machine.noteForRow (row) };
+
+    for (auto& hit : machine.link.getPattern().hits)
+        if (hit.step >= fromStep && hit.step < fromStep + numStepsToSearch && machine.rowForNote (hit.key) == row
+            && std::find (keys.begin(), keys.end(), hit.key) == keys.end())
+            keys.push_back (hit.key);
+
+    return keys;
+}
+
+void MachineEditor::setHostStep (int row, int step, bool on)
+{
+    auto* h = host();
+
+    if (h == nullptr)
+        return;
+
+    if (row == machine.accentRow)
+    {
+        h->setAccent (step, on ? 1 : 0);
+        return;
+    }
+
+    if (row == machine.flamRow)
+    {
+        h->setFlam (step, on ? 1 : 0, flamMs());
+        return;
+    }
+
+    if (on)
+    {
+        const bool flam = machine.flamRow >= 0 && hostStep (machine.flamRow, step);
+        h->setStep (machine.noteForRow (row), step, 1, hostStep (machine.accentRow, step) ? 1 : 0, flam ? 1 : 0, flamMs());
+        return;
+    }
+
+    for (auto key : hostKeys (row, step, 1))
+        h->setStep (key, step, 0, 0, 0, 0);
+}
+
+void MachineEditor::loadGroove (int index)
+{
+    auto* h = host();
+
+    if (h == nullptr || ! juce::isPositiveAndBelow (index, static_cast<int> (machine.factoryPatterns.size())))
+        return;
+
+    const auto hits = machine.factoryHits (index);
+    h->loadGroove (machine.factoryPatterns[static_cast<size_t> (index)].name, hits.data(), static_cast<int> (hits.size()), numSteps, flamMs());
+}
+
+void MachineEditor::clearHostRow()
+{
+    auto* h = host();
+
+    if (h == nullptr)
+        return;
+
+    const auto row = juce::roundToInt (machine.value (id::editRow));
+    const auto first = page * numSteps;
+    h->beginEdit();
+
+    if (row < machine.numVoiceRows)
+    {
+        for (auto key : hostKeys (row, first, numSteps))
+            h->clearRow (key, first, numSteps);
+    }
+    else
+    {
+        for (int step = first; step < first + numSteps; ++step)
+            if (hostStep (row, step))
+                setHostStep (row, step, false);
+    }
+
+    h->endEdit();
+}
+
+void MachineEditor::copyHostRow()
+{
+    const auto row = juce::roundToInt (machine.value (id::editRow));
+    const auto first = page * numSteps;
+    hostClipboard = {};
+
+    for (int i = 0; i < numSteps; ++i)
+    {
+        auto& copied = hostClipboard[static_cast<size_t> (i)];
+        copied.on = hostStep (row, first + i);
+
+        if (row >= machine.numVoiceRows)
+            continue;
+
+        for (auto& hit : machine.link.getPattern().hits)
+        {
+            if (hit.step == first + i && machine.rowForNote (hit.key) == row)
+            {
+                copied.velocity = std::max (copied.velocity, static_cast<int> (hit.velocity));
+                copied.flam = copied.flam || hit.flam != 0;
+            }
+        }
+    }
+
+    hostClipboardRow = row;
+    paste.setEnabled (true);
+}
+
+void MachineEditor::pasteHostRow()
+{
+    auto* h = host();
+
+    if (h == nullptr || hostClipboardRow < 0)
+        return;
+
+    const auto row = juce::roundToInt (machine.value (id::editRow));
+    const auto first = page * numSteps;
+    h->beginEdit();
+
+    if (row < machine.numVoiceRows)
+    {
+        // Steps copied from the accent or flam row paste as plain hits.
+        std::vector<gkmachine::Hit> hits;
+        const auto key = machine.noteForRow (row);
+
+        for (int i = 0; i < numSteps; ++i)
+        {
+            const auto& copied = hostClipboard[static_cast<size_t> (i)];
+
+            if (copied.on)
+                hits.push_back ({ key, first + i, copied.velocity > 0 ? copied.velocity : 100, copied.flam ? 1 : 0 });
+        }
+
+        for (auto other : hostKeys (row, first, numSteps))
+            if (other != key)
+                h->clearRow (other, first, numSteps);
+
+        h->pasteRow (key, first, numSteps, hits.data(), static_cast<int> (hits.size()), flamMs());
+    }
+    else
+    {
+        for (int i = 0; i < numSteps; ++i)
+            if (hostStep (row, first + i) != hostClipboard[static_cast<size_t> (i)].on)
+                setHostStep (row, first + i, hostClipboard[static_cast<size_t> (i)].on);
+    }
+
+    h->endEdit();
+}
+
+void MachineEditor::sendLength()
+{
+    if (auto* h = host())
+        if (const auto steps = juce::roundToInt (hostLastStep->slider.getValue()); steps != machine.link.getPattern().lengthSteps)
+            h->setLength (steps);
+}
+
+void MachineEditor::updateMode()
+{
+    const bool host = hostMode();
+    const auto& pattern = machine.link.getPattern();
+
+    if (host != shownHostMode)
+    {
+        shownHostMode = host;
+        sequencerKnobs[0]->setVisible (! host);
+        sequencerKnobs[2]->setVisible (! host);
+        hostLastStep->setVisible (host);
+        hostShuffle->setVisible (host);
+
+        clear.setTooltip (host ? "Clear the instrument's steps on this page" : "Clear this pattern");
+        copy.setTooltip (host ? "Copy the instrument's steps on this page" : "Copy this pattern");
+        paste.setTooltip (host ? "Paste the copied steps into the instrument on this page" : "Paste the copied pattern here");
+        clear.setEnabled (true);
+        copy.setEnabled (true);
+        paste.setEnabled (host ? hostClipboardRow >= 0 : hasClipboard);
+        stepKeys->repaint();
+        rowSelect->repaint();
+    }
+
+    if (! host)
+        return;
+
+    page = juce::jlimit (0, lastPage(), page);
+
+    // GrooveKit's values, unless they're being turned here.
+    if (! hostLastStep->slider.isMouseButtonDown())
+        hostLastStep->slider.setValue (pattern.lengthSteps, juce::dontSendNotification);
+
+    if (! hostShuffle->slider.isMouseButtonDown())
+        hostShuffle->slider.setValue (pattern.swing, juce::dontSendNotification);
+
+    clear.setEnabled (machine.link.isLinked());
+    copy.setEnabled (machine.link.isLinked());
+    paste.setEnabled (machine.link.isLinked() && hostClipboardRow >= 0);
 }
 
 void MachineEditor::resized()
@@ -734,6 +1227,9 @@ void MachineEditor::resized()
         const auto col = static_cast<int> (i) % knobsPerRow, row = static_cast<int> (i) / knobsPerRow;
         sequencerKnobs[i]->setBounds (seq.getX() + col * cellW, seq.getY() + row * cellH, cellW, cellH);
     }
+
+    hostLastStep->setBounds (sequencerKnobs[0]->getBounds());
+    hostShuffle->setBounds (sequencerKnobs[2]->getBounds());
 
     auto steps = stepArea;
     rowSelect->setBounds (steps.removeFromTop (24));

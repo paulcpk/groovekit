@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HostLink.h"
 #include "Presets.h"
 #include "Sequencer.h"
 
@@ -8,7 +9,10 @@ namespace rhythm
 
 /** A rhythm machine: voices played by MIDI notes and by the built-in step sequencer, which
     follows the host's transport. The patterns are saved with the parameters; presets change the
-    sound only, never the sequencer's settings. */
+    sound only, never the sequencer's settings.
+
+    Inside GrooveKit the sequencer never plays: GrooveKit connects (see HostLink) and the panel's
+    step keys edit the GrooveKit pattern the machine's channel plays instead. */
 class MachineProcessor : public gkp::PresetProcessor
 {
 public:
@@ -23,10 +27,14 @@ public:
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override     { return &extensions; }
+
     const std::vector<Row> rows;
     const int numVoiceRows, accentRow, flamRow;
+    const std::vector<FactoryPattern>& factoryPatterns;
     PatternStore patterns;
     Sequencer sequencer;
+    HostLink link { state };
 
     /** What the editor shows: the host's tempo, whether it plays, and a count of hits per row
         that goes up whenever the row's voice is struck. */
@@ -42,6 +50,10 @@ public:
 
     float value (const juce::String& paramId) const    { return get (paramId); }
 
+    /** A factory pattern as hits for GrooveKit: each voice's steps on the note that plays it,
+        with the accent (and flam) rows' steps as theirs. */
+    std::vector<gkmachine::Hit> factoryHits (int index) const;
+
 protected:
     virtual void prepareVoices (double sampleRate) = 0;
 
@@ -56,6 +68,7 @@ private:
     };
 
     double sampleRate = 48000;
+    HostLink::Extensions extensions { link };
     std::vector<Sequencer::Step> steps;
     std::vector<Pending> pending;
     juce::MidiBuffer sequenced;

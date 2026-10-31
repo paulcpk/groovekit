@@ -13,6 +13,7 @@ namespace gk
 {
 
 class EngineContext;
+class MachineBridge;
 
 struct LiveRecordOptions
 {
@@ -236,6 +237,9 @@ public:
     /** Opens or closes a hosted plugin's own window. False if the key isn't a hosted plugin. */
     bool showPluginWindow (const std::string& key, bool show);
 
+    /** The rhythm machines on the song's channels, connected to its patterns. */
+    MachineBridge& getMachines()        { return *machines; }
+
 private:
     EngineContext& context;
     Session& session;
@@ -281,6 +285,7 @@ private:
     bool followSystemOutput = true;
     std::shared_ptr<bool> lifetime = std::make_shared<bool> (true);  // for callbacks that may outlive this
     std::unique_ptr<class DefaultOutputWatcher> outputWatcher;
+    std::unique_ptr<MachineBridge> machines;
 
     /** Switches to the system's default output if following it, and opens one if a device
         change left none open. */

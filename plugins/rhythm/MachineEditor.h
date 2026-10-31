@@ -40,7 +40,12 @@ struct PanelSpec
     and the host's tempo, the presets and the master knobs along the top; the instruments side by
     side, their knobs in rows and their names under them (click a name to hear it); along the
     bottom start and stop, the sequencer's knobs, the instrument select and the sixteen step keys
-    with their lights. */
+    with their lights.
+
+    Inside GrooveKit the step section edits the GrooveKit pattern the machine's channel plays, a
+    page of sixteen steps at a time: the screen shows its name and the page, Start plays it, Last
+    Step is its length and Shuffle the song's swing, Clear, Copy and Paste work on the selected
+    instrument's steps on the page, and a click on the screen loads one of the machine's grooves. */
 class MachineEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -51,6 +56,9 @@ public:
     void resized() override;
 
     static constexpr int width = 1150, height = 560;
+
+    /** The longest pattern the panel edits in GrooveKit, in steps (sixteen pages). */
+    static constexpr int maxHostSteps = 256;
 
 private:
     class Knob;
@@ -87,6 +95,38 @@ private:
     bool hasClipboard = false;
     juce::Rectangle<int> topStrip, instrumentArea, bottomStrip, sequencerArea, stepArea, masterArea, presetArea;
     juce::Image background;
+
+    // Connected to GrooveKit: the page shown, its knobs for the pattern's length and the song's
+    // swing (in place of Last Step and Shuffle), and a row's steps copied from a page.
+    struct CopiedStep
+    {
+        bool on = false, flam = false;
+        int velocity = 0;
+    };
+
+    std::unique_ptr<Knob> hostLastStep, hostShuffle;
+    int page = 0;
+    bool shownHostMode = false;
+    std::array<CopiedStep, numSteps> hostClipboard {};
+    int hostClipboardRow = -1;
+
+    bool hostMode() const;
+    gkmachine::IHost* host() const;
+    float flamMs() const;
+    int numPages() const;
+    int lastPage() const;
+
+    /** Whether a row plays on a step of GrooveKit's pattern (counted from its start). */
+    bool hostStep (int row, int step) const;
+    bool hostRowUsed (int row) const;
+    std::vector<int> hostKeys (int row, int fromStep, int numStepsToSearch) const;
+    void setHostStep (int row, int step, bool on);
+    void loadGroove (int index);
+    void clearHostRow();
+    void copyHostRow();
+    void pasteHostRow();
+    void sendLength();
+    void updateMode();
 
     int currentPattern() const;
     Knob* addKnob (const KnobSpec&, bool level);

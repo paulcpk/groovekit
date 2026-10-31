@@ -17,7 +17,7 @@ namespace
 MachineProcessor::MachineProcessor (const juce::String& name, juce::AudioProcessorValueTreeState::ParameterLayout layout, const std::vector<gkp::Preset>& presets,
                                     std::vector<Row> r, int voiceRows, bool flam, const std::vector<FactoryPattern>& factory)
     : PresetProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true), name, std::move (layout), presets, true),
-      rows (std::move (r)), numVoiceRows (voiceRows), accentRow (voiceRows), flamRow (flam ? voiceRows + 1 : -1), patterns (rows)
+      rows (std::move (r)), numVoiceRows (voiceRows), accentRow (voiceRows), flamRow (flam ? voiceRows + 1 : -1), factoryPatterns (factory), patterns (rows)
 {
     patterns.load (factory);
     pending.reserve (64);
@@ -67,7 +67,8 @@ void MachineProcessor::runSequencer (juce::MidiBuffer& midi, int numSamples)
     hostTempo = bpm;
     hostPlaying = playing;
 
-    if (! getBool (id::seq) || ! playing)
+    // Inside GrooveKit the notes come from its patterns.
+    if (! getBool (id::seq) || ! playing || link.linked || HostLink::isInsideGrooveKit())
     {
         sequencer.run (false, 0, 0, numSamples, sampleRate, {}, steps);
         pending.clear();
@@ -132,6 +133,29 @@ void MachineProcessor::runSequencer (juce::MidiBuffer& midi, int numSamples)
 
     if (! sequenced.isEmpty())
         midi.addEvents (sequenced, 0, numSamples, 0);
+}
+
+std::vector<gkmachine::Hit> MachineProcessor::factoryHits (int index) const
+{
+    std::vector<gkmachine::Hit> groove;
+
+    if (! juce::isPositiveAndBelow (index, static_cast<int> (factoryPatterns.size())))
+        return groove;
+
+    PatternStore store (rows);
+    store.load ({ factoryPatterns[static_cast<size_t> (index)] });
+
+    for (int step = 0; step < numSteps; ++step)
+    {
+        const bool accent = store.get (0, accentRow, step);
+        const bool flam = flamRow >= 0 && store.get (0, flamRow, step);
+
+        for (int row = 0; row < numVoiceRows; ++row)
+            if (store.get (0, row, step))
+                groove.push_back ({ noteForRow (row), step, accent ? accentVelocity : stepVelocity, flam ? 1 : 0 });
+    }
+
+    return groove;
 }
 
 void MachineProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)

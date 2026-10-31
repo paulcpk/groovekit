@@ -58,6 +58,7 @@ target_sources(gk_engine PRIVATE
     src/mixer/LimiterPlugin.cpp
     src/mixer/Slots.cpp
     src/model/Project.cpp
+    src/plugins/MachineBridge.cpp
     src/plugins/PluginCatalog.cpp
     src/plugins/PluginWindows.cpp
     src/plugins/WindowOrder.mm
@@ -85,6 +86,9 @@ target_sources(gk_engine PRIVATE
     src/voice/Transcriber.cpp)
 
 target_include_directories(gk_engine PUBLIC src)
+
+# What the engine and GrooveKit's own plugins both include: how the rhythm machines talk to it.
+target_include_directories(gk_engine PRIVATE "${CMAKE_SOURCE_DIR}/plugins")
 
 # The style guides (guides/*.md), built in.
 file(GLOB guide_files CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/guides/*.md")

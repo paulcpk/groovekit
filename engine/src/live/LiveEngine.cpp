@@ -4,6 +4,7 @@
 #include "live/AudioDevices.h"
 #include "compiler/EditGraveyard.h"
 #include "live/MidiClockPlugin.h"
+#include "plugins/MachineBridge.h"
 #include "plugins/PluginWindows.h"
 #include "mixer/EffectMix.h"
 #include "mixer/FaderPlugin.h"
@@ -87,12 +88,15 @@ LiveEngine::LiveEngine (EngineContext& c, Session& s, std::filesystem::path file
         triggerAsyncUpdate();
     });
 
+    machines = std::make_unique<MachineBridge> (*this, session);
     rebuild();
     startTimerHz (30);
 }
 
 LiveEngine::~LiveEngine()
 {
+    // The machines let go of their plugins while those are still there.
+    machines.reset();
     outputWatcher.reset();
     stopTimer();
     session.removeListener (listenerId);
@@ -268,6 +272,8 @@ void LiveEngine::rebuild()
     const auto editFile = juce::File ((projectDir / "recordings" / "live.tracktionedit").string());
     next.edit->editFileRetriever = [editFile] { return editFile; };
 
+    // The machines let go of the old Edit's plugins before they go.
+    machines->disconnect();
     compiled = std::move (next);
     addClockTrack();
     compiled.edit->clickTrackEnabled = metronome || clickForCountIn;
@@ -312,6 +318,7 @@ void LiveEngine::rebuild()
         tc.play (false);
 
     routeLiveInput();
+    machines->connect();
 }
 
 void LiveEngine::addClockTrack()

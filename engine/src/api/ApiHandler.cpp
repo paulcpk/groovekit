@@ -378,6 +378,7 @@ Json ApiHandler::dispatch (const std::string& method, const Json& params, Client
         { "live.",       [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callLive (m, p, c); } },
         { "preview.",    [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callLive (m, p, c); } },
         { "mixer.",      [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callLive (m, p, c); } },
+        { "machines.",   [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callLive (m, p, c); } },
     };
 
     if (auto it = names.find (method); it != names.end())

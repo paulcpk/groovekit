@@ -16,6 +16,7 @@
 #include "live/AudioDevices.h"
 #include "live/LiveEngine.h"
 #include "music/Notes.h"
+#include "plugins/MachineBridge.h"
 #include "plugins/PluginCatalog.h"
 #include "plugins/PluginWindows.h"
 #include "render/Encode.h"
@@ -152,6 +153,21 @@ Json ApiHandler::callLive (const std::string& method, const Json& params, Client
     {
         live->getPreview().stop();
         return { { "playing", false } };
+    }
+
+    // The pattern selected in the UI, which the rhythm machines' panels show and edit.
+    if (method == "machines.focus")
+    {
+        auto& machines = live->getMachines();
+        const auto pattern = params.contains ("pattern") && params["pattern"].is_string() ? std::optional (params["pattern"].get<std::string>()) : std::nullopt;
+        machines.setFocus (pattern);
+
+        Json shown = nullptr;
+
+        if (auto* p = machines.findFocusedPattern())
+            shown = p->id;
+
+        return { { "pattern", shown }, { "channels", machines.getConnectedChannels() } };
     }
 
     if (method == "transport.state")    return state();

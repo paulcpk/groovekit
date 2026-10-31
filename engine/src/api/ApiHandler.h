@@ -18,7 +18,7 @@ namespace listening { class Listening; struct StyleProfile; }
 
     Requests: execute, undo, redo, get, getSummary, getHistory, render, analyze, analyzeMix, master,
     listEffects, hello, library.*, plugins.*, listening.*, styles.*, chats.*, and with a live engine
-    transport.*, record.* and audio.*.
+    transport.*, record.*, audio.* and machines.*.
     Notifications to clients: "snapshot" on connect, "patch" after every change from any client,
     "libraryProgress" and "pluginScanProgress" while scanning, "starter" while the starter samples
     download, "listening" while listening models

@@ -4,6 +4,7 @@
 add_library(gk_rhythm INTERFACE)
 
 set(GK_RHYTHM_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/HostLink.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/MachineEditor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/MachineLook.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/MachineProcessor.cpp

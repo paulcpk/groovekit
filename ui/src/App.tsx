@@ -14,6 +14,7 @@ import { ProjectDialog } from "@/features/shell/ProjectDialog";
 import { SaveChangesDialog, useQuitGuard } from "@/features/shell/SaveChanges";
 import { ExportDialog } from "@/features/shell/ExportDialog";
 import { useLiveChannel, useTypingKeyboard } from "@/features/shell/liveInput";
+import { useMachineFocus } from "@/features/rack/machineFocus";
 import { useAgentConversation } from "@/features/agent/AgentPanel";
 import { useShortcuts } from "@/features/shell/shortcuts";
 import { ReferencesPrompt } from "@/features/browser/ReferencesPrompt";
@@ -97,6 +98,7 @@ function AppHooks() {
   useShortcuts();
   useDefaultSelection();
   useLiveChannel();
+  useMachineFocus();
   useAgentConversation();
   useTypingKeyboard();
   useQuitGuard();
