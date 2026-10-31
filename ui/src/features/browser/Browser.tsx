@@ -10,8 +10,7 @@ import { engine, useEngine } from "@/state/engine";
 
 import { canListen, rateSample, useListeningStatus } from "./listening";
 import { BrowserTree } from "./BrowserTree";
-import { LibraryFolders } from "./LibraryFolders";
-import { Listening } from "./ListeningPanel";
+import { SampleLibrary } from "./SampleLibrary";
 import { Sample, SampleRow, shortKey } from "./SampleRow";
 import { StylePicker } from "./StylePicker";
 
@@ -234,8 +233,7 @@ export function Browser() {
       )}
 
       <NowPreviewing />
-      <Listening status={status} />
-      <LibraryFolders />
+      <SampleLibrary status={status} />
     </div>
   );
 }

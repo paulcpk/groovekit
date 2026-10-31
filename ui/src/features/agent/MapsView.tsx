@@ -7,7 +7,8 @@ import {
 } from "@/components/menu";
 import { inDesktopApp } from "@/engine/client";
 import { cn } from "@/lib/cn";
-import { pickFile, pickSavePath } from "@/lib/files";
+import { pickFile, pickFolder, pickSavePath } from "@/lib/files";
+import { addStyle } from "@/features/browser/listening";
 import { useEngine } from "@/state/engine";
 import { openWindow } from "@/state/windows";
 import {
@@ -28,6 +29,10 @@ export function MapsView() {
 
   return (
     <div className="flex h-full flex-col">
+      <p className="shrink-0 px-2.5 pt-2 text-2xs leading-relaxed text-faint"
+        title="Each reference track is heard once, split into drums, bass and music: its sounds, parts, figures and how it builds. The agent reads the maps of the songs you tick to learn what a style should sound like, and ranks samples by them.">
+        Maps are what GrooveKit heard in your reference tracks, the songs you love, a folder per style. The ticked ones teach the agent your styles.
+      </p>
       <div className="flex shrink-0 items-center px-2 pt-1.5">
         <Tabs<"songs" | "processing"> value={view} onChange={(maps) => useAgentView.setState({ maps })}
           items={[{ value: "songs", label: "Songs", title: "Every reference track, by style" },
@@ -84,6 +89,13 @@ function Songs() {
     });
   };
 
+  // A folder of tracks becomes a style, heard into maps.
+  const addFolder = () => {
+    void pickFolder("Choose a folder of reference tracks", references).then((path) => {
+      if (path) void addStyle(path).then((r) => { setMessage(`Hearing ${r.name}: see Processing`); void refreshMaps(); }, () => {});
+    });
+  };
+
   const importZip = () => {
     void pickFile("Import song maps", ["zip"]).then((path) => {
       if (path) void importMaps(path).then((r) =>
@@ -118,6 +130,8 @@ function Songs() {
               Export the ticked maps ({ticked.filter((s) => s.map).length})…
             </DropdownItem>
             <DropdownItem disabled={!inDesktopApp} onSelect={importZip}>Import maps…</DropdownItem>
+            <DropdownSeparator />
+            <DropdownItem disabled={!inDesktopApp} onSelect={addFolder}>Add a folder of reference tracks…</DropdownItem>
           </DropdownContent>
         </Dropdown>
       </div>
@@ -299,7 +313,7 @@ function Processing() {
           {left > 0 && (
             <div className="mt-0.5 pl-3 text-2xs text-dim tabular">
               {left} song{left === 1 ? "" : "s"} left{eta > 0 && ` · about ${duration(eta)}`}
-              {!ready && " · download them in the Browser's Listening section"}
+              {!ready && " · download them in the Browser's Sample library"}
             </div>
           )}
           {left === 0 && toHear > 0 && (

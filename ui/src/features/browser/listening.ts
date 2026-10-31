@@ -100,12 +100,14 @@ export const downloadModels = () => call<ListeningStatus>("listening.download").
 
 export const addStyle = (path: string) => call<{ name: string }>("styles.add", { path });
 
-/** Unticks a style's songs in Maps: searches stop ranking by it, and their maps are kept. */
-export async function stopUsingStyle(name: string) {
-  const { songs } = await engine.call<{ songs: { id: string; style: string }[] }>("maps.list");
-  await call("maps.setInUse", { ids: songs.filter((s) => s.style === name).map((s) => s.id), inUse: false });
-  await refreshStyles();
+/** What hearing a references folder would do. */
+export function hearLabel(f: ReferenceFolder) {
+  if (!f.style) return `Hear ${f.name} (${f.files} track${f.files === 1 ? "" : "s"})`;
+  const changes = [f.unheard && `${f.unheard} new`, f.gone && `${f.gone} gone`].filter(Boolean).join(", ");
+  return `Update ${f.name} (${changes})`;
 }
+
+export const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
 
 /** The user's verdict on a sample for a style; null forgets it. */
 export const rateSample = (path: string, style: string, fits: boolean | null) => call("library.rate", { path, style, fits });

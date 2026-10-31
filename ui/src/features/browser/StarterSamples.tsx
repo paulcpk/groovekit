@@ -1,6 +1,6 @@
 import { Button } from "@/components/controls";
 import { cn } from "@/lib/cn";
-import { megabytes } from "./ListeningPanel";
+import { megabytes } from "./listening";
 import { downloadStarter, useStarter } from "./starter";
 
 /** The one-time offer of the starter samples, and their progress coming in. Nothing once

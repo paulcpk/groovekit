@@ -7,9 +7,7 @@ import { cn } from "@/lib/cn";
 import { inDesktopApp } from "@/engine/client";
 import { pickFolder } from "@/lib/files";
 
-import { addStyle, needsHearing, refreshReferences, useListening } from "./listening";
-
-import { hearLabel } from "./ListeningPanel";
+import { addStyle, hearLabel, needsHearing, refreshReferences, useListening } from "./listening";
 
 /** Ranks the browser by fit to one of the user's styles, or adds one: the folders in the
     references folder GrooveKit hasn't heard (or that changed) first, or any folder. */
