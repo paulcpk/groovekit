@@ -675,6 +675,9 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             if (it->second.more)
                 j["more"] = true;
 
+            if (it->second.closed)
+                j["closed"] = true;
+
             return j;
         }
 
@@ -685,6 +688,8 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             const auto note = juce::String (params.value ("note", std::string())).trim().substring (0, 2000).toStdString();
             // "Another round": none of these, and the user wants to hear as many again.
             const bool more = params.value ("more", false);
+            // Closed: the user shut the window without choosing (not this sound here, for now).
+            const bool closed = params.value ("closed", false);
 
             if (choice >= static_cast<int> (candidates.size()))
                 throw RpcError (invalidParams, "choice: an index into the candidates, or -1 for none of them");
@@ -695,13 +700,22 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             if (more && (choice >= 0 || ! note.empty()))
                 throw RpcError (invalidParams, "more: only with choice -1 and no note");
 
+            if (closed && (choice >= 0 || ! note.empty() || more))
+                throw RpcError (invalidParams, "closed: only with choice -1, no note and no more");
+
+            // Answered already (picked elsewhere, then the window closed): the answer stands.
+            if (closed && it->second.choice)
+                return { { "id", id }, { "choice", *it->second.choice } };
+
             it->second.choice = choice;
             it->second.note = note;
             it->second.more = more;
+            it->second.closed = closed;
 
             // The pick fits the style; with none picked, none of them does. Passed over isn't a verdict, and
-            // neither is "Other": the user wants another kind of sound, which says nothing about these.
-            if (listening != nullptr && note.empty())
+            // neither is "Other": the user wants another kind of sound, which says nothing about these,
+            // nor a window closed.
+            if (listening != nullptr && note.empty() && ! closed)
             {
                 const auto style = it->second.offer.value ("style", std::string());
 
@@ -729,6 +743,9 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
 
             if (more)
                 chosen["more"] = true;
+
+            if (closed)
+                chosen["closed"] = true;
 
             if (broadcast)
                 broadcast (notification ("picks", chosen).dump());

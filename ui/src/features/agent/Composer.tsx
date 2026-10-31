@@ -25,7 +25,8 @@ export function Composer({ value, onChange, onSend, onStop, running, disabled }:
   const model = useVoiceModel();
   const [transcribing, setTranscribing] = useState(false);
   const [offerModel, setOfferModel] = useState(false);
-  const recording = recorder.state !== "idle";
+  // A recording a pick window started is that window's.
+  const recording = recorder.state !== "idle" && recorder.owner === "composer";
   const level = recorder.levels[recorder.levels.length - 1] ?? 0;
 
   // Grows with its text, up to a point.
@@ -97,9 +98,9 @@ export function Composer({ value, onChange, onSend, onStop, running, disabled }:
   useEffect(() => {
     if (!request) return;
     useVoiceRequest.setState({ pending: false });
-    if (recorder.state === "recording") void accept(false);
+    if (recorder.state === "recording" && recorder.owner === "composer") void accept(false);
     else if (recorder.state === "idle") startVoice();
-  }, [request, recorder.state, accept, startVoice]);
+  }, [request, recorder.state, recorder.owner, accept, startVoice]);
 
   // While recording: Enter keeps the text to check, ⌘Enter sends it, Escape throws it away.
   useEffect(() => {

@@ -102,6 +102,7 @@ private:
         std::optional<int> choice;
         std::string note;               // "Other": what the user wants instead, in their words
         bool more = false;              // "Another round": none of these, and as many new ones again
+        bool closed = false;            // The window closed without a choice: not this part, for now
     };
 
     std::map<int, Offer> offers;

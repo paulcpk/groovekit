@@ -59,8 +59,13 @@ function toBase64Pcm(chunks: Float32Array[]) {
   return btoa(binary);
 }
 
+/** Who records: the agent's message box, or a pick window's "Other" field. Each shows (and
+    answers the keys of) its own recordings only. */
+export type RecorderOwner = "composer" | "pick";
+
 interface Recorder {
   state: RecorderState;
+  owner: RecorderOwner;
   error: RecorderError | null;
   levels: number[];
   elapsed: number;
@@ -68,7 +73,7 @@ interface Recorder {
 
 /** The one recorder: kept here rather than in the chat, so a recording keeps going while the user
     looks at other tabs (and the tabs show that it does). */
-export const useRecorder = create<Recorder>(() => ({ state: "idle", error: null, levels: Array(BAR_COUNT).fill(0), elapsed: 0 }));
+export const useRecorder = create<Recorder>(() => ({ state: "idle", owner: "composer", error: null, levels: Array(BAR_COUNT).fill(0), elapsed: 0 }));
 
 let session: {
   stream: MediaStream;
@@ -103,9 +108,9 @@ async function stopRecording() {
   return samples > RATE / 4 ? toBase64Pcm(chunks) : null;
 }
 
-async function startRecording() {
-  if (session) return;
-  useRecorder.setState({ error: null });
+async function startRecording(owner: RecorderOwner = "composer") {
+  if (session || useRecorder.getState().state !== "idle") return;
+  useRecorder.setState({ error: null, owner });
   if (!navigator.mediaDevices?.getUserMedia) {
     useRecorder.setState({ error: "unsupported" });
     return;

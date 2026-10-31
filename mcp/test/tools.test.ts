@@ -115,7 +115,8 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
 
     const summary = await call("get_summary");
     expect(summary.value.lengthBars).toBe(1);
-    expect(summary.value.patterns[0].notesPerChannel).toEqual({ beep: 4 });
+    // Beside the empty Pattern 1 a new song starts with.
+    expect(summary.value.patterns.find((p: { id: string }) => p.id === "beat").notesPerChannel).toEqual({ beep: 4 });
 
     // The mirror follows the engine through patch notifications.
     expect(engine.document?.channels.map((c) => c.id)).toEqual(["beep"]);
@@ -132,14 +133,14 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     expect((await call("get_project", { path: "/channels" })).value).toEqual([]);
   });
 
-  it("asks once more after none of them, then goes on without the part; Other brings the user's note", async () => {
+  it("asks once more after none of them, then goes on without the part; Other brings the user's note; a closed window ends it", async () => {
     const candidates = [{ path: join(fixtures, "hat.wav") }, { path: join(fixtures, "snare.wav") }];
 
     // The user answers in the pick window.
-    const answer = async (choice: number, note?: string, more?: boolean) => {
+    const answer = async (choice: number, note?: string, more?: boolean, closed?: boolean) => {
       for (let i = 0; i < 50; i++) {
         const { offers } = (await engine.call("picks.list")) as { offers: { id: number }[] };
-        if (offers.length) return engine.call("picks.choose", { id: offers[0].id, choice, ...(note ? { note } : {}), ...(more ? { more } : {}) });
+        if (offers.length) return engine.call("picks.choose", { id: offers[0].id, choice, ...(note ? { note } : {}), ...(more ? { more } : {}), ...(closed ? { closed } : {}) });
         await new Promise((r) => setTimeout(r, 100));
       }
     };
@@ -160,7 +161,12 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     expect(r.value.next).toContain("2 more");
     [r] = await Promise.all([call("offer_choice", { title: "Which hats?", candidates, part: "hats", again: true }), answer(-1, undefined, true)]);
     expect(r.value.shown).toBe(4);
-  }, 20_000);
+
+    // The window closed without a choice: on without the part, no more offers for it.
+    [r] = await Promise.all([call("offer_choice", { title: "Which hats?", candidates, part: "hats" }), answer(-1, undefined, false, true)]);
+    expect(r.value.chosen).toBe("closed");
+    expect(r.value.next).toContain("go on without it");
+  }, 40_000);
 
   it("reports command errors without changing anything", async () => {
     const result = await call("edit_project", { commands: [{ type: "updateChannel", channel: "ghost", changes: { volumeDb: -3 } }] });

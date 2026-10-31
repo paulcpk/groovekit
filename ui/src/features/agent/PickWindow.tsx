@@ -1,10 +1,12 @@
-import { Play, Square } from "lucide-react";
+import { ArrowUp, Check, Loader2, Mic, Play, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { IconButton } from "@/components/controls";
 import { FloatingWindow } from "@/components/window";
 import { stopPreview, useStopPreviewsOnClose } from "@/features/shell/actions";
 import { cn } from "@/lib/cn";
 import { useAgentChoices } from "./agent";
-import { call, listen, useEngine } from "@/state/engine";
+import { loadVoiceModel, RECORDER_ERRORS, transcribe, transcriptText, useRecorder, useVoiceModel, useVoiceRecorder } from "./voice";
+import { call, listen, toast, useEngine } from "@/state/engine";
 import { closeWindow, openWindow, type OpenWindow } from "@/state/windows";
 
 /** A choice the agent puts to the user: two to ten sounds to pick from by ear. */
@@ -140,6 +142,51 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
   };
   const sendOther = () => note.trim() && choose(-1, note.trim());
 
+  // Closed by hand (its X, Escape): not this sound here, for now. The agent goes on without it.
+  const voice = useVoiceRecorder();
+  const dismiss = () => {
+    void stopPreview();
+    if (voice.owner === "pick") voice.cancel();
+    void call("picks.choose", { id, choice: -1, closed: true }).finally(() => closeWindow(w.key));
+  };
+
+  // "Other" by voice: a pulsing microphone while it records, then the text into the field to
+  // check, or sent straight to the agent.
+  const model = useVoiceModel();
+  const [transcribing, setTranscribing] = useState(false);
+  const recording = voice.state !== "idle" && voice.owner === "pick";
+  const startVoice = () => {
+    if (!model?.ready) {
+      toast("Voice needs its speech model first: click the microphone in the agent's message box to download it.");
+      return;
+    }
+    void loadVoiceModel(true).catch(() => {});
+    void voice.start("pick");
+  };
+  const acceptVoice = async (sendNow: boolean) => {
+    const audio = await voice.stop();
+    if (!audio) return;
+    setTranscribing(true);
+    try {
+      const text = transcriptText(await transcribe(audio));
+      if (!text) return toast("Didn't catch that. Try again a little closer to the microphone.");
+      const combined = note.trim() ? `${note.trimEnd()} ${text}` : text;
+      if (sendNow) choose(-1, combined);
+      else setNote(combined);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setTranscribing(false);
+    }
+  };
+  useEffect(() => {
+    if (recording && voice.error) toast(RECORDER_ERRORS[voice.error], "error");
+  }, [recording, voice.error]);
+  // A recording of this window's doesn't outlive it.
+  useEffect(() => () => {
+    if (useRecorder.getState().owner === "pick" && useRecorder.getState().state !== "idle") voice.cancel();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ↑ and ↓ move through the candidates and play each from the top; Enter picks; Space plays or stops.
   const [selected, setSelected] = useState(-1);
   const body = useRef<HTMLDivElement>(null);
@@ -181,7 +228,7 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
   };
 
   return (
-    <FloatingWindow window={w} width={420} accent="var(--color-agent)"
+    <FloatingWindow window={w} width={420} accent="var(--color-agent)" onClose={dismiss}
       title={<><span className="truncate">{offer?.title ?? "A choice"}</span><span className="shrink-0 text-2xs font-normal text-faint">Pick by ear</span></>}>
       {offer ? (
         <div ref={body} tabIndex={-1} onKeyDown={onKeyDown} className="flex flex-col gap-2 p-3 outline-none">
@@ -221,9 +268,16 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
           </div>
           {other ? (
             <div className="flex flex-col gap-1.5 pt-1">
-              <textarea autoFocus rows={3} value={note} onChange={(e) => setNote(e.target.value)}
+              <textarea autoFocus rows={3} value={note} onChange={(e) => setNote(e.target.value)} disabled={transcribing}
                 onKeyDown={(e) => {
                   e.stopPropagation();
+                  // While it records: Enter puts the words in the field, ⌘Enter sends them, Escape throws them away.
+                  if (recording && (e.key === "Enter" || e.key === "Escape")) {
+                    e.preventDefault();
+                    if (e.key === "Escape") voice.cancel();
+                    else void acceptVoice(e.metaKey || e.ctrlKey);
+                    return;
+                  }
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     sendOther();
@@ -232,12 +286,27 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
                 }}
                 placeholder="What should it look for instead? e.g. only hat loops, not whole drum loops"
                 className="w-full resize-none rounded-[6px] bg-bg px-2 py-1.5 text-xs text-fg outline-none ring-1 ring-line placeholder:text-faint focus:ring-agent" />
-              <div className="flex items-center gap-2">
-                <span className="flex-1 text-2xs text-faint">The agent searches again with this. Nothing counts against these sounds.</span>
-                <button type="button" onClick={() => setOther(false)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Cancel</button>
-                <button type="button" disabled={!note.trim()} onClick={sendOther}
-                  className="h-6 rounded-[4px] bg-agent px-2.5 text-xs text-black hover:brightness-110 disabled:opacity-40">Send to agent</button>
-              </div>
+              {recording ? (
+                <div className="flex items-center gap-1.5">
+                  <Mic size={13} className={cn("shrink-0 text-rec", voice.state === "recording" && "animate-pulse")} />
+                  <span className="flex-1 text-2xs text-dim tabular">{voice.state === "recording" ? `Listening… ${Math.floor(voice.elapsed / 1000)} s` : "Starting the microphone…"}</span>
+                  <IconButton size="sm" title="Throw it away (Esc)" onClick={voice.cancel} className="h-6 w-6 rounded-full"><X size={12} /></IconButton>
+                  <IconButton size="sm" title="Into the field to check (Enter)" disabled={voice.state !== "recording"} onClick={() => void acceptVoice(false)}
+                    className="h-6 w-6 rounded-full bg-control text-fg"><Check size={12} /></IconButton>
+                  <IconButton size="sm" title="Send to the agent (⌘Enter)" disabled={voice.state !== "recording"} onClick={() => void acceptVoice(true)}
+                    className="h-6 w-6 rounded-full bg-agent text-black hover:bg-agent"><ArrowUp size={12} /></IconButton>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 text-2xs text-faint">The agent searches again with this. Nothing counts against these sounds.</span>
+                  <IconButton size="sm" title="Say it" disabled={transcribing || voice.state !== "idle"} onClick={startVoice} className="h-6 w-6 rounded-full">
+                    {transcribing ? <Loader2 size={12} className="animate-spin" /> : <Mic size={12} />}
+                  </IconButton>
+                  <button type="button" onClick={() => setOther(false)} className="h-6 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Cancel</button>
+                  <button type="button" disabled={!note.trim() || transcribing} onClick={sendOther}
+                    className="h-6 rounded-[4px] bg-agent px-2.5 text-xs text-black hover:brightness-110 disabled:opacity-40">Send to agent</button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-1 pt-1">

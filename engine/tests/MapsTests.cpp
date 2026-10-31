@@ -580,6 +580,20 @@ TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and 
     CHECK (other["note"] == "Only hat loops, not whole drum loops");
     CHECK (listening.getTaste().forStyle ("Hard Techno").size() == 1);
 
+    // The window closed without a choice: not this part for now, and no verdict on these either.
+    const auto closed = call ("picks.offer", { { "title", "Which clap?" }, { "style", "Hard Techno" },
+                                               { "candidates", { { { "path", deep } }, { { "path", shortKick } } } } });
+    response = test::callApi (handler, client, "picks.choose", { { "id", closed["id"] }, { "choice", -1 }, { "closed", true }, { "more", true } });
+    CHECK (response.contains ("error"));        // closed is an answer of its own
+    call ("picks.choose", { { "id", closed["id"] }, { "choice", -1 }, { "closed", true } });
+    CHECK (call ("picks.get", { { "id", closed["id"] } })["closed"] == true);
+    CHECK (notifications.back()["params"]["closed"] == true);
+    CHECK (listening.getTaste().forStyle ("Hard Techno").size() == 1);
+
+    // Closed after a pick made elsewhere: the pick stands.
+    call ("picks.choose", { { "id", offered["id"] }, { "choice", -1 }, { "closed", true } });
+    CHECK (call ("picks.get", { { "id", offered["id"] } })["choice"] == 0);
+
     // The song's own kick, the deep one on every beat, measured against the reference.
     model::Reader r;
     std::vector<model::Command> commands;
