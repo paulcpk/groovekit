@@ -58,6 +58,12 @@ namespace
 
         void PLUGIN_API setPlayhead (gkmachine::int32 s, gkmachine::int32 p) override   { step = s; playing = p != 0; }
 
+        void PLUGIN_API showNotes (const gkmachine::Note* n, gkmachine::int32 count) override
+        {
+            notes.assign (n, n + count);
+            std::sort (notes.begin(), notes.end(), [] (auto& a, auto& b) { return std::tie (a.start, a.key) < std::tie (b.start, b.key); });
+        }
+
         int references = 1;
         gkmachine::IHost* host = nullptr;
         std::string name;
@@ -65,6 +71,7 @@ namespace
         int stepTicks = 0, lengthSteps = 0, step = -2;
         float swing = 0;
         std::vector<gkmachine::Hit> hits;
+        std::vector<gkmachine::Note> notes;
     };
 
     bool same (const gkmachine::Hit& h, int key, int step, int velocity, bool flam)
@@ -292,6 +299,63 @@ TEST_CASE ("A rhythm machine's steps edit the pattern selected in GrooveKit")
     CHECK (machine.references == 0);
 }
 
+TEST_CASE ("A machine playing lines edits notes with their lengths")
+{
+    auto doc = Session::createEmptyProject();
+    doc["tempo"] = 120;
+    Session session (doc);
+    run (session, { R"({ "type": "addChannel", "channel": { "id": "bass", "instrument": { "type": "sampler", "layers": [] } } })",
+                    R"({ "type": "addPattern", "pattern": { "id": "p", "notes": [
+                        { "channel": "bass", "start": 0, "length": 120, "key": 36 },
+                        { "channel": "bass", "start": 970, "length": 100, "key": 48 } ] } })" });
+
+    LiveEngine live (test::getEngineContext(), session, test::tempDir() / "line-recording.json");
+    auto& bridge = live.getMachines();
+    bridge.setFocus (model::Id ("p"));
+    FakeMachine machine;
+    bridge.attach ("bass", &machine);
+    REQUIRE (machine.host != nullptr);
+    auto& host = *machine.host;
+    host.setStepTicks (240);
+    bridge.updateNow();
+
+    // Every note as it is, the one off the grid too.
+    REQUIRE (machine.notes.size() == 2);
+    CHECK (machine.notes[1].start == 970);
+    CHECK (machine.notes[1].length == 100);
+
+    // Steps 2 to 5 rewritten: a note slid into the next, which is tied over a step. The note
+    // starting at 970 (step 4) goes with them; the first note stays.
+    const std::vector<gkmachine::Note> line { { 38, 480, 540, 127 }, { 43, 960, 360, 100 } };
+    host.setNotes (2, 4, line.data(), 2);
+    auto notes = notesOf (session, "p", "bass");
+    REQUIRE (notes.size() == 3);
+    CHECK (notes[0] == model::Note { "bass", 0, 120, 36, 100 });
+    CHECK (notes[1] == model::Note { "bass", 480, 540, 38, 127 });
+    CHECK (notes[2] == model::Note { "bass", 960, 360, 43, 100 });
+    REQUIRE (session.undo());
+    CHECK (notesOf (session, "p", "bass").size() == 2);
+    REQUIRE (session.redo());
+
+    // A line loaded alone in its pattern sets the length; a pattern of four bars is filled.
+    run (session, { R"({ "type": "updatePattern", "pattern": "p", "changes": { "length": 15360 } })" });
+    host.loadNotes ("Test", line.data(), 2, 8);
+    notes = notesOf (session, "p", "bass");
+    CHECK (notes.size() == 2);
+    CHECK (model::findPattern (session.getProject(), "p")->length == 1920);
+
+    run (session, { R"({ "type": "addChannel", "channel": { "id": "drums", "instrument": { "type": "sampler", "layers": [] } } })",
+                    R"({ "type": "updatePattern", "pattern": "p", "changes": { "length": 3840 } })",
+                    R"({ "type": "addNotes", "pattern": "p", "notes": [ { "channel": "drums", "start": 0, "length": 240, "key": 36 } ] })" });
+    host.loadNotes ("Test", line.data(), 2, 8);
+    notes = notesOf (session, "p", "bass");
+    REQUIRE (notes.size() == 4);
+    CHECK (notes[2] == model::Note { "bass", 2400, 540, 38, 127 });
+    CHECK (model::findPattern (session.getProject(), "p")->length == 3840);
+
+    bridge.disconnect();
+}
+
 TEST_CASE ("Groove-8 inside the engine edits the song, its own sequencer quiet")
 {
     static PluginCatalog catalog (test::getEngine(), test::tempDir() / "machine-plugins.xml");
@@ -341,5 +405,53 @@ TEST_CASE ("Groove-8 inside the engine edits the song, its own sequencer quiet")
     CHECK (audio.peak (1.0) < 0.0001f);
     bridge.disconnect();
     CHECK (audio.peak (1.0) > 0.01f);
+    live.stop();
+}
+
+TEST_CASE ("Groove-3 inside the engine sees the notes with their lengths, its own line quiet")
+{
+    static PluginCatalog catalog (test::getEngine(), test::tempDir() / "line-plugins.xml");
+    std::optional<juce::PluginDescription> groove3;
+
+    for (auto& d : catalog.getPlugins())
+        if (d.name == "Groove-3")
+            groove3 = d;
+
+    REQUIRE (groove3);
+
+    auto dir = test::tempDir() / "machine-groove3";
+    std::filesystem::remove_all (dir);
+    auto session = Session::open (dir);
+
+    // Its line running, as it is out of the box: outside GrooveKit it would play.
+    Json channel { { "id", "g3" }, { "instrument", { { "type", "plugin" },
+        { "plugin", { { "format", "VST3" }, { "uid", groove3->createIdentifierString().toStdString() }, { "name", "Groove-3" }, { "params", { { "Run", 1 } } } } } } } };
+    session->execute ({ command (Json { { "type", "addChannel" }, { "channel", channel } }.dump()),
+                        command (R"({ "type": "addPattern", "pattern": { "id": "p", "length": 3840, "notes": [] } })"),
+                        command (R"({ "type": "addClip", "clip": { "type": "pattern", "id": "c", "row": 0, "start": 0, "length": 15360, "pattern": "p" } })") });
+
+    HostedAudio audio;
+    LiveEngine live (test::getEngineContext(), *session, test::tempDir() / "line-recording.json");
+    auto& bridge = live.getMachines();
+    CHECK (bridge.getConnectedChannels() == std::vector<model::Id> { "g3" });
+    bridge.setFocus (model::Id ("p"));
+
+    // What its step section sends: a note sliding into the next, which is tied over a step.
+    auto* host = bridge.findHost ("g3");
+    REQUIRE (host != nullptr);
+    const std::vector<gkmachine::Note> line { { 36, 0, 300, 127 }, { 48, 240, 360, 100 } };
+    host->setNotes (0, 2, line.data(), 2);
+    CHECK (notesOf (*session, "p", "g3") == std::vector<model::Note> { { "g3", 0, 300, 36, 127 }, { "g3", 240, 360, 48, 100 } });
+    live.updateNow();
+
+    // Connected, it plays the song's notes: without any, nothing. Let go, its own line plays
+    // (the test isn't GrooveKit's engine, where it never would).
+    host->setNotes (0, 16, nullptr, 0);
+    CHECK (notesOf (*session, "p", "g3").empty());
+    live.updateNow();
+    live.play();
+    CHECK (audio.peak (2.5) < 0.0001f);
+    bridge.disconnect();
+    CHECK (audio.peak (2.5) > 0.01f);
     live.stop();
 }

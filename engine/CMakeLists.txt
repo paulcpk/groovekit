@@ -165,7 +165,7 @@ target_compile_definitions(gk_engine PRIVATE GK_BUILT_PLUGINS="${GK_PLUGINS_DIR}
 
 add_executable(groovekit-engine src/main.cpp)
 target_link_libraries(groovekit-engine PRIVATE gk_engine juce::juce_recommended_warning_flags)
-add_dependencies(groovekit-engine Triad_VST3 Quartet_VST3 Sextet_VST3 Kessel_VST3 Groove8_VST3 Groove9_VST3 Chamber_VST3 Echo_VST3)
+add_dependencies(groovekit-engine Triad_VST3 Quartet_VST3 Sextet_VST3 Kessel_VST3 Groove8_VST3 Groove9_VST3 Groove3_VST3 Chamber_VST3 Echo_VST3)
 
 if(GK_BUILD_TESTS)
     add_subdirectory(tests)

@@ -8,7 +8,7 @@ set_target_properties(PluginPictures PROPERTIES EXCLUDE_FROM_ALL TRUE)
 target_sources(PluginPictures PRIVATE main.cpp)
 
 # Every plugin's sources, each with its plugin factory renamed so they don't clash.
-foreach(plugin triad quartet sextet kessel groove8 groove9 chamber echo)
+foreach(plugin triad quartet sextet kessel groove8 groove9 groove3 chamber echo)
     file(GLOB sources CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/plugins/${plugin}/Source/*.cpp")
     target_sources(PluginPictures PRIVATE ${sources})
     set_source_files_properties(${sources} PROPERTIES COMPILE_DEFINITIONS "createPluginFilter=gkCreate_${plugin}")

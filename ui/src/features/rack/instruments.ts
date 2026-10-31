@@ -15,7 +15,7 @@ export function instrumentName(choice: InstrumentChoice) {
 }
 
 /** GrooveKit's own instruments have a picture of their panel; others are drawn as a card. */
-const PICTURES = new Set(["Triad", "Quartet", "Sextet", "Kessel", "Groove-8", "Groove-9"]);
+const PICTURES = new Set(["Triad", "Quartet", "Sextet", "Kessel", "Groove-8", "Groove-9", "Groove-3"]);
 
 export function pictureOf(choice: InstrumentChoice): string | undefined {
   if (choice.kind !== "plugin" || choice.plugin.manufacturer !== "GrooveKit" || !PICTURES.has(choice.plugin.name)) return undefined;

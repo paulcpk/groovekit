@@ -151,6 +151,7 @@ public:
     MachineBridge& bridge;
     const Id channel;
     gkmachine::IMachine* const machine;
+    const int version = machine->getVersion();
     Ticks stepTicks = 240;
     int depth = 0;
     std::optional<std::string> group;
@@ -317,33 +318,47 @@ public:
     void PLUGIN_API loadGroove (const char* name, const gkmachine::Hit* hits, gkmachine::int32 numHits, gkmachine::int32 lengthSteps, float flamMs) override
     {
         const std::vector<gkmachine::Hit> groove (hits, hits + std::max (0, numHits));
-        const auto grooveName = juce::String::fromUTF8 (name != nullptr ? name : "").toStdString();
 
-        if (lengthSteps < 1)
-            return;
-
-        bridge.edit (*this, "Load the groove " + grooveName + " on " + channelName(), [&] (std::vector<Note>& notes, std::optional<TickLength>& length, bool hasOtherNotes)
+        load ("groove", name, lengthSteps, [&] (std::vector<Note>& notes, Ticks from, Ticks total)
         {
-            // Alone in its pattern the groove sets the length; beside other notes it repeats
-            // through the length they have.
-            const auto grooveTicks = static_cast<Ticks> (lengthSteps) * stepTicks;
-            notes.clear();
+            for (auto& h : groove)
+                if (const auto at = from + static_cast<Ticks> (h.step) * stepTicks; h.step >= 0 && h.step < lengthSteps && at < total)
+                    addHit (notes, h.key, at, h.velocity, h.flam != 0, flamMs);
+        });
+    }
 
-            if (! hasOtherNotes)
-                length = grooveTicks;
+    void PLUGIN_API setNotes (gkmachine::int32 fromStep, gkmachine::int32 numSteps, const gkmachine::Note* added, gkmachine::int32 numAdded) override
+    {
+        const std::vector<gkmachine::Note> line (added, added + std::max (0, numAdded));
 
-            // Without a length of its own, the pattern's length is what the other notes give it.
-            const auto total = length ? *length : [&]
+        bridge.edit (*this, "Edit the line on " + channelName(), [&] (std::vector<Note>& notes, std::optional<TickLength>& length, bool)
+        {
+            const auto from = static_cast<Ticks> (std::max (0, fromStep)) * stepTicks;
+            const auto to = from + static_cast<Ticks> (std::max (0, numSteps)) * stepTicks;
+            std::erase_if (notes, [&] (const Note& n) { return n.start >= from && n.start < to; });
+
+            for (auto& n : line)
             {
-                auto others = *bridge.findFocusedPattern();
-                std::erase_if (others.notes, [&] (const Note& n) { return n.channel == channel; });
-                return getPatternLength (others, bridge.session.getProject().timeSignature);
-            }();
+                if (n.start < 0 || n.length < 1)
+                    continue;
 
-            for (Ticks from = 0; from < total; from += grooveTicks)
-                for (auto& h : groove)
-                    if (const auto at = from + static_cast<Ticks> (h.step) * stepTicks; h.step >= 0 && h.step < lengthSteps && at < total)
-                        addHit (notes, h.key, at, h.velocity, h.flam != 0, flamMs);
+                notes.push_back (noteOf (n, 0));
+                lengthenFor (length, static_cast<int> (n.start / stepTicks));
+            }
+        });
+    }
+
+    void PLUGIN_API loadNotes (const char* name, const gkmachine::Note* added, gkmachine::int32 numAdded, gkmachine::int32 lengthSteps) override
+    {
+        const std::vector<gkmachine::Note> line (added, added + std::max (0, numAdded));
+
+        load ("line", name, lengthSteps, [&] (std::vector<Note>& notes, Ticks from, Ticks total)
+        {
+            const auto lineTicks = static_cast<Ticks> (lengthSteps) * stepTicks;
+
+            for (auto& n : line)
+                if (n.start >= 0 && n.start < lineTicks && n.length > 0 && from + n.start < total)
+                    notes.push_back (noteOf (n, from));
         });
     }
 
@@ -394,6 +409,42 @@ public:
     }
 
 private:
+    Note noteOf (const gkmachine::Note& n, Ticks offset) const
+    {
+        return { channel, offset + n.start, std::max<Ticks> (1, n.length), juce::jlimit (0, 127, static_cast<int> (n.key)), juce::jlimit (1, 127, static_cast<int> (n.velocity)) };
+    }
+
+    /** Replaces the channel's notes with what add puts at each repeat of lengthSteps steps (from
+        the repeat's start, short of the total): alone in its pattern it sets the length, beside
+        other notes it repeats through the length they have. */
+    void load (const std::string& kind, const char* name, int lengthSteps, const std::function<void (std::vector<Note>&, Ticks from, Ticks total)>& add)
+    {
+        const auto title = juce::String::fromUTF8 (name != nullptr ? name : "").toStdString();
+
+        if (lengthSteps < 1)
+            return;
+
+        bridge.edit (*this, "Load the " + kind + " " + title + " on " + channelName(), [&] (std::vector<Note>& notes, std::optional<TickLength>& length, bool hasOtherNotes)
+        {
+            const auto repeatTicks = static_cast<Ticks> (lengthSteps) * stepTicks;
+            notes.clear();
+
+            if (! hasOtherNotes)
+                length = repeatTicks;
+
+            // Without a length of its own, the pattern's length is what the other notes give it.
+            const auto total = length ? *length : [&]
+            {
+                auto others = *bridge.findFocusedPattern();
+                std::erase_if (others.notes, [&] (const Note& n) { return n.channel == channel; });
+                return getPatternLength (others, bridge.session.getProject().timeSignature);
+            }();
+
+            for (Ticks from = 0; from < total; from += repeatTicks)
+                add (notes, from, total);
+        });
+    }
+
     void clear (std::vector<Note>& notes, int key, int fromStep, int numSteps) const
     {
         const auto from = static_cast<Ticks> (std::max (0, fromStep)) * stepTicks;
@@ -572,6 +623,19 @@ void MachineBridge::showPattern (Link& link)
     shown.hits = hits.data();
     shown.numHits = static_cast<gkmachine::int32> (hits.size());
     link.machine->showPattern (shown);
+
+    // A machine playing lines sees the notes as they are, lengths and all.
+    if (link.version >= 2)
+    {
+        std::vector<gkmachine::Note> notes;
+
+        if (pattern != nullptr)
+            for (auto& n : pattern->notes)
+                if (n.channel == link.channel)
+                    notes.push_back ({ n.key, static_cast<gkmachine::int32> (n.start), static_cast<gkmachine::int32> (n.length), n.velocity });
+
+        link.machine->showNotes (notes.data(), static_cast<gkmachine::int32> (notes.size()));
+    }
 }
 
 void MachineBridge::showPlayhead (Link& link)

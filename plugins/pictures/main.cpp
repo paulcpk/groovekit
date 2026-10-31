@@ -13,6 +13,7 @@ juce::AudioProcessor* JUCE_CALLTYPE gkCreate_sextet();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_kessel();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_groove8();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_groove9();
+juce::AudioProcessor* JUCE_CALLTYPE gkCreate_groove3();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_chamber();
 juce::AudioProcessor* JUCE_CALLTYPE gkCreate_echo();
 
@@ -28,11 +29,11 @@ int main (int argc, char* argv[])
     const std::filesystem::path folder = argv[1];
     std::filesystem::create_directories (folder);
     // Each with what it plays for its picture: a chord for the synths, a kick for Kessel, a kick,
-    // snare, clap and hat for the rhythm machines.
-    const std::vector<int> chord { 48, 55, 60, 63 }, kick { 60 }, drums { 36, 38, 39, 42 };
+    // snare, clap and hat for the rhythm machines, a bass note for Groove-3.
+    const std::vector<int> chord { 48, 55, 60, 63 }, kick { 60 }, drums { 36, 38, 39, 42 }, bass { 36 };
     const std::tuple<const char*, juce::AudioProcessor* (*)(), std::vector<int>> plugins[] {
         { "Triad", gkCreate_triad, chord }, { "Quartet", gkCreate_quartet, chord }, { "Sextet", gkCreate_sextet, chord }, { "Kessel", gkCreate_kessel, kick },
-        { "Groove-8", gkCreate_groove8, drums }, { "Groove-9", gkCreate_groove9, drums },
+        { "Groove-8", gkCreate_groove8, drums }, { "Groove-9", gkCreate_groove9, drums }, { "Groove-3", gkCreate_groove3, bass },
         { "Chamber", gkCreate_chamber, {} }, { "Echo", gkCreate_echo, {} },
     };
 

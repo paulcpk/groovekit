@@ -28,6 +28,7 @@ export const OWN_PLUGINS: Record<string, string> = {
   Kessel: "hard kicks with rumble",
   "Groove-8": "analogue rhythm machine, the booming one",
   "Groove-9": "rhythm machine, the punchy one",
+  "Groove-3": "acid bass line synth with slides and accents",
   Chamber: "reverb",
   Echo: "delay",
 };

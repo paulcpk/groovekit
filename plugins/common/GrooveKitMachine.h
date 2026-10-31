@@ -30,8 +30,9 @@ namespace gkmachine
 
 using Steinberg::int32;
 
-/** Raised when methods are added at the end of IMachine or IHost. */
-constexpr int32 version = 1;
+/** Raised when methods are added at the end of IMachine or IHost. 2: notes with their lengths,
+    for machines that play lines (held, tied and slid notes): showNotes, setNotes and loadNotes. */
+constexpr int32 version = 2;
 
 /** A drum hit in the pattern: a note on the grid. */
 struct Hit
@@ -40,6 +41,16 @@ struct Hit
     int32 step;         // from the pattern's start
     int32 velocity;     // 1-127; 110 and up is an accent
     int32 flam;         // not 0: a softer grace note comes just before it
+};
+
+/** A note of the channel's in the pattern, its times in ticks (960 per quarter note) from the
+    pattern's start. A note that lasts past the start of the next one slides into it. */
+struct Note
+{
+    int32 key;          // MIDI note
+    int32 start;
+    int32 length;
+    int32 velocity;     // 1-127; 110 and up is an accent
 };
 
 /** The pattern GrooveKit shows the machine. */
@@ -104,6 +115,14 @@ public:
         and never calls it again. The machine's last call. */
     virtual void PLUGIN_API detach() = 0;
 
+    /** (2) Replaces the channel's notes that start within numSteps steps from fromStep with these;
+        a pattern with a length of its own grows by whole pages to take them. */
+    virtual void PLUGIN_API setNotes (int32 fromStep, int32 numSteps, const Note* notes, int32 numNotes) = 0;
+
+    /** (2) Replaces all of the channel's notes in the pattern with a line of lengthSteps steps,
+        repeated through the pattern as loadGroove does. */
+    virtual void PLUGIN_API loadNotes (const char* name, const Note* notes, int32 numNotes, int32 lengthSteps) = 0;
+
 protected:
     ~IHost() = default;
 };
@@ -124,6 +143,10 @@ public:
     /** Where the pattern plays: its step, or -1 when it isn't playing here; and whether the
         transport runs. */
     virtual void PLUGIN_API setPlayhead (int32 step, int32 playing) = 0;
+
+    /** (2) Every one of the channel's notes in the pattern shown, after each showPattern. The data
+        is the machine's to copy. */
+    virtual void PLUGIN_API showNotes (const Note* notes, int32 numNotes) = 0;
 
     static const Steinberg::TUID& getIid()
     {

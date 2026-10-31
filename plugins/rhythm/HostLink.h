@@ -54,6 +54,7 @@ public:
     void PLUGIN_API setHost (gkmachine::IHost*) override;
     void PLUGIN_API showPattern (const gkmachine::Pattern&) override;
     void PLUGIN_API setPlayhead (gkmachine::int32 step, gkmachine::int32 playing) override;
+    void PLUGIN_API showNotes (const gkmachine::Note*, gkmachine::int32) override    {}    // the hits say it all
 
     /** Answers GrooveKit's query on the machine's VST3 component. */
     struct Extensions : public juce::VST3ClientExtensions
