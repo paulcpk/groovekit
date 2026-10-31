@@ -254,7 +254,8 @@ Arrangement hearArrangement (const TrackStems& stems, std::optional<double> know
     {
         std::tie (a.tempo, phase) = fitGrid (times, weights, a.tempo);
 
-        // A kick peaks a few milliseconds after it starts: the grid goes on its onsets.
+        // A kick's low end peaks after it starts, a few milliseconds for a tight kick and up to
+        // 80 for a long one gliding down: the grid goes on its onsets.
         const auto beat = 60.0 / a.tempo;
         std::vector<double> early;
 
@@ -265,7 +266,7 @@ Arrangement hearArrangement (const TrackStems& stems, std::optional<double> know
             if (d > beat / 2)
                 d -= beat;
 
-            if (d > -0.03 && d < 0.01)
+            if (d > -std::min (0.08, beat / 6) && d < 0.01)
                 early.push_back (d);
         }
 

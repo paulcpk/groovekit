@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Arrangement.h"
+#include "Voices.h"
 #include "Clap.h"
 #include "Groove.h"
 #include "KickSound.h"
@@ -83,6 +84,9 @@ struct StyleProfile
 
         std::vector<Figure> figures;
 
+        /** Every melodic voice through the track, and how they go together (analysis 9 on). */
+        std::optional<TrackVoices> voices;
+
         model::Json toJson() const;
         static Track fromJson (const model::Json&);
     };
@@ -119,7 +123,8 @@ struct StyleProfile
 class NoteTranscriber;
 
 StyleProfile::Track hearTrack (Separator&, Clap&, const std::filesystem::path&, std::optional<double> knownTempo = {},
-                               const std::function<bool (double)>& progress = {}, bool wholeTrack = false, NoteTranscriber* = nullptr);
+                               const std::function<bool (double)>& progress = {}, bool wholeTrack = false, NoteTranscriber* = nullptr,
+                               Separator::Stems* keepStems = nullptr);
 
 /** The figures the music and the bass play, from a whole track's stems and its arrangement: up
     to three two-bar stretches of each where the part is loudest (drops first), transcribed and

@@ -7,7 +7,7 @@ import { FloatingWindow } from "@/components/window";
 import { useStopPreviewsOnClose } from "@/features/shell/actions";
 import { noteName } from "@/lib/model";
 import { closeWindow, type OpenWindow } from "@/state/windows";
-import { forget, getMap, hear, setInUse, useMaps, type Figure, type SongMap } from "./maps";
+import { forget, getMap, hear, setInUse, useMaps, type Figure, type SongMap, type Voice } from "./maps";
 
 /** The parts the hearing levels against the whole mix. */
 const PARTS: [string, string][] = [["kick", "Kick and rumble"], ["bass", "Bass"], ["drums", "Drums"], ["hats", "Hats"], ["music", "Music"]];
@@ -125,7 +125,19 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
               )}
             </Section>
 
-            {t.figures && t.figures.length > 0 && (
+            {t.voices && t.voices.voices.length > 0 && (
+              <Section title="Voices">
+                <p className="mb-2 text-2xs leading-relaxed text-faint">
+                  Every melodic part through the track{t.voices.key ? ` (${t.voices.key.key})` : ""}, each as the figures it repeats: the agent writes its parts from these, in the song's key.
+                </p>
+                <div className="flex flex-col gap-3">
+                  {t.voices.voices.map((v, i) => <VoiceView key={i} voice={v} />)}
+                </div>
+                <Together voices={t.voices.voices} pairs={t.voices.pairs} />
+              </Section>
+            )}
+
+            {!t.voices && t.figures && t.figures.length > 0 && (
               <Section title="Figures">
                 <p className="mb-2 text-2xs leading-relaxed text-faint">What the music and the bass play where they're loudest, two bars each: the agent writes its lines in these rhythms and intervals.</p>
                 <div className="flex flex-col gap-2">
@@ -144,21 +156,76 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
 
 /** A figure as a small piano roll: a row per note it uses, 16ths across its bars. */
 function FigureView({ figure: f }: { figure: Figure }) {
-  const keys = [...new Set(f.notes.map((n) => n.key))].sort((a, b) => b - a);
-  const steps = f.bars * 16;
-  const color = f.part === "bass" ? "#5ec4a9" : "#a78bfa";
+  return (
+    <Roll notes={f.notes} bars={f.bars} color={f.part === "bass" ? "#5ec4a9" : "#a78bfa"}
+      label={f.part} detail={`bars ${f.bar + 1}–${f.bar + f.bars}${f.section ? ` · ${f.section}` : ""}${f.key ? ` · ${f.key.key}` : ""}`} />
+  );
+}
+
+/** A voice: what it is, then its runs, each figure as a roll with the bars it repeats over. */
+function VoiceView({ voice: v }: { voice: Voice }) {
+  const shown = 4;
+  const color = v.part === "bass" ? "#5ec4a9" : v.part === "drums" ? "#f2a33a" : "#a78bfa";
+  return (
+    <div>
+      <div className="mb-1 flex flex-wrap items-baseline gap-x-2 text-2xs">
+        <span className="font-medium text-fg">{v.role}</span>
+        <span className="text-faint">
+          {noteName(v.range[0])}{v.range[1] !== v.range[0] ? `–${noteName(v.range[1])}` : ""}
+          {v.sound ? ` · ${v.sound}` : ""}{v.chord >= 1.5 ? ` · chords of ${Math.round(v.chord)}` : ""} · {Math.round(v.notesPerBar)} notes a bar
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {v.runs.slice(0, shown).map((r, i) =>
+          r.change?.startsWith("as bars") ? (
+            <div key={i} className="text-2xs text-faint">bars {r.from + 1}–{r.to}: {r.change}</div>
+          ) : (
+            <Roll key={i} bars={r.bars} color={color}
+              notes={r.notes.map(([step, steps, key, velocity]) => ({ start: step * 240, length: steps * 240, key, velocity }))}
+              detail={`bars ${r.from + 1}–${r.to}${r.change ? ` · ${r.change}` : ""}${r.variations ? ` · ${r.variations} fill${r.variations > 1 ? "s" : ""}` : ""}`} />
+          ),
+        )}
+        {v.runs.length > shown && <span className="text-2xs text-faint">and {v.runs.length - shown} more</span>}
+      </div>
+    </div>
+  );
+}
+
+/** How the voices go together, the telling pairs: one answering another, or playing in its gaps. */
+function Together({ voices, pairs }: { voices: Voice[]; pairs: { a: number; b: number; bars: number; together: number; fills: number; answerAfter?: number }[] }) {
+  const lines = pairs
+    .filter((p) => p.bars >= 4 && (p.answerAfter !== undefined || p.together >= 0.6 || p.fills >= 0.8))
+    .slice(0, 8)
+    .map((p) => {
+      const a = `${voices[p.a].role} ${p.a + 1}`, b = `${voices[p.b].role} ${p.b + 1}`;
+      return p.answerAfter !== undefined ? `${b} answers ${a}, ${p.answerAfter} 16ths after its phrase`
+        : p.together >= 0.6 ? `${b} plays with ${a}` : `${b} plays in the gaps of ${a}`;
+    });
+  if (lines.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-0.5 text-2xs text-dim">
+      {lines.map((l, i) => <span key={i}>{l}</span>)}
+    </div>
+  );
+}
+
+function Roll({ notes, bars, color, label, detail }: {
+  notes: { start: number; length: number; key: number; velocity: number }[]; bars: number; color: string; label?: string; detail: string;
+}) {
+  const keys = [...new Set(notes.map((n) => n.key))].sort((a, b) => b - a);
+  const steps = bars * 16;
   return (
     <div>
       <div className="mb-1 flex items-baseline gap-2 text-2xs">
-        <span className="font-medium text-fg">{f.part}</span>
-        <span className="text-faint">bars {f.bar + 1}–{f.bar + f.bars}{f.section ? ` · ${f.section}` : ""}{f.key ? ` · ${f.key.key}` : ""}</span>
+        {label && <span className="font-medium text-fg">{label}</span>}
+        <span className="text-faint">{detail}</span>
       </div>
       <div className="grid gap-px rounded-[4px] bg-bg p-1 ring-1 ring-line" style={{ gridTemplateColumns: `28px repeat(${steps}, minmax(0, 1fr))` }}>
         {keys.map((key) => (
           <Fragment key={key}>
             <span className="pr-1 text-right font-mono text-[9px] leading-[10px] text-faint">{noteName(key)}</span>
             {Array.from({ length: steps }, (_, step) => {
-              const note = f.notes.find((n) => n.key === key && n.start <= step * 240 && n.start + n.length > step * 240);
+              const note = notes.find((n) => n.key === key && n.start <= step * 240 && n.start + n.length > step * 240);
               const starts = note !== undefined && note.start === step * 240;
               return (
                 <span key={step} className="h-[10px]"

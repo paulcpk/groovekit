@@ -229,7 +229,9 @@ Json ApiHandler::callMaps (const std::string& method, const Json& params)
         j["inUse"] = maps.isInUse (id);
 
         if (map->track.arrangement)
-            j["score"] = map->track.arrangement->describe() + (map->track.figures.empty() ? "" : "\n" + listening::describeFigures (map->track.figures));
+            j["score"] = map->track.arrangement->describe()
+                       + (map->track.voices ? "\n" + listening::describeVoices (*map->track.voices)
+                                            : map->track.figures.empty() ? "" : "\n" + listening::describeFigures (map->track.figures));
 
         j["current"] = map->track.analysis >= listening::currentAnalysisVersion();
         return j;

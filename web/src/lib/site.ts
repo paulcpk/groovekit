@@ -81,14 +81,15 @@ export const TOOL_GROUPS: ToolGroup[] = [
   {
     id: "listening",
     title: "Learns your taste from the tracks you love",
-    lead: "Styles are folders of reference tracks. GrooveKit hears each one once into a song map, and the agent works from the maps: arrangement, levels, sounds and the figures the music plays.",
+    lead: "Styles are folders of reference tracks. GrooveKit hears each one once into a song map, and the agent works from the maps: arrangement, levels, sounds and every part the music plays.",
     wide: true,
     tools: [
       { name: "styles", does: "Your styles, each learnt from the maps in use: tempo, swing, parts at once, each part’s level against the kick, the low end, and how the references sound." },
       {
         name: "song_maps",
-        does: "The reference tracks heard into maps: sections with their role and bars, which parts play where, energy, the kick and rumble measured, and two-bar figures of what the music and the bass play, as notes on the 16th grid.",
+        does: "The reference tracks heard into maps: sections with their role and bars, which parts play where, energy, the kick and rumble measured, and every melodic part through the track as notes on the 16th grid.",
       },
+      { name: "voices", does: "The melodic parts of a style and of your song: what each part plays, how often it changes, and which parts answer or interlock with each other. Writes new parts from them in your key, fitted to a part already there, and checks the song against the style." },
       { name: "style_guide", does: "How to make a style: the feeling, each part’s sound with words to search by, the order to build in, the mix, the arrangement, what to avoid, with targets in numbers." },
       { name: "compare_to_style", does: "Renders the song and hears it exactly as the references were heard, then reports each part’s fit with words for how both sound." },
       { name: "match_sound", does: "Finds a kick and rumble like a reference’s, measured in numbers: the body’s note, how long it rings, click, grit, the rumble between kicks, width." },

@@ -50,6 +50,8 @@ export interface SongMap {
     kick?: { sound: KickSound; bars: [number, number]; clean: boolean };
     /** What the music and the bass play where they're loudest: two bars each on the 16th grid. */
     figures?: Figure[];
+    /** Every melodic part through the track and how they go together (hearing 9 on). */
+    voices?: { voices: Voice[]; pairs: Pairing[]; key?: { key: string; confidence: number } };
   };
   /** The arrangement as the agent reads it. */
   score?: string;
@@ -62,6 +64,30 @@ export interface Figure {
   section?: string;
   key?: { key: string; confidence: number };
   notes: { start: number; length: number; key: number; velocity: number }[];
+}
+
+/** A melodic part heard through a track: runs of a figure (steps of 16ths from the figure's
+    start; notes as [step, steps, key, velocity]) and the bars each repeats over. */
+export interface Voice {
+  role: string;
+  part: string;
+  sound: string;
+  range: [number, number];
+  level: number;
+  chord: number;
+  notesPerBar: number;
+  runs: { from: number; to: number; bars: number; notes: [number, number, number, number][]; change?: string; variations?: number }[];
+}
+
+/** How two voices go together: b answers a when answerAfter is there. */
+export interface Pairing {
+  a: number;
+  b: number;
+  bars: number;
+  together: number;
+  fills: number;
+  answerAfter?: number;
+  intervals: [number, number][];
 }
 
 export interface KickSound {

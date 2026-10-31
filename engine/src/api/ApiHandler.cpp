@@ -347,6 +347,7 @@ Json ApiHandler::dispatch (const std::string& method, const Json& params, Client
         { "listening.",  [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callListening (m, p); } },
         { "styles.",     [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callListening (m, p); } },
         { "maps.",       [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callMaps (m, p); } },
+        { "voices.",     [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callVoices (m, p); } },
         { "match.",      [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callMatch (m, p); } },
         { "picks.",      [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callMatch (m, p); } },
         { "mix.",        [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callMix (m, p, c); } },

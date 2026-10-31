@@ -30,7 +30,7 @@ export function registerStyleTools({ server, engine }: Tools) {
   server.registerTool(
     "song_maps",
     {
-      description: "The user's reference tracks, each heard once into a song map: its arrangement bar by bar (the beat grid, sections with their role and bars, which parts play in each: kick, rumble, bass, hats, percussion, music, vocal; energy; changes like a part out for a bar or a filter opening), the figures its music and bass play (two bars of notes each, where the part is loudest, with their key), and what it sounds like. list: the songs by style, with status (heard, older: heard before arrangements or figures were heard, new, queued...), inUse (the user's tick: the style learns from ticked songs) and tempo; style narrows it. read: one song's map as a score (id from list) with its figures as notes in ticks (figures narrows them to music or bass, or leaves them out). hear: queues songs (ids) to be heard (again), a few minutes each in the background. setInUse: ticks or unticks songs (ids, inUse), only when the user asks.",
+      description: "The user's reference tracks, each heard once into a song map: its arrangement bar by bar (the beat grid, sections with their role and bars, which parts play in each: kick, rumble, bass, hats, percussion, music, vocal; energy; changes like a part out for a bar or a filter opening), its voices (every melodic part through the track: bass, stabs, chords, leads, arps, pads, a pitched kick, each as runs of its figure with how it changes, and how the parts go together: answering, interlocking, doubling, the intervals between them; maps heard before voices have the older figures, two bars of the music and the bass where loudest), and what it sounds like. list: the songs by style, with status (heard, older: heard before arrangements or figures were heard, new, queued...), inUse (the user's tick: the style learns from ticked songs) and tempo; style narrows it. read: one song's map as a score (id from list), with its voices or figures as notes (figures: none leaves them out of the result; the score always has them). hear: queues songs (ids) to be heard (again), a few minutes each in the background. setInUse: ticks or unticks songs (ids, inUse), only when the user asks.",
       inputSchema: {
         action: z.enum(["list", "read", "hear", "setInUse"]),
         style: z.string().optional().describe("list: only this style"),
@@ -50,12 +50,12 @@ export function registerStyleTools({ server, engine }: Tools) {
         if (action === "read") {
           type Figure = { part: string };
           const map = await engine.call<{ style: string; title: string; inUse: boolean; score?: string; track: Record<string, unknown> & { figures?: Figure[] } }>("maps.get", { id });
-          const { sounds: _, arrangement: __, balance: ___, path: ____, figures, ...measured } = map.track;
+          const { sounds: _, arrangement: __, balance: ___, path: ____, figures, voices, ...measured } = map.track;
           const wanted = which ?? "all";
           return {
             id, style: map.style, title: map.title, inUse: map.inUse, measured,
             score: map.score ?? "Heard before arrangements were heard: hear it again for its score.",
-            ...(wanted === "none" ? {} : {
+            ...(wanted === "none" ? {} : voices ? { voices } : {
               figures: figures
                 ? wanted === "all" ? figures : figures.filter((f) => f.part === wanted)
                 : "Heard before figures were heard: hear it again for what its music and bass play.",
@@ -88,6 +88,27 @@ export function registerStyleTools({ server, engine }: Tools) {
     },
     ({ source, ...args }, extra: Extra) =>
       attempt(() => longRunning(extra, "transcribing", (signal) => engine.call(source === "voice" ? "melody.voice" : "melody.reference", defined(args), { signal })))
+  );
+
+  server.registerTool(
+    "voices",
+    {
+      description: "The melodic parts of a style and of the song, and parts written from them. A style's voices come from its ticked reference maps: which roles play (bass, stab, chords, lead, arp, pluck, pad, kick) and how many at once per kind of section, each role's figures (rhythms with their notes, moved to C) and how long a figure lasts before it changes and how, and how roles pair (one answering another so many 16ths after its phrase, interlocking in each other's gaps, playing together; the intervals between them). library: a style's voices (style; default the song's). song: the song's own parts, each pitched channel through the playlist, the same way. write: notes for a part (role) from the style's figures, never a copy: moved into the song's key, varied, and with partner (a channel) fitted to it, answering it, interlocking or together as the style does (or relation); notesFrom another style takes that style's notes over this one's rhythms (a style mix, e.g. hard techno rhythms with house notes); count candidates (default 3), variation to start from another figure; each with notes in ticks for addNotes, its length, and the figure as 16ths. check: the song's parts against the style's, worst first (too many at once, doubling where the style interlocks, a part the style answers with no answer, a figure that never changes, notes out of key, a part busier than the style's, a role most references have).",
+      inputSchema: {
+        action: z.enum(["library", "song", "write", "check"]),
+        style: z.string().optional().describe("library, write, check: the style (default the song's)"),
+        role: z.string().optional().describe("write: bass, stab, chords, lead, arp, pluck or pad"),
+        partner: z.string().optional().describe("write: a channel id the part goes with"),
+        relation: z.enum(["answer", "interlock", "together"]).optional().describe("write: how it goes with the partner (default the style's way)"),
+        notesFrom: z.string().optional().describe("write: another style whose notes go over this style's rhythms"),
+        key: z.string().optional().describe("write, check: a key other than the song's"),
+        bars: z.number().int().optional().describe("write: repeat it to this many bars"),
+        count: z.number().int().optional().describe("write: candidates, 1-8 (default 3)"),
+        variation: z.number().int().optional().describe("write: start from the style's nth figure instead of its commonest"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ action, ...args }) => attempt(() => engine.call(`voices.${action}`, defined(args)))
   );
 
   server.registerTool(

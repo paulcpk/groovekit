@@ -13,6 +13,7 @@ target_sources(gk_engine PRIVATE
     src/api/MelodyApi.cpp
     src/api/MixApi.cpp
     src/api/ProjectApi.cpp
+    src/api/VoicesApi.cpp
     src/api/RenderApi.cpp
     src/compiler/EditCompiler.cpp
     src/compiler/EditGraveyard.cpp
@@ -45,6 +46,8 @@ target_sources(gk_engine PRIVATE
     src/listening/Styles.cpp
     src/listening/Taste.cpp
     src/listening/TasteModel.cpp
+    src/listening/VoiceLibrary.cpp
+    src/listening/Voices.cpp
     src/live/AudioDevices.cpp
     src/live/LiveEngine.cpp
     src/live/MidiClock.cpp

@@ -20,7 +20,7 @@ using model::Json;
 namespace
 {
     constexpr int fileVersion = 1;
-    constexpr int analysisVersion = 8;      // 6: the whole track, with its arrangement; 7: its grid fitted over the whole track; 8: figures
+    constexpr int analysisVersion = 9;      // 6: the whole track, with its arrangement; 7: its grid fitted over the whole track; 8: figures; 9: voices, the grid on the kick's start
     constexpr int windowsPerTrack = 6;
     constexpr int windowSamples = 343980;  // one separator chunk, 7.8 s at 44.1 kHz
     constexpr float silentDb = -50.0f;
@@ -249,6 +249,9 @@ Json StyleProfile::Track::toJson() const
         j["figures"] = list;
     }
 
+    if (voices)
+        j["voices"] = voices->toJson();
+
     return j;
 }
 
@@ -272,6 +275,9 @@ StyleProfile::Track StyleProfile::Track::fromJson (const Json& tj)
 
     for (auto& f : tj.value ("figures", Json::array()))
         t.figures.push_back (Track::Figure::fromJson (f));
+
+    if (tj.contains ("voices"))
+        t.voices = TrackVoices::fromJson (tj["voices"]);
 
     if (tj.contains ("kick"))
     {
@@ -1237,7 +1243,8 @@ static std::optional<StyleProfile::Track::Kick> hearKick (Arrangement& a, const 
 }
 
 StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::filesystem::path& path, std::optional<double> knownTempo,
-                               const std::function<bool (double)>& progress, bool wholeTrack, NoteTranscriber* transcriber)
+                               const std::function<bool (double)>& progress, bool wholeTrack, NoteTranscriber* transcriber,
+                               Separator::Stems* keepStems)
 {
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
@@ -1533,6 +1540,7 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
             try
             {
                 track.figures = hearFigures (*transcriber, *track.arrangement, wholeStems);
+                track.voices = hearVoices (*transcriber, *track.arrangement, wholeStems);
             }
             catch (const std::exception&)
             {
@@ -1545,6 +1553,9 @@ StyleProfile::Track hearTrack (Separator& separator, Clap& clap, const std::file
 
         if (progress && ! progress (1.0))
             throw std::runtime_error ("Stopped");
+
+        if (keepStems != nullptr)
+            *keepStems = std::move (wholeStems);
     }
 
     return track;

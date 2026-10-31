@@ -7,6 +7,7 @@
 #include "library/StarterPack.h"
 #include "listening/Listening.h"
 #include "listening/Maps.h"
+#include "listening/Voices.h"
 #include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
 #include "render/Render.h"
@@ -42,6 +43,10 @@ Usage:
   groovekit-engine upgrade <song.json>
       Rewrites a song made by an older GrooveKit in the current format.
   groovekit-engine analyze <file.wav>
+  groovekit-engine hear <audio file> [--tempo <bpm>] [--stems <folder>]
+      Hears a track as a reference is heard (whole, split into stems) and prints what was
+      heard, with every note of the bass and the music and its sound. Downloads the listening
+      models first if they're missing.
   groovekit-engine effects
 
 Add --verbose to see engine log messages.
@@ -341,6 +346,70 @@ Add --verbose to see engine log messages.
         return 0;
     }
 
+    int hear (const Arguments& args)
+    {
+        juce::ScopedJuceInitialiser_GUI juce;
+        namespace li = gk::listening;
+
+        li::Models models (li::Models::getDefaultFolder());
+        li::Separator separator (models);
+        li::Clap clap (models);
+        li::NoteTranscriber transcriber (models);
+
+        std::optional<double> tempo;
+
+        if (auto v = args.get ("--tempo"))
+            tempo = std::stod (*v);
+
+        li::Separator::Stems stems;
+        auto track = li::hearTrack (separator, clap, args.positional[1], tempo, {}, true, &transcriber, &stems);
+        track.sounds.clear();
+
+        // The stems too, for listening to what was heard.
+        if (auto folder = args.get ("--stems"))
+        {
+            std::filesystem::create_directories (*folder);
+            const std::pair<const char*, const juce::AudioBuffer<float>*> list[] = { { "drums", &stems.drums }, { "bass", &stems.bass }, { "other", &stems.other } };
+
+            for (auto& [name, buffer] : list)
+            {
+                juce::WavAudioFormat wav;
+                auto file = juce::File ((std::filesystem::path (*folder) / (std::string (name) + ".wav")).string());
+                file.deleteFile();
+
+                if (auto stream = file.createOutputStream())
+                    if (std::unique_ptr<juce::AudioFormatWriter> writer { wav.createWriterFor (stream.get(), li::Separator::sampleRate, 2, 24, {}, 0) })
+                    {
+                        stream.release();
+                        writer->writeFromAudioSampleBuffer (*buffer, 0, buffer->getNumSamples());
+                    }
+            }
+        }
+
+        auto out = track.toJson();
+        auto notes = [&] (const juce::AudioBuffer<float>& stem)
+        {
+            auto list = gk::model::Json::array();
+
+            for (auto& n : li::hearNotes (transcriber, stem, li::Separator::sampleRate))
+                list.push_back (n.toJson());
+
+            return list;
+        };
+
+        auto bass = gk::model::Json::array();
+
+        for (auto& n : li::hearBass (stems.bass, li::Separator::sampleRate))
+            bass.push_back (n.toJson());
+
+        out["notes"] = { { "bass", bass }, { "music", notes (stems.other) } };
+
+        if (track.voices)
+            out["text"] = li::describeVoices (*track.voices);
+        std::cout << out.dump() << "\n";
+        return 0;
+    }
+
     int render (const Arguments& args)
     {
         if (args.positional.size() != 2 || ! args.get ("-o"))
@@ -407,6 +476,10 @@ int main (int argc, char* argv[])
             juce::ScopedJuceInitialiser_GUI juce;
             std::cout << gk::analysis::analyse (gk::analysis::loadAudio (args.positional[1]), true).dump (2) << "\n";
             result = 0;
+        }
+        else if (command == "hear" && args.positional.size() == 2)
+        {
+            result = hear (args);
         }
         else if (command == "effects")
         {

@@ -16,6 +16,7 @@ add_executable(gk_tests
     MusicTests.cpp
     SamplerTests.cpp
     SessionTests.cpp
+    VoicesTests.cpp
     TestHelpers.cpp)
 
 target_link_libraries(gk_tests PRIVATE gk_engine Catch2::Catch2WithMain)

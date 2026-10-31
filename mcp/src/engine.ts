@@ -102,7 +102,7 @@ export interface SongMap {
   title: string;
   inUse: boolean;
   score?: string;
-  track: Record<string, unknown> & { figures?: { part: string }[] };
+  track: Record<string, unknown> & { figures?: { part: string }[]; voices?: unknown };
 }
 
 export interface TransportState {
@@ -165,6 +165,10 @@ export interface Methods {
   "maps.get": { params: { id?: string }; result: SongMap };
   "maps.hear": { params: { ids?: string[] }; result: unknown };
   "maps.setInUse": { params: { ids?: string[]; inUse?: boolean }; result: unknown };
+  "voices.library": { params: { style?: string }; result: { style: string; library: unknown; text: string } };
+  "voices.song": { params: Params; result: { voices: unknown; channels: string[]; bars: number; text: string } };
+  "voices.check": { params: { style?: string; key?: string }; result: { style: string; findings: string[]; text: string } };
+  "voices.write": { params: Params; result: { candidates: Record<string, unknown>[]; style: string; key?: string } };
   "match.kicks": { params: Params; result: unknown };
   "match.audition": { params: Params; result: unknown };
   "match.channel": { params: Params; result: unknown };

@@ -11,6 +11,17 @@ now its figures, what the music and the bass play where they're loudest, two bar
 16th grid, so the agent writes stabs, chords and basslines in the style's rhythms and intervals
 instead of inventing tunes (`song_maps read` gives them as a score and as notes).
 
+Status (2026-10-31): voices (hearing 9) are built, all six steps of "Voices" below: every melodic
+voice of a reference through the track as runs of its figures with how they change, how the voices
+pair (answering, interlocking, together, their intervals), a library per style from the ticked
+maps, writing parts from it (in the song's key, varied, fitted to a partner, styles mixed) and a
+check of the song's parts against it (`voices`). Accuracy on rendered songs whose notes are known
+(three songs, 145-150 BPM, distorted bass and stabs): basslines 98-100% of notes, stabs, calls and
+answers 92-100% in the right voice; held pads come apart into pieces and merge with the stabs,
+two parts playing the same note at once can't be told apart, and a filter that closes with pitch
+can split a part in two. The grid now starts on the kick's onset, not its peak (it was a 16th late
+with long kicks). References heard before need hearing again for their voices.
+
 ## The problem
 
 The agent arranges well enough, but the songs sound bad to okay. It picks sounds without knowing the
@@ -320,9 +331,10 @@ In this order; each step is judged by the test round (6) before the next.
    the references" (the old step 5).
 3. **Sound matching** (built for the kick and rumble; see "Sound matching" above). This takes in
    "Sound choice from the references".
-3b. **Voices** (see "Voices" above; the figures are built). Every melodic voice of a reference
-   heard through the track, how they fit together, a library per style, and writing new voices
-   and partners from it. Starts with the accuracy test on songs whose notes are known.
+3b. **Voices** (built; see "Voices" above). Every melodic voice of a reference heard through the
+   track, how they fit together, a library per style, writing new voices and partners from it,
+   and the check. Next: pads and held chords heard from what rings through each bar rather than
+   from note starts, and a test round of written parts with the user.
 4. **The review** (the mix half is built: mix slots and `check_mix`, see "Mix slots" above; the
    arrangement half and the guide's targets are next). Measures the song against its guide and the user's
    reference folders and returns ranked, concrete problems ("the clap is 2 dB under the kick; your
