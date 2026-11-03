@@ -82,6 +82,11 @@ struct FitOptions
 
     /** Beats a step of the grid: 0.25 is 16ths. */
     double grid = 0.25;
+
+    /** How the notes sit between the beats: straight 16ths, 8th-note triplets, or swung (the
+        second 16th or 8th of each pair late). Worked out from the timing unless given. */
+    enum class Feel { automatic, straight, triplet, swing };
+    Feel feel = Feel::automatic;
 };
 
 struct Melody
@@ -91,7 +96,14 @@ struct Melody
     std::optional<KeyEstimate> heardKey;
     int transposed = 0;                 // semitones moved, octaves included
     int64_t length = 0;                 // ticks, whole bars of 4/4
+
+    FitOptions::Feel feel = FitOptions::Feel::straight;
+    double swing = 0.5;                 // with swing: where the late note of a pair falls, 0.5 straight to 0.75
+    double swingUnit = 0.25;            // with swing: beats of each note of the pair (16ths or 8ths)
 };
+
+/** "straight", "triplet", "swing". */
+std::string feelName (FitOptions::Feel);
 
 /** Notes heard in seconds, placed on the song's grid. */
 Melody fitMelody (const std::vector<HeardNote>&, const FitOptions&);

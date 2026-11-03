@@ -2,6 +2,7 @@ import { GuideWindow } from "@/features/agent/GuideWindow";
 import { MapWindow } from "@/features/agent/MapWindow";
 import { PickWindow } from "@/features/agent/PickWindow";
 import { EffectWindow } from "@/features/mixer/EffectWindow";
+import { MasterWindow } from "@/features/mixer/MasterWindow";
 import { SamplerWindow } from "@/features/sampler/SamplerWindow";
 import { useEngine } from "@/state/engine";
 import { closeWindow, useWindows } from "@/state/windows";
@@ -17,6 +18,7 @@ export function Windows() {
     if (spec.kind === "guide") return <GuideWindow key={w.key} window={w} id={spec.guide} />;
     if (spec.kind === "map") return <MapWindow key={w.key} window={w} id={spec.id} />;
     if (spec.kind === "pick") return <PickWindow key={w.key} window={w} id={spec.id} />;
+    if (spec.kind === "master") return <MasterWindow key={w.key} window={w} />;
     if (spec.kind === "channel") {
       const channel = doc?.channels.find((c) => c.id === spec.channel);
       if (channel?.instrument.type === "sampler") return <SamplerWindow key={w.key} window={w} channel={channel} sampler={channel.instrument} />;

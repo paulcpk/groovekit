@@ -1,7 +1,10 @@
 #include "Versions.h"
 
+#include "model/JsonIO.h"
+
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <map>
 #include <set>
 
@@ -146,7 +149,8 @@ std::vector<MelodyVersion> melodyVersions (const Melody& hummed, const Melody& r
         return versions;
 
     const auto length = std::max<int64_t> (hummed.length, bar);
-    const MelodyVersion base { "hummed", options.key ? "As you hummed it, in key" : "As you hummed it, on the grid", hummed.notes, length };
+    const auto feel = hummed.feel == FitOptions::Feel::triplet ? ", in triplets" : hummed.feel == FitOptions::Feel::swing ? ", swung" : "";
+    const MelodyVersion base { "hummed", std::string (options.key ? "As you hummed it, in key" : "As you hummed it, on the grid") + feel, hummed.notes, length };
     versions.push_back (base);
 
     // The hum's rhythm and shape, on the key's notes: each interval sung, in steps of the scale.
@@ -290,6 +294,30 @@ std::vector<MelodyVersion> melodyVersions (const Melody& hummed, const Melody& r
         versions.push_back (twice);
     }
 
+    // The other feel: the line read straight when it was heard as triplets or swung, else a
+    // shuffle (each second 16th a little late).
+    if (options.straight && ! options.straight->notes.empty())
+    {
+        versions.push_back ({ "straight", "Straight, on 16ths", options.straight->notes, std::max<int64_t> (options.straight->length, bar) });
+    }
+    else if (hummed.feel == FitOptions::Feel::straight)
+    {
+        auto v = base;
+        v.name = "shuffle";
+        v.label = "With a shuffle";
+        bool moved = false;
+
+        for (auto& n : v.notes)
+            if (n.start % (2 * step) == step)
+                n.start += step / 4, n.length = std::max<int64_t> (step / 2, n.length - step / 4), moved = true;
+
+        if (moved)
+        {
+            tidy (v.notes, length);
+            versions.push_back (v);
+        }
+    }
+
     // Answering a part in the song: shifted so its notes land in the part's gaps.
     if (! options.partner.empty() && options.partnerLength > 0)
     {
@@ -343,15 +371,83 @@ std::vector<MelodyVersion> melodyVersions (const Melody& hummed, const Melody& r
             distinct.push_back (v);
     }
 
-    std::stable_sort (distinct.begin() + 1, distinct.end(), [] (auto& a, auto& b)
+    // The kinds the user picks rise; a kind passed over eight times or more and never picked goes.
+    auto liking = [&] (const MelodyVersion& v)
     {
-        return a.closeness + a.fit.value_or (50) > b.closeness + b.fit.value_or (50);
+        const auto it = options.picks.find (v.name);
+
+        if (it == options.picks.end())
+            return 0.0f;
+
+        const auto share = (static_cast<float> (it->second.chosen) + 1) / (static_cast<float> (it->second.shown) + 3);
+        return 120 * (share - 1.0f / 3);
+    };
+
+    distinct.erase (std::remove_if (distinct.begin() + 1, distinct.end(), [&] (auto& v)
+    {
+        const auto it = options.picks.find (v.name);
+        return it != options.picks.end() && it->second.shown >= 8 && it->second.chosen == 0;
+    }), distinct.end());
+
+    std::stable_sort (distinct.begin() + 1, distinct.end(), [&] (auto& a, auto& b)
+    {
+        return a.closeness + a.fit.value_or (50) + liking (a) > b.closeness + b.fit.value_or (50) + liking (b);
     });
 
     if (static_cast<int> (distinct.size()) > std::max (1, options.count))
         distinct.resize (static_cast<size_t> (std::max (1, options.count)));
 
     return distinct;
+}
+
+std::map<std::string, VersionOptions::Record> readVersionPicks (const std::filesystem::path& file)
+{
+    std::map<std::string, VersionOptions::Record> picks;
+
+    try
+    {
+        std::ifstream in (file);
+
+        if (! in)
+            return picks;
+
+        // Held here: items() only refers to the object it's given.
+        const auto kinds = model::Json::parse (in).value ("kinds", model::Json::object());
+
+        for (auto& [name, r] : kinds.items())
+            picks[name] = { r.value ("shown", 0), r.value ("chosen", 0) };
+    }
+    catch (const std::exception&)
+    {
+        // Started again.
+    }
+
+    return picks;
+}
+
+void addVersionPick (const std::filesystem::path& file, const std::string& chosen, const std::vector<std::string>& shown)
+{
+    auto picks = readVersionPicks (file);
+
+    for (auto& name : shown)
+        ++picks[name].shown;
+
+    ++picks[chosen].chosen;
+
+    model::Json kinds = model::Json::object();
+
+    for (auto& [name, r] : picks)
+        kinds[name] = { { "shown", r.shown }, { "chosen", r.chosen } };
+
+    try
+    {
+        std::filesystem::create_directories (file.parent_path());
+        std::ofstream (file, std::ios::trunc) << model::Json { { "kinds", kinds } }.dump (2);
+    }
+    catch (const std::exception&)
+    {
+        // Learned next time.
+    }
 }
 
 } // namespace gk::music

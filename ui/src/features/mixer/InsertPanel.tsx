@@ -1,5 +1,5 @@
 import type { Effect, Insert, Project } from "@groovekit/schema/project";
-import { GripVertical, Plus, Power, X } from "lucide-react";
+import { GripVertical, Plus, Power, Wand2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { IconButton, Knob } from "@/components/controls";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownSub, DropdownTrigger } from "@/components/menu";
@@ -34,6 +34,12 @@ export function InsertPanel({ doc, insert, index }: { doc: Project; insert: Inse
     <div className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line px-3" style={{ boxShadow: `inset 0 2px 0 ${color}` }}>
         <div className="min-w-0 flex-1 truncate text-sm font-medium">{insertName(insert, index)}</div>
+        {master && (
+          <button type="button" onClick={() => openWindow({ kind: "master" })} title="Master the song like a reference track or a style"
+            className="flex h-6 items-center gap-1 rounded-[4px] px-1.5 text-2xs text-dim ring-1 ring-line hover:text-fg hover:ring-dim">
+            <Wand2 size={11} /> Master like…
+          </button>
+        )}
         <div className="text-2xs text-faint">{master ? "Output" : `Insert ${index}`}</div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">

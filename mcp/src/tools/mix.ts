@@ -140,6 +140,7 @@ export function registerMixTools({ server, engine, groups, barRange }: Tools) {
           notes: z.array(noteSchema).optional().describe("What it plays in its own slot (ticks from the bar, one pattern that repeats): its line, chords or rhythm"),
           part: partEnum.optional(),
           audition: z.string().optional().describe("Its audition file, from match_sound or audition_in_song"),
+          version: z.string().optional().describe("A melody version's name (from melody versions): the pick teaches which kinds the user likes"),
           label: z.string().optional(),
         })).min(2).max(20),
         again: z.boolean().optional().describe("True when this offer follows a \"none of them\" for the same part"),

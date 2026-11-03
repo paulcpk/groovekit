@@ -16,6 +16,7 @@
 #include "live/AudioDevices.h"
 #include "live/LiveEngine.h"
 #include "music/Notes.h"
+#include "music/Versions.h"
 #include "plugins/PluginCatalog.h"
 #include "plugins/PluginWindows.h"
 #include "render/Encode.h"
@@ -925,6 +926,18 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
                     else if (choice < 0)
                         listening->getTaste().rate (key, style, false);
                 }
+            }
+
+            // A pick among versions of a hummed line: the kinds the user takes rise.
+            if (choice >= 0 && candidates[static_cast<size_t> (choice)].contains ("version"))
+            {
+                std::vector<std::string> shown;
+
+                for (auto& c : candidates)
+                    if (c.contains ("version"))
+                        shown.push_back (c["version"].get<std::string>());
+
+                music::addVersionPick (EngineContext::getAppDataFolder() / "melody-picks.json", candidates[static_cast<size_t> (choice)]["version"].get<std::string>(), shown);
             }
 
             // A pick from kicks matched to a song map teaches the matching what counts.

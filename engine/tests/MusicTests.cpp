@@ -4,6 +4,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <filesystem>
 #include <map>
 #include <set>
 
@@ -247,7 +248,7 @@ TEST_CASE ("A hummed line comes back in versions: in key, on the scale, the styl
         for (auto& n : version.notes)
         {
             CHECK (options.key->contains (n.key % 12));
-            CHECK (n.start % 120 == 0);
+            CHECK (n.start % 60 == 0);
             CHECK (n.start + n.length <= version.length);
         }
     }
@@ -268,6 +269,98 @@ TEST_CASE ("A hummed line comes back in versions: in key, on the scale, the styl
     REQUIRE (byName.contains ("answer"));
     for (auto& n : byName["answer"].notes)
         CHECK ((n.start / 240) % 4 != 0);
+}
+
+TEST_CASE ("Triplet and swung hums keep their feel, and the kinds of version picked rise")
+{
+    FitOptions options;
+    options.songTempo = 120;
+    options.sourceTempo = 120;          // a beat is half a second
+    options.key = Key { 9, true };      // A minor
+
+    // 8th-note triplets: three notes a beat, a little loose.
+    std::vector<HeardNote> triplets;
+
+    for (int i = 0; i < 12; ++i)
+    {
+        const auto t = 1.0 + i / 6.0 + (i % 2 ? 0.006 : -0.004);
+        triplets.push_back ({ t, t + 0.14, static_cast<float> (57 + (i % 3) * 3), 1 });
+    }
+
+    const auto t = fitMelody (triplets, options);
+    CHECK (t.feel == FitOptions::Feel::triplet);
+    REQUIRE (t.notes.size() == 12);
+
+    for (size_t i = 0; i < t.notes.size(); ++i)
+        CHECK (t.notes[i].start == static_cast<int64_t> (i) * 320);
+
+    // Swung 16ths: every second one two thirds of the way through its pair.
+    std::vector<HeardNote> swung;
+
+    for (int i = 0; i < 16; ++i)
+    {
+        const auto pair = i / 2, late = i % 2;
+        const auto at = 1.0 + pair * 0.25 + late * 0.25 * 0.66;
+        swung.push_back ({ at, at + 0.08, static_cast<float> (57 + (i % 4) * 2), 1 });
+    }
+
+    const auto s = fitMelody (swung, options);
+    CHECK (s.feel == FitOptions::Feel::swing);
+    CHECK (s.swingUnit == Approx (0.25));
+    CHECK (s.swing == Approx (0.66).margin (0.03));
+    REQUIRE (s.notes.size() == 16);
+    CHECK (s.notes[0].start == 0);
+    CHECK (s.notes[1].start == Approx (317).margin (20));      // 0.66 of a pair of 16ths (480 ticks)
+    CHECK (s.notes[2].start == 480);
+
+    // Told straight, it's put on 16ths.
+    auto straight = options;
+    straight.feel = FitOptions::Feel::straight;
+    CHECK (fitMelody (swung, straight).feel == FitOptions::Feel::straight);
+
+    // A straight line gets a shuffled version; picks steer which come first, and a kind passed
+    // over many times is left out.
+    std::vector<HeardNote> line {
+        { 1.00, 1.10, 57, 1 }, { 1.125, 1.22, 60, 1 }, { 1.25, 1.35, 64, 1 }, { 1.375, 1.47, 62, 1 },
+        { 1.50, 1.70, 60, 1 }, { 1.75, 1.85, 57, 1 }, { 1.875, 1.97, 55, 1 }, { 2.00, 2.40, 57, 1 },
+    };
+    const auto plain = fitMelody (line, options);
+    REQUIRE (plain.feel == FitOptions::Feel::straight);
+
+    VersionOptions v;
+    v.key = options.key;
+    v.count = 10;
+    auto names = [] (const std::vector<MelodyVersion>& list)
+    {
+        std::vector<std::string> out;
+
+        for (auto& x : list)
+            out.push_back (x.name);
+
+        return out;
+    };
+
+    const auto first = names (melodyVersions (plain, plain, v));
+    CHECK (std::find (first.begin(), first.end(), "shuffle") != first.end());
+    REQUIRE (first.size() >= 4);
+
+    v.picks["double"] = { 6, 5 };
+    v.picks["half"] = { 9, 0 };
+    const auto learned = names (melodyVersions (plain, plain, v));
+    CHECK (learned[0] == "hummed");
+    CHECK (learned[1] == "double");
+    CHECK (std::find (learned.begin(), learned.end(), "half") == learned.end());
+
+    // Kept in a file.
+    const auto file = std::filesystem::temp_directory_path() / "gk-melody-picks.json";
+    std::filesystem::remove (file);
+    addVersionPick (file, "simpler", { "hummed", "simpler", "double" });
+    addVersionPick (file, "simpler", { "hummed", "simpler" });
+    const auto kept = readVersionPicks (file);
+    CHECK (kept.at ("simpler").chosen == 2);
+    CHECK (kept.at ("simpler").shown == 2);
+    CHECK (kept.at ("double").shown == 1);
+    std::filesystem::remove (file);
 }
 
 TEST_CASE ("The top line of chords is the melody, the bottom one the bass")

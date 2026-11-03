@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <numeric>
 
@@ -419,10 +420,25 @@ namespace
         struct Candidate { double bpm, miss; };
         std::vector<Candidate> candidates;
 
+        // 8th-note triplets too, a little behind (a triplet hum read as 16ths lands at 4/3 of its tempo).
+        const auto tripletComplexity = [&] (double step)
+        {
+            double sum = 0;
+
+            for (size_t i = 1; i < onsets.size(); ++i)
+            {
+                const auto steps = std::llround ((onsets[i] - onsets[i - 1]) / step);
+                sum += steps == 3 || steps == 6 || steps == 12 ? 0.0 : steps == 1 || steps == 2 ? 0.01 : 0.035;
+            }
+
+            return sum / static_cast<double> (onsets.size() - 1);
+        };
+
         for (double bpm = 70; bpm <= 180; bpm += 0.25)
         {
-            const auto step = 60.0 / bpm * grid;
-            candidates.push_back ({ bpm, gridMiss (onsets, step) + complexity (step) });
+            const auto step = 60.0 / bpm * grid, triplet = 60.0 / bpm / 3;
+            candidates.push_back ({ bpm, std::min (gridMiss (onsets, step) + complexity (step),
+                                                   gridMiss (onsets, triplet) + tripletComplexity (triplet) + 0.004) });
         }
 
         const auto best = std::min_element (candidates.begin(), candidates.end(), [] (auto& a, auto& b) { return a.miss < b.miss; })->miss;
@@ -451,6 +467,111 @@ namespace
     }
 }
 
+std::string feelName (FitOptions::Feel feel)
+{
+    return feel == FitOptions::Feel::triplet ? "triplet" : feel == FitOptions::Feel::swing ? "swing" : "straight";
+}
+
+namespace
+{
+    /** Where notes go on the grid of a feel: a time in beats from the melody's start to ticks. */
+    struct Grid
+    {
+        FitOptions::Feel feel = FitOptions::Feel::straight;
+        double swing = 0.5, unit = 0.25;
+
+        int64_t ticks (double beats) const
+        {
+            if (feel == FitOptions::Feel::triplet)
+                return std::llround (beats * 3) * 320;
+
+            if (feel == FitOptions::Feel::swing)
+            {
+                // Pairs of units: the first on the pair's start, the second at swing of the pair.
+                const auto pair = 2 * unit;
+                const auto q = beats / pair;
+                const auto k = std::floor (q);
+                const auto f = q - k;
+                double at = 0;
+
+                for (auto point : { swing, 1.0 })
+                    if (std::abs (f - point) < std::abs (f - at))
+                        at = point;
+
+                return std::llround ((k + at) * pair * 960 / 10) * 10;
+            }
+
+            return std::llround (beats * 4) * 240;
+        }
+
+        int64_t shortest() const
+        {
+            return feel == FitOptions::Feel::triplet ? 320 : feel == FitOptions::Feel::swing ? static_cast<int64_t> (unit * 960 / 2) : 240;
+        }
+    };
+
+    /** How far onsets (beats from the first) sit from a grid's points, as a mean square in beats. */
+    double feelMiss (const std::vector<double>& beats, const std::function<double (double)>& nearest)
+    {
+        double sum = 0;
+
+        for (auto b : beats)
+            sum += (b - nearest (b)) * (b - nearest (b));
+
+        return sum / static_cast<double> (std::max<size_t> (1, beats.size()));
+    }
+
+    /** The feel the onsets keep best: triplets or a swing only when they fit clearly better than
+        straight 16ths (which have more points to land on). */
+    Grid findFeel (const std::vector<double>& beats)
+    {
+        Grid grid;
+
+        if (beats.size() < 4)
+            return grid;
+
+        const auto straight = feelMiss (beats, [] (double b) { return std::round (b * 4) / 4; });
+        const auto triplet = feelMiss (beats, [] (double b) { return std::round (b * 3) / 3; });
+
+        // Swung 16ths or 8ths, at the swing that fits best.
+        double bestSwing = 1e9;
+        Grid swung;
+
+        for (auto unit : { 0.25, 0.5 })
+        {
+            for (double s = 0.56; s <= 0.751; s += 0.01)
+            {
+                const auto miss = feelMiss (beats, [&] (double b)
+                {
+                    const auto pair = 2 * unit, k = std::floor (b / pair);
+                    double best = k * pair;
+
+                    for (auto at : { s, 1.0 })
+                        if (std::abs (b - (k + at) * pair) < std::abs (b - best))
+                            best = (k + at) * pair;
+
+                    return best;
+                });
+
+                if (miss < bestSwing)
+                    bestSwing = miss, swung = { FitOptions::Feel::swing, s, unit };
+            }
+        }
+
+        // Within about a 32nd of the straight grid on average, it's straight.
+        if (straight < 0.0005)
+            return grid;
+
+        if (triplet < 0.5 * straight && triplet <= bestSwing)
+            return { FitOptions::Feel::triplet, 0.5, 0.25 };
+
+        if (bestSwing < 0.5 * straight)
+            return swung;
+
+        return grid;
+    }
+}
+
 Melody fitMelody (const std::vector<HeardNote>& heard, const FitOptions& options)
 {
     Melody melody;
@@ -467,6 +588,36 @@ Melody fitMelody (const std::vector<HeardNote>& heard, const FitOptions& options
     const auto step = 60.0 / melody.sourceTempo * options.grid;
     const auto ticksPerStep = static_cast<int64_t> (std::llround (options.grid * 960));
     const auto origin = notes.front().start;
+    const auto beat = 60.0 / melody.sourceTempo;
+
+    // The feel: straight, triplets or swung, from the onsets unless asked for.
+    Grid feel;
+
+    if (options.feel == FitOptions::Feel::automatic)
+    {
+        std::vector<double> beats;
+
+        for (auto& n : notes)
+            beats.push_back ((n.start - origin) / beat);
+
+        feel = findFeel (beats);
+    }
+    else if (options.feel == FitOptions::Feel::triplet)
+    {
+        feel.feel = FitOptions::Feel::triplet;
+    }
+    else if (options.feel == FitOptions::Feel::swing)
+    {
+        feel = { FitOptions::Feel::swing, 0.62, 0.25 };
+    }
+
+    // A grid other than 16ths keeps to straight placing.
+    if (std::abs (options.grid - 0.25) > 1e-6)
+        feel = {};
+
+    melody.feel = feel.feel;
+    melody.swing = feel.swing;
+    melody.swingUnit = feel.unit;
 
     // Into the song's key, then onto its scale.
     double shift = 0;
@@ -508,10 +659,20 @@ Melody fitMelody (const std::vector<HeardNote>& heard, const FitOptions& options
     for (size_t i = 0; i < notes.size(); ++i)
     {
         PlacedNote p;
-        const auto startStep = std::llround ((notes[i].start - origin) / step);
-        const auto endStep = std::llround ((notes[i].end - origin) / step);
-        p.start = startStep * ticksPerStep;
-        p.length = std::max<int64_t> (1, endStep - startStep) * ticksPerStep;
+
+        if (feel.feel == FitOptions::Feel::straight)
+        {
+            const auto startStep = std::llround ((notes[i].start - origin) / step);
+            const auto endStep = std::llround ((notes[i].end - origin) / step);
+            p.start = startStep * ticksPerStep;
+            p.length = std::max<int64_t> (1, endStep - startStep) * ticksPerStep;
+        }
+        else
+        {
+            p.start = feel.ticks ((notes[i].start - origin) / beat);
+            p.length = std::max (feel.shortest(), feel.ticks ((notes[i].end - origin) / beat) - p.start);
+        }
+
         p.key = std::clamp (keys[i] + 12 * octaves, 0, 127);
         p.velocity = std::clamp (static_cast<int> (std::lround (50 + 77 * notes[i].level)), 1, 127);
         melody.notes.push_back (p);

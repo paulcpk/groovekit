@@ -192,6 +192,15 @@ namespace
             options.highest = it->second.second;
         }
 
+        if (auto feel = params.value ("feel", std::string()); ! feel.empty())
+        {
+            if (feel != "straight" && feel != "triplet" && feel != "swing")
+                throw RpcError (invalidParams, "feel is straight, triplet or swing");
+
+            options.feel = feel == "triplet" ? music::FitOptions::Feel::triplet : feel == "swing" ? music::FitOptions::Feel::swing
+                                                                                                   : music::FitOptions::Feel::straight;
+        }
+
         if (params.contains ("lowest"))     options.lowest = params["lowest"].get<int>();
         if (params.contains ("highest"))    options.highest = params["highest"].get<int>();
 
@@ -206,7 +215,10 @@ namespace
             notes.push_back ({ { "start", n.start }, { "length", n.length }, { "key", n.key }, { "velocity", n.velocity } });
 
         Json j { { "notes", notes }, { "length", m.length }, { "heardTempo", std::round (m.sourceTempo * 10) / 10 },
-                 { "transposed", m.transposed } };
+                 { "transposed", m.transposed }, { "feel", music::feelName (m.feel) } };
+
+        if (m.feel == music::FitOptions::Feel::swing)
+            j["swing"] = { { "amount", std::round (m.swing * 100) / 100 }, { "unit", m.swingUnit == 0.5 ? "8ths" : "16ths" } };
 
         if (m.heardKey)
             j["heardKey"] = { { "key", music::keyName (m.heardKey->key) }, { "confidence", std::round (m.heardKey->confidence * 100) / 100 } };
@@ -291,7 +303,17 @@ Json ApiHandler::callMelody (const std::string& method, const Json& params)
 
         music::VersionOptions versions;
         versions.key = options.key;
+
+        // Heard as triplets or swung: the straight reading is offered too.
+        if (line.feel != music::FitOptions::Feel::straight)
+        {
+            auto straightOptions = options;
+            straightOptions.feel = music::FitOptions::Feel::straight;
+            straightOptions.sourceTempo = line.sourceTempo;
+            versions.straight = music::fitMelody (h.notes, straightOptions);
+        }
         versions.count = std::clamp (static_cast<int> (optionalNumber (params, "count").value_or (6)), 1, 10);
+        versions.picks = music::readVersionPicks (EngineContext::getAppDataFolder() / "melody-picks.json");
         versions.bars = std::clamp (static_cast<int> (optionalNumber (params, "bars").value_or (0)), 0, 8);
 
         // The style's rhythms: its figures' (the bass's for a bassline, the music's otherwise).

@@ -1,4 +1,4 @@
-// Floating windows over the app: a channel's sampler, an effect's editor, a style guide, a song map. Several can be open;
+// Floating windows over the app: a channel's sampler, an effect's editor, a style guide, a song map, mastering. Several can be open;
 // each remembers where it was put.
 
 import { create } from "zustand";
@@ -11,7 +11,9 @@ export type WindowSpec =
   /** A reference song's map, by its id (style/title). */
   | { kind: "map"; id: string }
   /** A choice the agent put to the user, by its offer id. */
-  | { kind: "pick"; id: number };
+  | { kind: "pick"; id: number }
+  /** Mastering the song like a reference. */
+  | { kind: "master" };
 
 export interface OpenWindow {
   key: string;
@@ -39,6 +41,7 @@ export function windowKey(spec: WindowSpec) {
   if (spec.kind === "guide") return `guide:${spec.guide}`;
   if (spec.kind === "map") return `map:${spec.id}`;
   if (spec.kind === "pick") return `pick:${spec.id}`;
+  if (spec.kind === "master") return "master";
   return spec.kind === "channel" ? `channel:${spec.channel}` : `effect:${spec.insert}/${spec.effect}`;
 }
 

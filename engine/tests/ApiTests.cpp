@@ -374,6 +374,11 @@ TEST_CASE ("Mastering converges on quiet material and keeps true peak under the 
 
 TEST_CASE ("Mastering like a reference closes the gap in loudness and tone, as one undoable change")
 {
+    // The references' profiles are kept in the cache: this test's own.
+    const auto saved = std::getenv ("GROOVEKIT_CACHE_DIR") ? std::optional<std::string> (std::getenv ("GROOVEKIT_CACHE_DIR")) : std::nullopt;
+    setenv ("GROOVEKIT_CACHE_DIR", (test::tempDir() / "master-match-cache").c_str(), 1);
+    struct Restore { std::optional<std::string> value; ~Restore() { if (value) setenv ("GROOVEKIT_CACHE_DIR", value->c_str(), 1); else unsetenv ("GROOVEKIT_CACHE_DIR"); } } restore { saved };
+
     Harness h;
     auto kick = test::fixture ("kick.wav").string();
     auto bass = test::fixture ("bass_a2.wav").string();
