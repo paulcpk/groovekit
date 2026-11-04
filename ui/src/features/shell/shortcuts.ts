@@ -5,11 +5,11 @@ import { redo, setPosition, stop, togglePlay, toggleLoop, undo } from "./actions
 import { browseForProject, saveProject } from "./ProjectDialog";
 import { splitAtPlayhead } from "@/features/playlist/clipOps";
 import { useVoiceRequest } from "@/features/agent/voice";
-import { overviewKey } from "@/features/windows/Overview";
+import { windowKeyDown, windowKeyUp, windowPointerMove } from "@/features/windows/windowKeys";
 
 let lastSpace = 0;
 
-/** Global keys: Cmd+Up for the overview of the open windows, F5-F9 for the views, Space to play,
+/** Global keys: Cmd+Up and Cmd+Left/Right for the windows, F5-F9 for the views, Space to play,
     undo, save and the like. The playlist and the piano roll have editing keys of their own. */
 export function useShortcuts() {
   useEffect(() => {
@@ -80,11 +80,15 @@ export function useShortcuts() {
       }
     };
 
-    // The overview of the open windows first: its arrows mustn't move notes in the piano roll.
-    window.addEventListener("keydown", overviewKey, true);
+    // The windows' keys (overview, switcher) first: their arrows mustn't move notes in the piano roll.
+    window.addEventListener("keydown", windowKeyDown, true);
+    window.addEventListener("keyup", windowKeyUp, true);
+    window.addEventListener("pointermove", windowPointerMove, true);
     window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("keydown", overviewKey, true);
+      window.removeEventListener("keydown", windowKeyDown, true);
+      window.removeEventListener("keyup", windowKeyUp, true);
+      window.removeEventListener("pointermove", windowPointerMove, true);
       window.removeEventListener("keydown", onKey);
     };
   }, []);

@@ -134,12 +134,30 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
             broadcast (notification ("inputNotes", { { "notes", list } }).dump());
         };
 
+    // Which plugin windows are open, and which of them in front, for the UI's switcher and overview.
+    if (live != nullptr)
+        live->onPluginWindowsChanged = [this]
+        {
+            if (! broadcast)
+                return;
+
+            auto windows = Json::array();
+
+            for (auto& view : live->listPluginWindows (false))
+                windows.push_back ({ { "key", view.key }, { "visible", view.visible } });
+
+            broadcast (notification ("pluginWindows", { { "windows", windows } }).dump());
+        };
+
     // What was done in a plugin's window goes into the project when the window closes.
     if (live != nullptr)
         PluginWindowBehaviour::onWindowClosed = [this, alive = alive] (tracktion::Plugin& plugin)
         {
             if (! *alive)
                 return;
+
+            if (live->onPluginWindowsChanged)
+                live->onPluginWindowsChanged();
 
             if (const auto key = live->findPluginKey (plugin); ! key.empty())
             {
@@ -186,6 +204,21 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
                 if (broadcast)
                     broadcast (notification ("windowsOverview", Json::object()).dump());
             },
+            .switcher = [this] (int direction)
+            {
+                if (broadcast)
+                    broadcast (notification ("windowsSwitch", { { "direction", direction } }).dump());
+            },
+            .commandReleased = [this]
+            {
+                if (broadcast)
+                    broadcast (notification ("windowsSwitchEnd", Json::object()).dump());
+            },
+            .activated = [this] (tracktion::Plugin& plugin)
+            {
+                if (const auto key = live->findPluginKey (plugin); ! key.empty() && broadcast)
+                    broadcast (notification ("pluginWindowActive", { { "key", key } }).dump());
+            },
         };
 
     listenerId = session.addListener ([this] (const Change& change)
@@ -218,6 +251,7 @@ ApiHandler::~ApiHandler()
         live->onLevels = {};
         PluginWindowBehaviour::onWindowClosed = {};
         PluginWindowBehaviour::host = {};
+        live->onPluginWindowsChanged = {};
     }
 
     session.removeListener (listenerId);
@@ -405,7 +439,7 @@ Json ApiHandler::callSession (const std::string& method, const Json& params, Cli
             client.origin = readParam<std::string> (params, "origin");
 
         // Goes up when clients need methods an older engine lacks (2: song maps and sound matching).
-        Json result { { "server", "groovekit-engine" }, { "protocol", 2 } };
+        Json result { { "server", "groovekit-engine" }, { "protocol", 3 } };
 
         if (auto dir = session.getProjectDir())
             result["project"] = dir->string();

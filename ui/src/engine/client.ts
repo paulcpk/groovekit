@@ -5,8 +5,8 @@ export { EngineClient, EngineError, type Status } from "@groovekit/mcp/src/engin
 
 export const inDesktopApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** The engine protocol this UI needs (hello's protocol): 2 for song maps and sound matching. */
-export const ENGINE_PROTOCOL = 2;
+/** The engine protocol this UI needs (hello's protocol): 3 for the windows' overview and switcher. */
+export const ENGINE_PROTOCOL = 3;
 
 /** Where to connect: ?engine=ws://... in the address, the desktop app's engine, the dev server's
     engine finder, or the default port. */

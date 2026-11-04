@@ -26,6 +26,14 @@ using namespace model;
 
 namespace
 {
+    /** A hosted plugin's window, when it's open. */
+    juce::Component* openWindowOf (te::Plugin* plugin)
+    {
+        auto external = dynamic_cast<te::ExternalPlugin*> (plugin);
+        auto* window = external != nullptr ? external->windowState->pluginWindow.get() : nullptr;
+        return window != nullptr && window->getPeer() != nullptr ? window : nullptr;
+    }
+
     /** Takes quieter than this throughout count as silent. */
     constexpr float silentTakeDb = -50.0f;
 
@@ -299,6 +307,22 @@ void LiveEngine::rebuild()
                 external->windowState->showWindowExplicitly();
         }
     }
+
+    // Windows in the background stay there (Tracktion shows them on opening); those gone are forgotten.
+    std::erase_if (hiddenWindows, [this] (const std::string& key)
+    {
+        auto* window = openWindowOf (findPlugin (key));
+
+        if (window != nullptr)
+            orderOut (window->getPeer()->getNativeHandle());
+        else
+            windowPictures.erase (key);
+
+        return window == nullptr;
+    });
+
+    if (onPluginWindowsChanged)
+        onPluginWindowsChanged();
 
     builtPluginRefs = refs;
 
@@ -804,6 +828,7 @@ bool LiveEngine::showPluginWindow (const std::string& key, bool show)
         return false;
 
     std::erase (hiddenWindows, key);
+    windowPictures.erase (key);
 
     if (show)
     {
@@ -816,16 +841,25 @@ bool LiveEngine::showPluginWindow (const std::string& key, bool show)
     else
         external->windowState->closeWindowExplicitly();
 
+    if (onPluginWindowsChanged)
+        onPluginWindowsChanged();
+
     return true;
 }
 
 namespace
 {
-    juce::Component* openWindowOf (te::Plugin* plugin)
+    /** What a window shows, from the window server: an editor's own view isn't painted by JUCE.
+        The engine's own windows need no permission. At most 1200 pixels across. */
+    juce::Image pictureOf (juce::Component& window)
     {
-        auto external = dynamic_cast<te::ExternalPlugin*> (plugin);
-        auto* window = external != nullptr ? external->windowState->pluginWindow.get() : nullptr;
-        return window != nullptr && window->getPeer() != nullptr ? window : nullptr;
+        auto picture = juce::createSnapshotOfNativeWindow (window.getPeer()->getNativeHandle());
+        const auto longest = std::max (picture.getWidth(), picture.getHeight());
+
+        if (longest > 1200)
+            picture = picture.rescaled (picture.getWidth() * 1200 / longest, picture.getHeight() * 1200 / longest, juce::Graphics::mediumResamplingQuality);
+
+        return picture;
     }
 }
 
@@ -836,69 +870,84 @@ std::vector<LiveEngine::PluginWindowView> LiveEngine::listPluginWindows (bool pi
     for (auto& [key, plugin] : compiled.plugins)
     {
         auto* window = openWindowOf (plugin);
-        const auto order = window != nullptr ? orderedIndex (window->getPeer()->getNativeHandle()) : -1;
 
-        if (order < 0)
+        if (window == nullptr)
             continue;
 
-        PluginWindowView view { key, window->getScreenBounds(), {} };
+        const auto hidden = std::find (hiddenWindows.begin(), hiddenWindows.end(), key) != hiddenWindows.end();
+        const auto order = orderedIndex (window->getPeer()->getNativeHandle());
+
+        if (! hidden && order < 0)
+            continue;   // minimised, or not shown yet
+
+        PluginWindowView view { key, ! hidden, window->getScreenBounds(), {} };
 
         if (pictures)
         {
-            // Taken from the window server, so it shows what the plugin draws itself (an editor's
-            // own view isn't painted by JUCE). The engine's own windows need no permission.
-            auto picture = juce::createSnapshotOfNativeWindow (window->getPeer()->getNativeHandle());
-            const auto longest = std::max (picture.getWidth(), picture.getHeight());
-
-            if (longest > 1200)
-                picture = picture.rescaled (picture.getWidth() * 1200 / longest, picture.getHeight() * 1200 / longest, juce::Graphics::mediumResamplingQuality);
-
-            view.picture = picture;
+            if (! hidden)
+                windowPictures[key] = { view.picture = pictureOf (*window), juce::Time::getMillisecondCounter() };
+            else if (auto it = windowPictures.find (key); it != windowPictures.end())
+                view.picture = it->second.image;
         }
 
-        found.push_back ({ order, std::move (view) });
+        // In the background after every one on screen, the latest to go there first.
+        const auto rank = hidden ? 100000 - static_cast<int> (std::find (hiddenWindows.begin(), hiddenWindows.end(), key) - hiddenWindows.begin()) : order;
+        found.push_back ({ rank, std::move (view) });
     }
 
     std::sort (found.begin(), found.end(), [] (auto& a, auto& b) { return a.first < b.first; });
     std::vector<PluginWindowView> views;
 
-    for (auto& [order, view] : found)
+    for (auto& [rank, view] : found)
         views.push_back (std::move (view));
 
     return views;
 }
 
-void LiveEngine::hidePluginWindows()
+void LiveEngine::arrangePluginWindows (const std::string& front, const std::vector<std::string>& keep)
 {
-    const auto views = listPluginWindows (false);
+    const auto kept = [&] (const std::string& key) { return key == front || std::find (keep.begin(), keep.end(), key) != keep.end(); };
 
-    // Back to front, the order they come back in.
-    for (auto it = views.rbegin(); it != views.rend(); ++it)
+    for (auto& [key, plugin] : compiled.plugins)
     {
-        if (std::find (hiddenWindows.begin(), hiddenWindows.end(), it->key) == hiddenWindows.end())
-            hiddenWindows.push_back (it->key);
+        auto* window = openWindowOf (plugin);
 
-        orderOut (openWindowOf (findPlugin (it->key))->getPeer()->getNativeHandle());
-    }
-}
+        if (window == nullptr || kept (key))
+            continue;
 
-void LiveEngine::restorePluginWindows (const std::string& front)
-{
-    auto keys = std::exchange (hiddenWindows, {});
+        if (std::find (hiddenWindows.begin(), hiddenWindows.end(), key) == hiddenWindows.end())
+        {
+            // A picture first, for the overview to show it by while it's away (unless one was just taken).
+            if (auto& picture = windowPictures[key]; ! picture.image.isValid() || juce::Time::getMillisecondCounter() - picture.taken > 1000)
+                picture = { pictureOf (*window), juce::Time::getMillisecondCounter() };
 
-    if (! front.empty() && std::find (keys.begin(), keys.end(), front) != keys.end())
-    {
-        std::erase (keys, front);
-        keys.push_back (front);
+            hiddenWindows.push_back (key);
+            orderOut (window->getPeer()->getNativeHandle());
+        }
     }
 
-    for (auto& key : keys)
+    auto shown = keep;
+    std::erase (shown, front);
+
+    if (! front.empty())
+        shown.push_back (front);
+
+    for (auto& key : shown)
+    {
         if (auto* window = openWindowOf (findPlugin (key)))
+        {
+            std::erase (hiddenWindows, key);
+            windowPictures.erase (key);
             PluginWindowBehaviour::bringToFront (*window);
 
-    // The one picked takes the keyboard too, so it can be played and typed into straight away.
-    if (auto* window = openWindowOf (findPlugin (front)))
-        window->toFront (true);
+            // The one in front takes the keyboard too, to be played and typed into straight away.
+            if (key == front)
+                window->toFront (true);
+        }
+    }
+
+    if (onPluginWindowsChanged)
+        onPluginWindowsChanged();
 }
 
 void LiveEngine::updateNow()

@@ -457,10 +457,17 @@ namespace
                 return true;
             }
 
+            const auto code = key.getKeyCode();
+
+            if (mods.isCommandDown() && (code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey) && PluginWindowBehaviour::host.switcher)
+            {
+                switching = true;
+                PluginWindowBehaviour::host.switcher (code == juce::KeyPress::leftKey ? -1 : 1);
+                return true;
+            }
+
             if (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown() || c <= ' ' || c > '~' || ! PluginWindowBehaviour::host.typedKey)
                 return false;
-
-            const auto code = key.getKeyCode();
 
             if (std::find_if (held.begin(), held.end(), [code] (auto& h) { return h.first == code; }) == held.end())
             {
@@ -479,9 +486,27 @@ namespace
             return false;
         }
 
+        // Cmd let go of after Cmd+Left or Right picks the window chosen in the UI's switcher (if the
+        // UI's window didn't get the keyboard in time to see it itself).
+        void modifierKeysChanged (const juce::ModifierKeys& mods) override
+        {
+            DocumentWindow::modifierKeysChanged (mods);
+
+            if (switching && ! mods.isCommandDown())
+            {
+                switching = false;
+
+                if (PluginWindowBehaviour::host.commandReleased)
+                    PluginWindowBehaviour::host.commandReleased();
+            }
+        }
+
         void activeWindowStatusChanged() override
         {
             DocumentWindow::activeWindowStatusChanged();
+
+            if (isActiveWindow() && PluginWindowBehaviour::host.activated)
+                PluginWindowBehaviour::host.activated (plugin);
 
             if (! isActiveWindow())
                 releaseKeys (true);
@@ -491,6 +516,7 @@ namespace
         te::Plugin& plugin;
         std::unique_ptr<Frame> frame;
         bool trackBounds = false;
+        bool switching = false;     // Cmd+Left or Right was sent to the UI, Cmd not yet let go of
         std::vector<std::pair<int, std::string>> held;     // key codes typed here, and their characters
 
         void releaseKeys (bool all)

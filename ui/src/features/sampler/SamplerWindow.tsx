@@ -61,7 +61,7 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
   };
 
   return (
-    <FloatingWindow window={w} width={680} accent={color}
+    <FloatingWindow window={w} name={channel.name || channel.id} width={680} accent={color}
       extra={
         <PresetMenu kind="sampler"
           current={() => ({ filter: sampler.filter ?? { type: "off" }, envelope: saved?.envelope ?? DEFAULT_ENVELOPE, modulation: sampler.modulation ?? {} })}

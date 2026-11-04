@@ -53,7 +53,7 @@ export function EffectWindow({ window: w, insert, effect: set }: { window: OpenW
   const mix = useLiveControl((v) => ({ type: "updateEffect", insert: insert.id, effect: effect.id, changes: { mix: Math.round(v * 100) / 100 } }), `${name} mix`);
 
   return (
-    <FloatingWindow window={w} width={WIDTHS[effect.kind] ?? (EDITORS[effect.kind] ? 680 : 460)} accent="var(--color-accent)"
+    <FloatingWindow window={w} name={`${name} · ${insertName(insert, index)}`} width={WIDTHS[effect.kind] ?? (EDITORS[effect.kind] ? 680 : 460)} accent="var(--color-accent)"
       title={
         <>
           <button type="button" title={effect.bypass ? "Turn on" : "Turn off"} className={effect.bypass ? "text-faint" : "text-accent"}

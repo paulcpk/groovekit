@@ -1,5 +1,7 @@
 // Floating windows over the app: a channel's sampler, an effect's editor, a style guide, a song map, mastering. Several can be open;
-// each remembers where it was put.
+// each remembers where it was put. An open window is in front or in the background (hidden, still
+// open: clicking the app's own window sends them all there, the overview and the switcher bring
+// one back). Hosted plugins' windows are the engine's; what's known of them is kept here too.
 
 import { create } from "zustand";
 
@@ -23,7 +25,18 @@ export interface OpenWindow {
   z: number;
   /** Set by dragging its top or bottom edge; else as tall as it needs, up to the screen. */
   height?: number;
+  /** In the background: still open, not shown. */
+  hidden?: boolean;
 }
+
+/** A hosted plugin's open window (the engine's), by its key ("channel:<id>", "effect:<insert>/<effect>"). */
+export interface PluginWindow { key: string; visible: boolean }
+
+/** Who a window is for the switcher and the overview: "main" (the app's own window), a floating
+    window's key, or "plugin:" and a plugin window's key. */
+export type WindowTarget = string;
+
+export const pluginTarget = (key: string) => `plugin:${key}`;
 
 const POSITIONS = "groovekit.windowPositions";
 
@@ -37,7 +50,20 @@ function loadPositions(): Record<string, { x: number; y: number; height?: number
 
 const positions = loadPositions();
 
-export const useWindows = create<{ windows: OpenWindow[]; top: number }>(() => ({ windows: [], top: 1 }));
+export const useWindows = create<{
+  windows: OpenWindow[];
+  top: number;
+  plugins: PluginWindow[];
+  /** The windows by when they were last in front, latest first (the switcher's order). */
+  recent: WindowTarget[];
+  /** What each floating window is called, as its title says, for the switcher. */
+  names: Record<string, string>;
+}>(() => ({ windows: [], top: 1, plugins: [], recent: ["main"], names: {} }));
+
+/** Marks a window as the one used last. */
+export function touchWindow(target: WindowTarget) {
+  useWindows.setState((s) => (s.recent[0] === target ? s : { recent: [target, ...s.recent.filter((t) => t !== target)] }));
+}
 
 export function windowKey(spec: WindowSpec) {
   if (spec.kind === "guide") return `guide:${spec.guide}`;
@@ -51,30 +77,38 @@ export function openWindow(spec: WindowSpec) {
   const key = windowKey(spec);
   useWindows.setState((s) => {
     const top = s.top + 1;
-    if (s.windows.some((w) => w.key === key)) return { top, windows: s.windows.map((w) => (w.key === key ? { ...w, z: top } : w)) };
+    if (s.windows.some((w) => w.key === key)) return { top, windows: s.windows.map((w) => (w.key === key ? { ...w, z: top, hidden: false } : w)) };
     const n = s.windows.length;
     const at = positions[key] ?? { x: 260 + n * 28, y: 110 + n * 28 };
     return { top, windows: [...s.windows, { key, spec, ...at, z: top }] };
   });
+  touchWindow(key);
+}
+
+/** Sends a floating window to the background. */
+export function hideWindow(key: string) {
+  useWindows.setState((s) => ({ windows: s.windows.map((w) => (w.key === key ? { ...w, hidden: true } : w)) }));
 }
 
 export function closeWindow(key: string) {
-  useWindows.setState((s) => ({ windows: s.windows.filter((w) => w.key !== key) }));
+  useWindows.setState((s) => ({ windows: s.windows.filter((w) => w.key !== key), recent: s.recent.filter((t) => t !== key) }));
 }
 
 /** Opens the window, or closes it when it's already open. */
 export function toggleWindow(spec: WindowSpec) {
   const key = windowKey(spec);
-  if (useWindows.getState().windows.some((w) => w.key === key)) closeWindow(key);
+  if (useWindows.getState().windows.some((w) => w.key === key && !w.hidden)) closeWindow(key);
   else openWindow(spec);
 }
 
 export function focusWindow(key: string) {
   useWindows.setState((s) => {
-    if (s.windows.find((w) => w.key === key)?.z === s.top) return s;
+    const window = s.windows.find((w) => w.key === key);
+    if (window?.z === s.top && !window.hidden) return s;
     const top = s.top + 1;
-    return { top, windows: s.windows.map((w) => (w.key === key ? { ...w, z: top } : w)) };
+    return { top, windows: s.windows.map((w) => (w.key === key ? { ...w, z: top, hidden: false } : w)) };
   });
+  touchWindow(key);
 }
 
 function savePositions() {

@@ -237,21 +237,28 @@ public:
     /** Opens or closes a hosted plugin's own window. False if the key isn't a hosted plugin. */
     bool showPluginWindow (const std::string& key, bool show);
 
-    /** A hosted plugin's window that's open, for the UI's overview of every open window. */
+    /** A hosted plugin's window that's open, in front or in the background (taken off the screen
+        but still open: the plugin plays on and keeps its state). For the UI's overview and switcher. */
     struct PluginWindowView
     {
         std::string key;
+        bool visible = false;
         juce::Rectangle<int> bounds;    // on screen, in points from the top left of the main display
-        juce::Image picture;            // what it shows, when asked for (at most 1200 pixels across)
+        juce::Image picture;            // what it shows (at most 1200 pixels across), when asked for;
+                                        // for one in the background, as it was when it went there
     };
 
-    /** The hosted plugins' windows on screen, front to back, with pictures if asked. */
+    /** The hosted plugins' open windows: those on screen front to back, then those in the background. */
     std::vector<PluginWindowView> listPluginWindows (bool pictures);
 
-    /** Takes the plugins' open windows off the screen while the UI shows its overview (they stay
-        open), or puts them back as they were, the one at `front` (if any) in front of the rest. */
-    void hidePluginWindows();
-    void restorePluginWindows (const std::string& front);
+    /** Brings one plugin's window to the front, with the keyboard, and sends every other one to the
+        background; with no key, sends them all there (the UI's own window, or one of its floating
+        windows, is in front). Those in `keep` stay or come back too, behind the front one, in that
+        order (the overview, closed without a pick, puts back what was there). */
+    void arrangePluginWindows (const std::string& front, const std::vector<std::string>& keep = {});
+
+    /** Called when plugin windows open, close, go to the background or come back. */
+    std::function<void()> onPluginWindowsChanged;
 
     /** The rhythm machines on the song's channels, connected to its patterns. */
     MachineBridge& getMachines()        { return *machines; }
@@ -260,7 +267,9 @@ private:
     EngineContext& context;
     Session& session;
     CompiledEdit compiled;
-    std::vector<std::string> hiddenWindows; // plugin windows taken off the screen for the overview, back to front
+    std::vector<std::string> hiddenWindows;             // plugin windows in the background
+    struct Picture { juce::Image image; juce::uint32 taken = 0; };
+    std::map<std::string, Picture> windowPictures;      // how each looked when it went there (or lately)
     std::shared_ptr<MidiClock> midiClock = std::make_shared<MidiClock>();
     std::map<std::string, model::Json> builtPluginRefs; // the hosted plugins the live Edit was built with
     const void* clockPlugin = nullptr;  // the live Edit's, the clock's source

@@ -15,6 +15,7 @@ import { ProjectName } from "./ProjectName";
 import { collectSamples, importAudio } from "./importFiles";
 import { shiftTypingOctave } from "./liveInput";
 import { toggleOverview } from "@/features/windows/overviewState";
+import { useWindows } from "@/state/windows";
 
 export const snaps: { label: string; ticks: number }[] = [
   { label: "Bar", ticks: 0 }, // resolved against the time signature
@@ -218,7 +219,7 @@ function PanelToggles() {
       <IconButton title="Channel rack (F6)" active={bottomOpen && bottomPanel === "rack"} onClick={() => show("rack")}><Layers size={15} /></IconButton>
       <IconButton title="Piano roll (F7)" active={bottomOpen && bottomPanel === "piano"} onClick={() => show("piano")}><Piano size={15} /></IconButton>
       <IconButton title="Mixer (F9)" active={bottomOpen && bottomPanel === "mixer"} onClick={() => show("mixer")}><SlidersVertical size={15} /></IconButton>
-      <IconButton title="All open windows side by side (⌘↑)" onClick={toggleOverview}><LayoutGrid size={14} /></IconButton>
+      <WindowsButton />
     </div>
   );
 }
@@ -370,5 +371,20 @@ export function TopBar() {
         />
       </div>
     </div>
+  );
+}
+
+/** The overview of the open windows, with how many are open (in front or in the background). */
+function WindowsButton() {
+  const count = useWindows((s) => s.windows.length + s.plugins.length);
+  return (
+    <IconButton title={`${count ? `${count} window${count === 1 ? "" : "s"} open: ` : ""}all open windows side by side (⌘↑); ⌘← ⌘→ switch between them`} onClick={toggleOverview}>
+      <span className="relative">
+        <LayoutGrid size={14} />
+        {count > 0 && (
+          <span className="absolute -top-1.5 -right-2 min-w-[13px] rounded-full bg-accent px-[3px] text-center text-[9px] leading-[13px] font-semibold text-black tabular-nums">{count}</span>
+        )}
+      </span>
+    </IconButton>
   );
 }

@@ -106,7 +106,7 @@ export function GuideWindow({ window: w, id }: { window: OpenWindow; id: string 
   const title = id ? guide?.name ?? listed?.name ?? id : "New style guide";
 
   return (
-    <FloatingWindow window={w} width={600} accent="var(--color-agent)"
+    <FloatingWindow window={w} name={title} width={600} accent="var(--color-agent)"
       title={<><span className="truncate">{title}</span><span className="text-2xs font-normal text-faint">Style guide</span></>}
       extra={
         <div className="flex items-center gap-1">

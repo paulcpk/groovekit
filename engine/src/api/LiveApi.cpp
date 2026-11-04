@@ -583,14 +583,14 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params, Cli
         return { { "keyNames", names } };
     }
 
-    if (method == "windows" || method == "showWindows")
+    if (method == "windows" || method == "arrange")
     {
         if (live == nullptr)
             return method == "windows" ? Json { { "windows", Json::array() } } : Json::object();
 
-        if (method == "showWindows")
+        if (method == "arrange")
         {
-            live->restorePluginWindows (params.value ("front", std::string()));
+            live->arrangePluginWindows (params.value ("front", std::string()), params.value ("keep", std::vector<std::string>()));
             return Json::object();
         }
 
@@ -600,7 +600,7 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params, Cli
         for (auto& view : live->listPluginWindows (pictures))
         {
             Json w {
-                { "key", view.key },
+                { "key", view.key }, { "visible", view.visible },
                 { "x", view.bounds.getX() }, { "y", view.bounds.getY() },
                 { "width", view.bounds.getWidth() }, { "height", view.bounds.getHeight() },
             };
@@ -618,9 +618,9 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params, Cli
             windows.push_back (std::move (w));
         }
 
-        // Pictures first, then off the screen: the UI shows each picture where its window was.
+        // Pictures first, then all to the background: the UI shows each picture where its window was.
         if (params.value ("hide", false))
-            live->hidePluginWindows();
+            live->arrangePluginWindows ({});
 
         return { { "windows", windows } };
     }

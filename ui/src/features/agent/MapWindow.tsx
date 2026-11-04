@@ -34,7 +34,7 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
   const t = map?.track;
 
   return (
-    <FloatingWindow window={w} width={540} accent="var(--color-agent)" resizable
+    <FloatingWindow window={w} name={title} width={540} accent="var(--color-agent)" resizable
       title={<><span className="truncate">{title}</span><span className="shrink-0 text-2xs font-normal text-faint">Song map</span></>}
       extra={map && (
         <div className="flex items-center gap-1">

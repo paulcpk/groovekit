@@ -1,22 +1,25 @@
 // The overview of every open window (Cmd+Up): GrooveKit's own floating windows and the hosted
 // plugins' windows, spread side by side over the app, so one click brings any of them to the front.
 //
-// GrooveKit's windows move there themselves, live and scaled down. A plugin's window is the
-// engine's (another process, drawn by the plugin), so the engine pictures it and takes it off the
-// screen; the picture flies from where the window was to its place, and back again when the
-// overview closes, when the window itself comes back.
+// It shows the windows in the background too. GrooveKit's windows move there themselves, live and
+// scaled down. A plugin's window is the engine's (another process, drawn by the plugin), so the
+// engine pictures it and takes it off the screen; the picture flies from where the window was to
+// its place. Picking one brings it back alone, the rest fading as they fly back to the background;
+// clicking beside them sends them all there, the app's own window in front.
 
 import { create } from "zustand";
-import { inDesktopApp } from "@/engine/client";
 import { engine, useEngine } from "@/state/engine";
-import { focusWindow, useWindows } from "@/state/windows";
+import { pluginTarget, useWindows } from "@/state/windows";
+import { arrangePlugins, bringToFront, focusApp } from "./arrange";
 
 export interface Rect { x: number; y: number; width: number; height: number }
 
 export interface OverviewItem {
-  /** The window's key: a floating window's, or a plugin's ("channel:<id>", "effect:<insert>/<effect>"). */
+  /** A floating window's key, or "plugin:" and a plugin window's. */
   key: string;
   plugin: boolean;
+  /** It was in the background: it fades in on its way. */
+  hidden: boolean;
   /** Where it is, in the app's coordinates. */
   from: Rect;
   /** Where the overview puts it. */
@@ -25,15 +28,19 @@ export interface OverviewItem {
   picture?: string;
 }
 
-interface Overview {
+export interface Overview {
   /** "opening": everything still where it was, about to move; "open"; "closing": on the way back. */
   phase: "closed" | "opening" | "open" | "closing";
   items: OverviewItem[];
   /** The window the keys point at (arrows, Enter). */
   selected?: string;
+  /** While closing: the one coming to the front, if any. */
+  picked?: string;
+  /** The plugins' windows that were on screen, back to front, to put back with nothing picked. */
+  restore: string[];
 }
 
-export const useOverview = create<Overview>(() => ({ phase: "closed", items: [] }));
+export const useOverview = create<Overview>(() => ({ phase: "closed", items: [], restore: [] }));
 
 /** The transform that puts a box drawn at `from` over `to` (with its origin at the top left). */
 export function flyTo(from: Rect, to: Rect) {
@@ -92,7 +99,7 @@ export function arrange(sizes: { width: number; height: number }[], area: Rect):
   return out;
 }
 
-interface PluginWindow { key: string; x: number; y: number; width: number; height: number; picture?: string }
+interface PluginWindow { key: string; visible: boolean; x: number; y: number; width: number; height: number; picture?: string }
 
 let busy = false;
 
@@ -102,15 +109,12 @@ export async function openOverview() {
 
   try {
     // Brought forward when asked for from a plugin's window, which had the keyboard.
-    if (inDesktopApp && !document.hasFocus()) {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      void getCurrentWindow().setFocus().catch(() => {});
-    }
+    void focusApp();
 
     const ours = useWindows.getState().windows
       .map((w) => {
         const box = document.querySelector<HTMLElement>(`[data-window-key="${CSS.escape(w.key)}"]`)?.getBoundingClientRect();
-        return box ? { key: w.key, z: w.z, from: { x: box.left, y: box.top, width: box.width, height: box.height } } : undefined;
+        return box ? { key: w.key, z: w.z, hidden: !!w.hidden, from: { x: box.left, y: box.top, width: box.width, height: box.height } } : undefined;
       })
       .filter((w) => w !== undefined);
 
@@ -136,11 +140,11 @@ export async function openOverview() {
         // The picture has the window's title bar, which its bounds leave out: as wide, taller above.
         const height = picture?.naturalWidth ? p.width * (picture.naturalHeight / picture.naturalWidth) : p.height;
         return {
-          key: p.key, plugin: true, picture: p.picture,
+          key: pluginTarget(p.key), plugin: true, hidden: !p.visible, picture: p.picture,
           from: { x: p.x - window.screenX, y: p.y + p.height - height - window.screenY, width: p.width, height },
         };
       }),
-      ...ours.sort((a, b) => b.z - a.z).map((w) => ({ key: w.key, plugin: false, from: w.from })),
+      ...ours.sort((a, b) => b.z - a.z).map((w) => ({ key: w.key, plugin: false, hidden: w.hidden, from: w.from })),
     ];
 
     // Top to bottom, left to right, as they were: each keeps roughly its side of the screen.
@@ -149,7 +153,9 @@ export async function openOverview() {
     const area = { x: margin.side, y: margin.top, width: innerWidth - margin.side * 2, height: innerHeight - margin.top - margin.bottom };
     const slots = arrange(items.map((i) => i.from), area);
 
-    useOverview.setState({ phase: "opening", items: items.map((item, i) => ({ ...item, to: slots[i] })), selected: undefined });
+    useOverview.setState({ phase: "opening", items: items.map((item, i) => ({ ...item, to: slots[i] })), selected: undefined, picked: undefined,
+      restore: plugins.filter((p) => p.visible).map((p) => p.key).reverse() });
+    useWindows.setState((s) => ({ plugins: s.plugins.map((p) => ({ ...p, visible: false })) }));
     // Two frames: the first draws them where they were, the second starts them moving.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (useOverview.getState().phase === "opening") useOverview.setState({ phase: "open" });
@@ -159,20 +165,34 @@ export async function openOverview() {
   }
 }
 
-/** Closes the overview, everything flying back; the window picked (if any) comes to the front. */
+/** Closes the overview. With a window picked, it flies back and comes to the front on its own, the
+    rest fading as they fly back to the background; "main" (a click beside them) sends them all
+    there, the app's own window in front; with nothing (Escape), everything goes back as it was. */
 export function closeOverview(pick?: string) {
-  const { phase, items } = useOverview.getState();
+  const { phase, items, restore } = useOverview.getState();
   if (phase === "closed" || phase === "closing") return;
-  useOverview.setState({ phase: "closing" });
+  const picked = items.find((i) => i.key === pick)?.key ?? (pick === "main" ? "main" : undefined);
+  useOverview.setState({ phase: "closing", picked });
 
-  const picked = items.find((i) => i.key === pick);
-  if (picked && !picked.plugin) focusWindow(picked.key);
+  // Our windows at once (they're shown while the overview closes); the plugins' once their pictures land.
+  if (picked) bringToFront(picked, { plugins: false });
 
   setTimeout(() => {
-    // The plugins' windows come back where their pictures landed, then the pictures go.
-    if (items.some((i) => i.plugin)) void engine.call("plugins.showWindows", picked?.plugin ? { front: picked.key } : {}).catch(() => {});
-    setTimeout(() => useOverview.setState({ phase: "closed", items: [], selected: undefined }), 60);
+    if (items.some((i) => i.plugin)) {
+      const front = picked?.startsWith("plugin:") ? picked.slice(7) : undefined;
+      const keep = picked ? [] : restore;
+      arrangePlugins(front, keep);
+    }
+    setTimeout(() => useOverview.setState({ phase: "closed", items: [], selected: undefined, picked: undefined }), 60);
   }, overviewMs);
+}
+
+/** How opaque a window is in the overview: those in the background fade in on the way there, and
+    fade on the way back unless they're coming to the front. */
+export function overviewOpacity(phase: Overview["phase"], item: OverviewItem, picked: string | undefined, restoring: boolean) {
+  if (phase === "opening") return item.hidden ? 0 : 1;
+  if (phase === "closing") return item.key === picked || (restoring && !item.hidden) ? 1 : 0;
+  return 1;
 }
 
 export function toggleOverview() {

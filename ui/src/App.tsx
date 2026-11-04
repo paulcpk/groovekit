@@ -23,7 +23,10 @@ import { EngineVersionBanner } from "@/features/shell/EngineVersionBanner";
 import { Windows } from "@/features/windows/Windows";
 import { createAutomation } from "@/features/playlist/automation";
 import { openOverview } from "@/features/windows/overviewState";
-import { engine, listen, useEngine } from "@/state/engine";
+import { anythingInFront, bringToFront, followPluginWindows } from "@/features/windows/arrange";
+import { commitSwitcher, stepSwitcher } from "@/features/windows/switcherState";
+import { Switcher } from "@/features/windows/Switcher";
+import { listen, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
 export function App() {
@@ -40,7 +43,10 @@ export function App() {
       <AppHooks />
       <TopBar />
       <EngineVersionBanner />
-      <div className="flex min-h-0 flex-1 border-t border-line">
+      {/* The app's own window: a click in it sends the windows over it to the background (the top
+          bar's transport stays usable with a plugin in front). A click, not a press, so dragging a
+          sample from the browser into a sampler's window still works. */}
+      <div className="flex min-h-0 flex-1 border-t border-line" onClickCapture={() => anythingInFront() && bringToFront("main")}>
         {sidebarOpen && (
           <>
             <div className="flex min-w-0 flex-col bg-panel" style={{ width: sidebarWidth }}>
@@ -79,6 +85,7 @@ export function App() {
       </div>
       <StatusBar />
       <Windows />
+      <Switcher />
       <ControlMenu />
       <Toasts />
       <SettingsDialog />
@@ -108,12 +115,16 @@ function AppHooks() {
     const doc = useEngine.getState().doc;
     if (doc) void createAutomation(doc, params.target, params.value);
   }), []);
-  // Cmd+Up in a plugin's window (the engine's) opens the overview here.
-  useEffect(() => listen("windowsOverview", () => void openOverview()), []);
-  // Plugin windows the overview took off the screen come back if the UI went away meanwhile (a reload).
-  useEffect(() => useEngine.subscribe((s, previous) => {
-    if (s.status === "connected" && previous.status !== "connected") void engine.call("plugins.showWindows").catch(() => {});
-  }), []);
+  // The plugins' windows (the engine's): which are open, and Cmd+Up, Cmd+Left/Right typed in them.
+  useEffect(() => {
+    const stops = [
+      followPluginWindows(),
+      listen("windowsOverview", () => void openOverview()),
+      listen("windowsSwitch", ({ direction }: { direction: 1 | -1 }) => stepSwitcher(direction > 0 ? 1 : -1)),
+      listen("windowsSwitchEnd", () => commitSwitcher()),
+    ];
+    return () => stops.forEach((stop) => stop());
+  }, []);
   return null;
 }
 

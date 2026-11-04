@@ -27,6 +27,13 @@ struct PluginWindowHost
 
     /** Cmd+Up in a plugin's window: the UI's overview of every open window, as in its own. */
     std::function<void()> overview;
+
+    /** Cmd+Left or Cmd+Right there (-1 or 1): the UI's window switcher; and Cmd let go of after it. */
+    std::function<void (int direction)> switcher;
+    std::function<void()> commandReleased;
+
+    /** A plugin's window became the active one (clicked, or brought forward with the keyboard). */
+    std::function<void (tracktion::Plugin&)> activated;
 };
 
 /** Opens hosted plugins' own editors in native windows (Tracktion asks its UIBehaviour for them),

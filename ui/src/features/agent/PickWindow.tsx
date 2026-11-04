@@ -254,7 +254,7 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
   };
 
   return (
-    <FloatingWindow window={w} width={420} accent="var(--color-agent)" onClose={dismiss}
+    <FloatingWindow window={w} name={offer?.title ?? "A choice"} width={420} accent="var(--color-agent)" onClose={dismiss}
       title={<><span className="truncate">{offer?.title ?? "A choice"}</span><span className="shrink-0 text-2xs font-normal text-faint">Pick by ear</span></>}>
       {offer ? (
         <div ref={body} tabIndex={-1} onKeyDown={onKeyDown} className="flex flex-col gap-2 p-3 outline-none">
