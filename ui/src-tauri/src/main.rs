@@ -296,6 +296,18 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
                 if let Some(mut child) = app.state::<Arc<Engine>>().child.lock().ok().and_then(|mut c| c.take()) {
+                    // Asked to stop first, so it can put what the plugins with windows open sound
+                    // like into the song; stopped outright if it takes longer than a few seconds.
+                    unsafe {
+                        libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
+                    }
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+                    while std::time::Instant::now() < deadline {
+                        if matches!(child.try_wait(), Ok(Some(_))) {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
                     let _ = child.kill();
                 }
             }

@@ -130,7 +130,11 @@ Json ApiHandler::callProject (const std::string& method, const Json& params)
     if (method == "project.save" || method == "project.revert")
     {
         if (method == "project.save")
+        {
+            // Plugins whose windows are open keep their changes in themselves until then.
+            captureOpenPluginStates();
             session.markSaved();
+        }
         else
             session.revertToSaved();
 

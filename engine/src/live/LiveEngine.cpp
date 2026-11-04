@@ -938,11 +938,9 @@ void LiveEngine::arrangePluginWindows (const std::string& front, const std::vect
         {
             std::erase (hiddenWindows, key);
             windowPictures.erase (key);
+            // In front of every app's windows, the UI's too. Not made the key window as well: for a
+            // background process that orders it back behind the active app (the UI) and out of sight.
             PluginWindowBehaviour::bringToFront (*window);
-
-            // The one in front takes the keyboard too, to be played and typed into straight away.
-            if (key == front)
-                window->toFront (true);
         }
     }
 

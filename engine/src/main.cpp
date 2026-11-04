@@ -279,6 +279,9 @@ Add --verbose to see engine log messages.
             {
                 const auto previous = *workspace.session->getProjectDir();
 
+                // What the plugins with windows open sound like now goes with the song.
+                workspace.handler->captureOpenPluginStates();
+
                 // One project's Edit at a time on the audio device; each part uses the ones before it.
                 workspace.handler.reset();
                 workspace.live.reset();
@@ -342,6 +345,10 @@ Add --verbose to see engine log messages.
             if (parentPid > 0 && kill (parentPid, 0) != 0 && errno == ESRCH)
                 break;
         }
+
+        // The plugins with windows open (the app quit with them in the background, say) keep
+        // what was done in them.
+        workspace.handler->captureOpenPluginStates();
 
         server->stop();
         server.reset();

@@ -41,6 +41,10 @@ public:
                 listening::Listening* = nullptr, library::StarterPack* = nullptr);
     ~ApiHandler();
 
+    /** What the plugins with their windows open (in front or in the background) sound like now,
+        into the project, as closing their windows does: before the song is saved, or closed. */
+    void captureOpenPluginStates();
+
     /** Opens another project folder in place of this session (see project.open and project.new).
         Throws if it can't (e.g. another engine serves it); the switch itself happens later,
         after the response is sent, and replaces this handler. Not set: projects can't be switched. */

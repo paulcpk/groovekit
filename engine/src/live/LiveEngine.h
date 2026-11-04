@@ -251,10 +251,10 @@ public:
     /** The hosted plugins' open windows: those on screen front to back, then those in the background. */
     std::vector<PluginWindowView> listPluginWindows (bool pictures);
 
-    /** Brings one plugin's window to the front, with the keyboard, and sends every other one to the
-        background; with no key, sends them all there (the UI's own window, or one of its floating
-        windows, is in front). Those in `keep` stay or come back too, behind the front one, in that
-        order (the overview, closed without a pick, puts back what was there). */
+    /** Brings one plugin's window to the front, over every app's windows, and sends every other
+        one to the background; with no key, sends them all there (the UI's own window, or one of
+        its floating windows, is in front). Those in `keep` stay or come back too, behind the front
+        one, in that order (the overview, closed without a pick, puts back what was there). */
     void arrangePluginWindows (const std::string& front, const std::vector<std::string>& keep = {});
 
     /** Called when plugin windows open, close, go to the background or come back. */

@@ -645,6 +645,24 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params, Cli
     throw RpcError (methodNotFound, "unknown method \"plugins." + method + "\"");
 }
 
+void ApiHandler::captureOpenPluginStates()
+{
+    if (live == nullptr)
+        return;
+
+    for (auto& view : live->listPluginWindows (false))
+    {
+        try
+        {
+            captureState (view.key, "ui");
+        }
+        catch (const std::exception& e)
+        {
+            juce::Logger::writeToLog ("Couldn't save the plugin's state: " + juce::String (e.what()));
+        }
+    }
+}
+
 Json ApiHandler::captureState (const std::string& key, const std::string& origin)
 {
     live->updateNow();

@@ -45,8 +45,9 @@ export function App() {
       <EngineVersionBanner />
       {/* The app's own window: a click in it sends the windows over it to the background (the top
           bar's transport stays usable with a plugin in front). A click, not a press, so dragging a
-          sample from the browser into a sampler's window still works. */}
-      <div className="flex min-h-0 flex-1 border-t border-line" onClickCapture={() => anythingInFront() && bringToFront("main")}>
+          sample from the browser into a sampler's window still works; not a double-click's second,
+          which would send away the window its first just opened. */}
+      <div className="flex min-h-0 flex-1 border-t border-line" onClickCapture={(e) => e.detail < 2 && anythingInFront() && bringToFront("main")}>
         {sidebarOpen && (
           <>
             <div className="flex min-w-0 flex-col bg-panel" style={{ width: sidebarWidth }}>
