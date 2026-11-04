@@ -11,6 +11,7 @@
 #include "library/StarterPack.h"
 #include "listening/Listening.h"
 #include "listening/KickSound.h"
+#include "listening/Lanes.h"
 #include "listening/Maps.h"
 #include "mixer/Slots.h"
 #include "live/AudioDevices.h"
@@ -245,9 +246,57 @@ Json ApiHandler::callMaps (const std::string& method, const Json& params)
                 stems[name] = (folder / (std::string (name) + ".flac")).string();
 
             j["stems"] = stems;
+            j["lanes"] = std::vector<std::string> (std::begin (listening::laneNames), std::end (listening::laneNames));
         }
 
         return j;
+    }
+
+    // A lane worked out from a map's kept stems, written to the cache the first time (seconds).
+    if (method == "maps.lane")
+    {
+        const auto id = readParam<std::string> (params, "id");
+        const auto lane = readParam<std::string> (params, "lane");
+        auto map = maps.get (id);
+
+        if (map == nullptr)
+            throw RpcError (invalidParams, "No map for \"" + id + "\" (maps.list)");
+
+        if (! listening::isLane (lane))
+            throw RpcError (invalidParams, "lane is one of drums-low, drums-mid, drums-high, music-sustained, music-short");
+
+        const auto folder = maps.stemsFolderFor (*map);
+        const auto stem = folder / (listening::stemOfLane (lane) + ".flac");
+        std::error_code ec;
+
+        if (! std::filesystem::exists (stem, ec))
+            throw RpcError (operationFailed, "\"" + id + "\" has no stems kept: hear it again (maps.hear)");
+
+        const auto stamp = std::to_string (static_cast<long long> (std::filesystem::last_write_time (stem, ec).time_since_epoch().count()));
+        const auto file = getDefaultCacheDir() / "lanes"
+                        / (juce::String::toHexString (static_cast<juce::int64> (std::hash<std::string> {} (stem.string() + "@" + stamp + "@" + lane))).toStdString() + ".flac");
+
+        if (std::filesystem::exists (file, ec))
+            return { { "file", file.string() }, { "lane", lane } };
+
+        auto steps = std::make_shared<Steps>();
+        auto* s = steps.get();
+
+        steps->pooled ([s, folder, lane, file]
+        {
+            auto audio = listening::loadStem (folder, listening::stemOfLane (lane));
+
+            if (! audio)
+                throw std::runtime_error ("Couldn't read the " + listening::stemOfLane (lane) + " stem");
+
+            const auto temp = std::filesystem::path (file.string() + ".writing.flac");
+            listening::writeFlac (listening::laneOf (*audio, lane), temp);
+            std::filesystem::rename (temp, file);
+            s->result = { { "file", file.string() }, { "lane", lane } };
+        });
+
+        deferred = steps;
+        return {};
     }
 
     // The queue follows the ticks while songs are being heard: unticked ones leave it (the one

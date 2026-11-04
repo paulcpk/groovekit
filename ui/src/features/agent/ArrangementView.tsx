@@ -14,19 +14,29 @@ const ROLE: Record<string, string> = {
 
 const time = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
+/** The lanes worked out from the stems, with their names for people. */
+const LANES: [string, string][] = [
+  ["drums-low", "Kick & low"], ["drums-mid", "Claps & perc"], ["drums-high", "Hats & cymbals"], ["music-short", "Stabs & leads"], ["music-sustained", "Pads & atmosphere"],
+];
+
 /** A track's arrangement as lanes: the sections, which parts play in each bar (brighter when
     louder), and the loudness. Hovering names the bar; clicking plays the track from it. */
-export function ArrangementView({ arrangement: a, file: track, stems }: { arrangement: Arrangement; file?: string; stems?: Record<string, string> }) {
+export function ArrangementView({ arrangement: a, file: track, stems, id }: {
+  arrangement: Arrangement; file?: string; stems?: Record<string, string>; /** The map, for its lanes. */ id?: string;
+}) {
   const [hover, setHover] = useState<number>();
   const [playing, setPlaying] = useState<{ bar: number; at: number }>();
   const [source, setSource] = useState("track");
+  const [lanes, setLanes] = useState<Record<string, string>>({});
+  const [splitting, setSplitting] = useState<string>();
   const [, tick] = useState(0);
   const previewing = useEngine((s) => s.previewing);
   const box = useRef<HTMLDivElement>(null);
   const barSeconds = (4 * 60) / a.tempo;
 
-  // The whole track or one of its stems (they run in time with it).
-  const file = source !== "track" && stems?.[source] ? stems[source] : track;
+  // The whole track, one of its stems or a lane worked out from one (they all run in time with it).
+  const fileOf = (name: string) => (name === "track" ? track : stems?.[name] ?? lanes[name] ?? track);
+  const file = fileOf(source);
 
   // The playhead moves while this track plays.
   const isPlaying = !!playing && !!file && previewing === file;
@@ -50,10 +60,24 @@ export function ArrangementView({ arrangement: a, file: track, stems }: { arrang
 
   const head = isPlaying ? playing.bar + (Date.now() - playing.at) / 1000 / barSeconds : undefined;
 
-  // Another source while it plays: on from the same place.
-  const listenTo = (next: string) => {
+  // Another source while it plays: on from the same place. A lane is made the first time.
+  const listenTo = async (next: string) => {
+    let nextFile = fileOf(next);
+
+    if (LANES.some(([name]) => name === next) && !lanes[next] && id) {
+      setSplitting(next);
+
+      try {
+        nextFile = (await call<{ file: string }>("maps.lane", { id, lane: next })).file;
+        setLanes((l) => ({ ...l, [next]: nextFile! }));
+      } catch {
+        return;
+      } finally {
+        setSplitting(undefined);
+      }
+    }
+
     setSource(next);
-    const nextFile = next !== "track" && stems?.[next] ? stems[next] : track;
 
     if (head === undefined || !nextFile) return;
     useEngine.setState({ previewing: nextFile });
@@ -77,7 +101,7 @@ export function ArrangementView({ arrangement: a, file: track, stems }: { arrang
         {stems && (
           <div className="flex items-center gap-0.5" title="What plays when you click a bar: the whole track or one of its stems">
             {["track", "drums", "bass", "music", "vocals"].filter((s) => s === "track" || stems[s]).map((s) => (
-              <button key={s} type="button" onClick={() => listenTo(s)}
+              <button key={s} type="button" onClick={() => void listenTo(s)}
                 className={cn("h-4 rounded-[3px] px-1.5 capitalize", source === s ? "bg-agent/20 text-fg" : "text-faint hover:text-fg")}>
                 {s === "track" ? "Whole" : s}
               </button>
@@ -90,6 +114,19 @@ export function ArrangementView({ arrangement: a, file: track, stems }: { arrang
           </button>
         )}
       </div>
+
+      {stems && id && (
+        <div className="mb-1 flex flex-wrap items-center justify-end gap-0.5 text-2xs"
+          title="Finer lanes worked out from the stems by filtering: rough, but the parts on their own">
+          <span className="mr-1 text-faint">Lanes</span>
+          {LANES.map(([name, label]) => (
+            <button key={name} type="button" disabled={!!splitting} onClick={() => void listenTo(name)}
+              className={cn("h-4 rounded-[3px] px-1.5", source === name ? "bg-agent/20 text-fg" : "text-faint hover:text-fg disabled:opacity-50")}>
+              {splitting === name ? "Splitting…" : label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex gap-2">
         <div className="flex w-16 shrink-0 flex-col text-2xs text-faint">

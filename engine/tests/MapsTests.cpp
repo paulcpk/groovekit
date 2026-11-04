@@ -6,10 +6,12 @@
 #include "library/SampleLibrary.h"
 #include "listening/Listening.h"
 #include "listening/KickSound.h"
+#include "listening/Lanes.h"
 #include "listening/Maps.h"
 #include "listening/NoteTranscriber.h"
 #include "session/Session.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -655,9 +657,95 @@ TEST_CASE ("A heard track's stems are kept beside its map, matched against witho
     CHECK (kick->hits >= 6);
     CHECK (fs::exists (kick->file));
 
+    // A lane, worked out from them and kept in the cache.
+    {
+        const auto saved = std::getenv ("GROOVEKIT_CACHE_DIR") ? std::optional<std::string> (std::getenv ("GROOVEKIT_CACHE_DIR")) : std::nullopt;
+        setenv ("GROOVEKIT_CACHE_DIR", (dir / "cache").c_str(), 1);
+        struct Restore { std::optional<std::string> value; ~Restore() { if (value) setenv ("GROOVEKIT_CACHE_DIR", value->c_str(), 1); else unsetenv ("GROOVEKIT_CACHE_DIR"); } } restore { saved };
+
+        Session session (Session::createEmptyProject());
+        ApiHandler handler (session, test::getEngineContext(), &library, nullptr, nullptr, &listening);
+        ApiHandler::Client client;
+        client.send = [] (const std::string&) {};
+
+        CHECK (test::callApi (handler, client, "maps.get", { { "id", map.id() } })["result"]["lanes"].size() == 5);
+        const auto lane = test::callApi (handler, client, "maps.lane", { { "id", map.id() }, { "lane", "drums-low" } });
+        INFO (lane.dump());
+        REQUIRE (lane.contains ("result"));
+        CHECK (fs::exists (lane["result"]["file"].get<std::string>()));
+        CHECK (test::callApi (handler, client, "maps.lane", { { "id", map.id() }, { "lane", "bass-low" } }).contains ("error"));
+    }
+
     // Forgotten, the stems go too.
     maps.remove (map.id());
     CHECK_FALSE (fs::exists (folder));
+}
+
+TEST_CASE ("Lanes split the drums by band and the music into what holds and what comes and goes")
+{
+    constexpr double rate = Separator::sampleRate;
+    const auto n = static_cast<int> (4 * rate);
+    const auto pi = juce::MathConstants<double>::pi;
+
+    // Music: a pad holding at 220 Hz, and a stab at 1320 Hz for 80 ms on every beat at 120 BPM.
+    juce::AudioBuffer<float> music (2, n), pad (2, n), stabs (2, n);
+    pad.clear(), stabs.clear();
+
+    for (int i = 0; i < n; ++i)
+    {
+        const auto t = i / rate;
+        const auto beat = std::fmod (t, 0.5);
+        const auto p = static_cast<float> (0.3 * std::sin (2 * pi * 220 * t));
+        const auto st = beat < 0.08 ? static_cast<float> (0.3 * std::sin (2 * pi * 1320 * t) * std::sin (pi * beat / 0.08)) : 0.0f;
+
+        for (int c = 0; c < 2; ++c)
+            pad.setSample (c, i, p), stabs.setSample (c, i, st), music.setSample (c, i, p + st);
+    }
+
+    const auto held = laneOf (music, "music-sustained");
+    const auto passing = laneOf (music, "music-short");
+
+    // Together they're the music again (away from the ends).
+    double error = 0, total = 0;
+
+    for (int i = static_cast<int> (rate); i < n - static_cast<int> (rate); ++i)
+    {
+        const auto d = held.getSample (0, i) + passing.getSample (0, i) - music.getSample (0, i);
+        error += d * d, total += music.getSample (0, i) * music.getSample (0, i);
+    }
+
+    CHECK (error / total < 1e-4);
+
+    // The pad in the held lane, the stabs in the other: each keeps most of its own.
+    auto correlation = [&] (const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b)
+    {
+        double ab = 0, aa = 0, bb = 0;
+
+        for (int i = static_cast<int> (rate); i < n - static_cast<int> (rate); ++i)
+            ab += a.getSample (0, i) * b.getSample (0, i), aa += a.getSample (0, i) * a.getSample (0, i), bb += b.getSample (0, i) * b.getSample (0, i);
+
+        return ab / std::sqrt (aa * bb + 1e-20);
+    };
+
+    CHECK (correlation (held, pad) > 0.9);
+    CHECK (correlation (passing, stabs) > 0.8);
+
+    // Drums: a 50 Hz kick body, a 1 kHz clap tone and a 9 kHz hat, each in its band.
+    juce::AudioBuffer<float> drums (2, n);
+
+    for (int i = 0; i < n; ++i)
+    {
+        const auto t = i / rate;
+
+        for (int c = 0; c < 2; ++c)
+            drums.setSample (c, i, static_cast<float> (0.3 * std::sin (2 * pi * 50 * t) + 0.2 * std::sin (2 * pi * 1000 * t) + 0.1 * std::sin (2 * pi * 9000 * t)));
+    }
+
+    auto level = [&] (const juce::AudioBuffer<float>& a) { return a.getRMSLevel (0, static_cast<int> (rate), n - 2 * static_cast<int> (rate)); };
+    CHECK (level (laneOf (drums, "drums-low")) == Catch::Approx (0.3 / std::sqrt (2)).epsilon (0.1));
+    CHECK (level (laneOf (drums, "drums-mid")) == Catch::Approx (0.2 / std::sqrt (2)).epsilon (0.1));
+    CHECK (level (laneOf (drums, "drums-high")) == Catch::Approx (0.1 / std::sqrt (2)).epsilon (0.1));
+    CHECK_THROWS (laneOf (drums, "vocals-high"));
 }
 
 TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and measured in the song")

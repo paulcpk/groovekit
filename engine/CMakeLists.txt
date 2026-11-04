@@ -36,6 +36,7 @@ target_sources(gk_engine PRIVATE
     src/listening/Download.cpp
     src/listening/Groove.cpp
     src/listening/KickIndex.cpp
+    src/listening/Lanes.cpp
     src/listening/KickPrint.cpp
     src/listening/KickSound.cpp
     src/listening/Listening.cpp

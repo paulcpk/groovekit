@@ -102,9 +102,9 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
             <Section title="Arrangement">
               {t.arrangement && t.arrangement.bars > 0 ? (
                 <>
-                  <ArrangementView arrangement={t.arrangement} file={song?.file} stems={map.stems} />
+                  <ArrangementView arrangement={t.arrangement} file={song?.file} stems={map.stems} id={id} />
                   {!map.stems && song?.file && (
-                    <p className="mt-1 text-2xs text-faint">Hear it again to keep its stems (drums, bass, music, vocals) to listen to one at a time.</p>
+                    <p className="mt-1 text-2xs text-faint">Hear it again to keep its stems (drums, bass, music, vocals) and lanes (kick, claps, hats, stabs, pads) to listen to one at a time.</p>
                   )}
                   {t.arrangement.changes.length > 0 && (
                     <div className="mt-2 flex flex-col gap-0.5 text-2xs text-dim">
