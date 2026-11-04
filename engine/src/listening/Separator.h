@@ -4,8 +4,10 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 
 namespace Ort { struct Session; }
 
@@ -36,5 +38,19 @@ private:
     const Models& models;
     std::unique_ptr<Ort::Session> session;
 };
+
+/** Stems kept on disk, in a folder of their own: drums, bass, music (the rest, without the vocals)
+    and vocals, as 24-bit stereo FLAC at the separator's rate. */
+inline constexpr const char* stemNames[] = { "drums", "bass", "music", "vocals" };
+
+/** Writes them (into a folder beside, then moved in place, so a folder is whole or not there). */
+void saveStems (const Separator::Stems&, const std::filesystem::path& folder);
+
+/** Whether all four are in a folder. */
+bool hasStems (const std::filesystem::path& folder);
+
+/** A stretch of kept stems (seconds; to 0 for the end), as the separator gives them: other with
+    the vocals in. None unless all four are there and readable. */
+std::optional<Separator::Stems> loadStems (const std::filesystem::path& folder, double from = 0, double to = 0);
 
 } // namespace gk::listening

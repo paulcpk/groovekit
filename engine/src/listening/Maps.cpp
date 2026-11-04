@@ -155,6 +155,11 @@ std::filesystem::path MapStore::fileFor (const SongMap& m) const
     return folder / fileName (m.style) / (fileName (m.title) + ".json");
 }
 
+std::filesystem::path MapStore::stemsFolderFor (const SongMap& m) const
+{
+    return folder / fileName (m.style) / fileName (m.title);
+}
+
 void MapStore::put (SongMap m)
 {
     auto map = std::make_shared<const SongMap> (std::move (m));
@@ -175,6 +180,11 @@ void MapStore::remove (const std::string& id)
 
     std::error_code ec;
     std::filesystem::remove (fileFor (*it->second), ec);
+
+    // Its stems were made from the track here, by hearing it: they go with it.
+    if (const auto stems = stemsFolderFor (*it->second); std::filesystem::exists (stems / "drums.flac", ec))
+        std::filesystem::remove_all (stems, ec);
+
     maps.erase (it);
     ++version;
     saveIndex();

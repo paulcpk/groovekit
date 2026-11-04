@@ -598,6 +598,68 @@ TEST_CASE ("A kick's print hears its whole sound, tuned, and a groove's kick is 
     CHECK (MatchWeights::fromJson (weights.toJson()).weights == weights.weights);
 }
 
+TEST_CASE ("A heard track's stems are kept beside its map, matched against without splitting it again, and go with it")
+{
+    const auto dir = freshDir ("maps-stems");
+    library::SampleLibrary library (dir / "library.json");
+    listening::Listening::Files files { dir / "no-models", dir / "sounds.bin", dir / "styles", dir / "taste.json", dir / "Maps", dir / "kicks.json" };
+    listening::Listening listening (library, files);
+
+    // Sixteen beats of kicks in the drums, a bass note, music and a voice.
+    constexpr double rate = Separator::sampleRate;
+    Separator::Stems stems;
+    stems.drums = kicks (rate, 50, 0.08, 0, 16);
+    const auto n = stems.drums.getNumSamples();
+
+    for (auto* b : { &stems.bass, &stems.other, &stems.vocals })
+        b->setSize (2, n), b->clear();
+
+    for (int i = 0; i < n; ++i)
+    {
+        const auto t = i / rate;
+        const auto voice = static_cast<float> (0.1 * std::sin (2 * juce::MathConstants<double>::pi * 440 * t));
+
+        for (int c = 0; c < 2; ++c)
+        {
+            stems.bass.setSample (c, i, static_cast<float> (0.2 * std::sin (2 * juce::MathConstants<double>::pi * 55 * t)));
+            stems.vocals.setSample (c, i, voice);
+            stems.other.setSample (c, i, static_cast<float> (0.1 * std::sin (2 * juce::MathConstants<double>::pi * 880 * t)) + voice);
+        }
+    }
+
+    SongMap map = someMap ("Hard Techno", "Reference", 128);
+    Arrangement a;
+    a.tempo = 128;
+    a.bars = 4;
+    a.seconds = n / rate;
+    a.parts["kick"].on.assign (4, true);
+    map.track.arrangement = a;
+    auto& maps = listening.getStyles().getMaps();
+    maps.put (map);
+
+    const auto folder = maps.stemsFolderFor (map);
+    saveStems (stems, folder);
+    REQUIRE (hasStems (folder));
+    CHECK_FALSE (fs::exists (folder.string() + ".writing"));
+
+    // Read back as the separator gave them: the music stem had the voice taken out, other puts it back.
+    const auto back = loadStems (folder, 1.0, 2.0);
+    REQUIRE (back.has_value());
+    CHECK (back->drums.getNumSamples() == static_cast<int> (rate));
+    CHECK (std::abs (back->other.getSample (0, 1000) - stems.other.getSample (0, static_cast<int> (rate) + 1000)) < 1e-3f);
+
+    // No models here, yet the reference's kick is rebuilt from its kept drums.
+    const auto kick = listening.referenceKick (map);
+    REQUIRE (kick.has_value());
+    CHECK (kick->sound.print.has_value());
+    CHECK (kick->hits >= 6);
+    CHECK (fs::exists (kick->file));
+
+    // Forgotten, the stems go too.
+    maps.remove (map.id());
+    CHECK_FALSE (fs::exists (folder));
+}
+
 TEST_CASE ("Kicks like a reference's are found, auditioned, put to the user and measured in the song")
 {
     const auto dir = freshDir ("maps-match");

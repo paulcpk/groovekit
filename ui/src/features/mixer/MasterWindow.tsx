@@ -113,7 +113,7 @@ export function MasterWindow({ window: w }: { window: OpenWindow }) {
   });
 
   return (
-    <FloatingWindow window={w} width={460} accent="#d6d6db" title={<><Wand2 size={13} className="text-dim" /> Master like a reference</>}>
+    <FloatingWindow window={w} width={460} accent="#d6d6db" resizable title={<><Wand2 size={13} className="text-dim" /> Master like a reference</>}>
       <div className="flex flex-col gap-3 p-3 text-xs">
         <p className="text-dim">
           Measures a reference's drop and your song's loudest part, then sets an EQ, a multiband compressor, mono bass and the limiter on the master

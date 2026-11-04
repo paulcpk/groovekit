@@ -235,6 +235,18 @@ Json ApiHandler::callMaps (const std::string& method, const Json& params)
                                             : map->track.figures.empty() ? "" : "\n" + listening::describeFigures (map->track.figures));
 
         j["current"] = map->track.analysis >= listening::currentAnalysisVersion();
+
+        // The stems kept when it was heard, to listen to.
+        if (const auto folder = maps.stemsFolderFor (*map); listening::hasStems (folder))
+        {
+            Json stems = Json::object();
+
+            for (auto* name : listening::stemNames)
+                stems[name] = (folder / (std::string (name) + ".flac")).string();
+
+            j["stems"] = stems;
+        }
+
         return j;
     }
 

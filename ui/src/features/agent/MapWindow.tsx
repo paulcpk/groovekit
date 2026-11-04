@@ -34,7 +34,7 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
   const t = map?.track;
 
   return (
-    <FloatingWindow window={w} width={540} accent="var(--color-agent)"
+    <FloatingWindow window={w} width={540} accent="var(--color-agent)" resizable
       title={<><span className="truncate">{title}</span><span className="shrink-0 text-2xs font-normal text-faint">Song map</span></>}
       extra={map && (
         <div className="flex items-center gap-1">
@@ -102,7 +102,10 @@ export function MapWindow({ window: w, id }: { window: OpenWindow; id: string })
             <Section title="Arrangement">
               {t.arrangement && t.arrangement.bars > 0 ? (
                 <>
-                  <ArrangementView arrangement={t.arrangement} file={song?.file} />
+                  <ArrangementView arrangement={t.arrangement} file={song?.file} stems={map.stems} />
+                  {!map.stems && song?.file && (
+                    <p className="mt-1 text-2xs text-faint">Hear it again to keep its stems (drums, bass, music, vocals) to listen to one at a time.</p>
+                  )}
                   {t.arrangement.changes.length > 0 && (
                     <div className="mt-2 flex flex-col gap-0.5 text-2xs text-dim">
                       {t.arrangement.changes.slice(0, 12).map((c, i) => (

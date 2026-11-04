@@ -40,6 +40,10 @@ public:
     std::vector<std::shared_ptr<const SongMap>> all() const;
     std::shared_ptr<const SongMap> get (const std::string& id) const;
 
+    /** Where a map's stems are kept: beside its file, a folder named like it (made when it's
+        heard; never exported). */
+    std::filesystem::path stemsFolderFor (const SongMap&) const;
+
     /** Adds or replaces a map, on disk and here. */
     void put (SongMap);
     void remove (const std::string& id);

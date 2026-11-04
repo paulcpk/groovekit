@@ -910,6 +910,47 @@ namespace
     }
 }
 
+std::optional<Separator::Stems> Listening::splitStretch (const std::filesystem::path& file, double start, double seconds)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (file.string())));
+
+    if (reader == nullptr)
+        return {};
+
+    const auto length = std::min (seconds, static_cast<double> (reader->lengthInSamples) / reader->sampleRate - start);
+
+    if (start < 0 || length < 2)
+        return {};
+
+    // As the separator wants it: 44.1 kHz stereo.
+    const auto frames = static_cast<int> (length * reader->sampleRate);
+    juce::AudioBuffer<float> raw (2, frames);
+    reader->read (&raw, 0, frames, static_cast<juce::int64> (start * reader->sampleRate), true, true);
+
+    const auto size = static_cast<int> (length * Separator::sampleRate);
+    juce::AudioBuffer<float> chunk (2, size);
+    chunk.clear();
+
+    for (int c = 0; c < 2; ++c)
+    {
+        juce::AudioBuffer<float> channel (1, frames);
+        channel.copyFrom (0, 0, raw, std::min (c, static_cast<int> (reader->numChannels) - 1), 0, frames);
+        auto resampled = resampleMono (channel, reader->sampleRate, Separator::sampleRate);
+        chunk.copyFrom (c, 0, resampled.data(), std::min (size, static_cast<int> (resampled.size())));
+    }
+
+    std::lock_guard lock (separatorMutex);
+
+    if (separator == nullptr)
+        separator = std::make_unique<Separator> (models);
+
+    auto stems = separator->separate (chunk);
+    separator.reset(); // a gigabyte, until it's next needed
+    return stems;
+}
+
 std::optional<Listening::ReferenceKick> Listening::referenceKick (const SongMap& map, bool hearNow)
 {
     const auto& track = map.track;
@@ -963,51 +1004,34 @@ std::optional<Listening::ReferenceKick> Listening::referenceKick (const SongMap&
         return result;
     };
 
-    if (! hearNow || ! track.arrangement || ! models.getStatus().ready || ! std::filesystem::exists (track.path))
+    if (! hearNow || ! track.arrangement)
         return mapOnly();
 
-    // The stretch, as the separator wants it: 44.1 kHz stereo.
     const auto& a = *track.arrangement;
-    juce::AudioFormatManager formats;
-    formats.registerBasicFormats();
-    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (track.path)));
-
-    if (reader == nullptr || a.barSeconds() <= 0)
-        return mapOnly();
-
     const auto start = a.downbeat + stretch->from * a.barSeconds();
-    const auto length = std::min ((stretch->to - stretch->from) * a.barSeconds(), static_cast<double> (reader->lengthInSamples) / reader->sampleRate - start);
-
-    if (start < 0 || length < 2)
-        return mapOnly();
-
-    const auto frames = static_cast<int> (length * reader->sampleRate);
-    juce::AudioBuffer<float> raw (2, frames);
-    reader->read (&raw, 0, frames, static_cast<juce::int64> (start * reader->sampleRate), true, true);
-
-    const auto size = static_cast<int> (length * Separator::sampleRate);
-    juce::AudioBuffer<float> chunk (2, size);
-    chunk.clear();
-
-    for (int c = 0; c < 2; ++c)
-    {
-        juce::AudioBuffer<float> channel (1, frames);
-        channel.copyFrom (0, 0, raw, std::min (c, static_cast<int> (reader->numChannels) - 1), 0, frames);
-        auto resampled = resampleMono (channel, reader->sampleRate, Separator::sampleRate);
-        chunk.copyFrom (c, 0, resampled.data(), std::min (size, static_cast<int> (resampled.size())));
-    }
-
     Separator::Stems stems;
 
+    // The stems kept when the track was heard, else split from the track now.
+    if (auto kept = a.barSeconds() > 0 ? loadStems (styles.getMaps().stemsFolderFor (map), start, start + (stretch->to - stretch->from) * a.barSeconds())
+                                       : std::nullopt)
     {
-        std::lock_guard lock (separatorMutex);
-
-        if (separator == nullptr)
-            separator = std::make_unique<Separator> (models);
-
-        stems = separator->separate (chunk);
-        separator.reset(); // a gigabyte, until it's next needed
+        stems = std::move (*kept);
     }
+    else
+    {
+        if (! models.getStatus().ready || ! std::filesystem::exists (track.path))
+            return mapOnly();
+
+        auto split = splitStretch (track.path, start, (stretch->to - stretch->from) * a.barSeconds());
+
+        if (! split)
+            return mapOnly();
+
+        stems = std::move (*split);
+    }
+
+    if (stems.drums.getNumSamples() < static_cast<int> (2 * Separator::sampleRate))
+        return mapOnly();
 
     KickTiming timing;
     timing.beat = 60 / a.tempo;

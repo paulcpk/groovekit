@@ -16,13 +16,17 @@ const time = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).
 
 /** A track's arrangement as lanes: the sections, which parts play in each bar (brighter when
     louder), and the loudness. Hovering names the bar; clicking plays the track from it. */
-export function ArrangementView({ arrangement: a, file }: { arrangement: Arrangement; file?: string }) {
+export function ArrangementView({ arrangement: a, file: track, stems }: { arrangement: Arrangement; file?: string; stems?: Record<string, string> }) {
   const [hover, setHover] = useState<number>();
   const [playing, setPlaying] = useState<{ bar: number; at: number }>();
+  const [source, setSource] = useState("track");
   const [, tick] = useState(0);
   const previewing = useEngine((s) => s.previewing);
   const box = useRef<HTMLDivElement>(null);
   const barSeconds = (4 * 60) / a.tempo;
+
+  // The whole track or one of its stems (they run in time with it).
+  const file = source !== "track" && stems?.[source] ? stems[source] : track;
 
   // The playhead moves while this track plays.
   const isPlaying = !!playing && !!file && previewing === file;
@@ -45,6 +49,17 @@ export function ArrangementView({ arrangement: a, file }: { arrangement: Arrange
   };
 
   const head = isPlaying ? playing.bar + (Date.now() - playing.at) / 1000 / barSeconds : undefined;
+
+  // Another source while it plays: on from the same place.
+  const listenTo = (next: string) => {
+    setSource(next);
+    const nextFile = next !== "track" && stems?.[next] ? stems[next] : track;
+
+    if (head === undefined || !nextFile) return;
+    useEngine.setState({ previewing: nextFile });
+    setPlaying({ bar: head, at: Date.now() });
+    void call("preview.play", { path: nextFile, from: a.downbeat + head * barSeconds });
+  };
   const section = hover !== undefined ? a.sections.find((s) => hover >= s.start && hover < s.end) : undefined;
   const loudest = Math.max(...a.loudness);
   const quietest = loudest - 24;
@@ -59,6 +74,16 @@ export function ArrangementView({ arrangement: a, file }: { arrangement: Arrange
           <span className="text-faint">{a.tempo.toFixed(1)} BPM · {a.bars} bars · {time(a.seconds)}</span>
         )}
         <span className="flex-1" />
+        {stems && (
+          <div className="flex items-center gap-0.5" title="What plays when you click a bar: the whole track or one of its stems">
+            {["track", "drums", "bass", "music", "vocals"].filter((s) => s === "track" || stems[s]).map((s) => (
+              <button key={s} type="button" onClick={() => listenTo(s)}
+                className={cn("h-4 rounded-[3px] px-1.5 capitalize", source === s ? "bg-agent/20 text-fg" : "text-faint hover:text-fg")}>
+                {s === "track" ? "Whole" : s}
+              </button>
+            ))}
+          </div>
+        )}
         {isPlaying && (
           <button type="button" onClick={() => void stopPreview()} className="flex items-center gap-1 text-agent hover:text-fg">
             <Square size={9} fill="currentColor" /> Stop

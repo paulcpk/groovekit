@@ -20,7 +20,7 @@ using model::Json;
 namespace
 {
     constexpr int fileVersion = 1;
-    constexpr int analysisVersion = 9;      // 6: the whole track, with its arrangement; 7: its grid fitted over the whole track; 8: figures; 9: voices, the grid on the kick's start
+    constexpr int analysisVersion = 10;     // 6: the whole track, with its arrangement; 7: its grid fitted over the whole track; 8: figures; 9: voices, the grid on the kick's start; 10: stems kept
     constexpr int windowsPerTrack = 6;
     constexpr int windowSamples = 343980;  // one separator chunk, 7.8 s at 44.1 kHz
     constexpr float silentDb = -50.0f;
@@ -955,6 +955,7 @@ void Styles::run()
             if (transcriber == nullptr)
                 transcriber = std::make_unique<NoteTranscriber> (models);
 
+            Separator::Stems stems;
             auto track = hearTrack (*separator, clap, item.file, {}, [&] (double fraction)
             {
                 if (cancel || pausing || skipping)
@@ -967,7 +968,7 @@ void Styles::run()
 
                 notify();
                 return true;
-            }, true, transcriber.get());
+            }, true, transcriber.get(), &stems);
 
             std::error_code ec;
             track.size = static_cast<int64_t> (std::filesystem::file_size (item.file, ec));
@@ -983,6 +984,17 @@ void Styles::run()
             map.title = item.title;
             map.heardAt = now();
             map.track = std::move (track);
+
+            // The stems beside the map, to listen to and match against without splitting it again.
+            try
+            {
+                saveStems (stems, maps->stemsFolderFor (map));
+            }
+            catch (const std::exception&)
+            {
+                // The map stands without them; hearing it again makes them.
+            }
+
             maps->put (std::move (map));
         }
         catch (const std::exception& e)

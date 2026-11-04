@@ -191,6 +191,9 @@ private:
 
     void notify();
     Words& getWords();      // with statsMutex held
+
+    /** A stretch of a file (seconds) split into stems; none if it can't be read or is under 2 s. */
+    std::optional<Separator::Stems> splitStretch (const std::filesystem::path&, double start, double seconds);
     float baseline (const StyleProfile&, Role);
     std::optional<TasteModel> learnedTaste (const std::string& style, const std::vector<std::pair<bool, Embedding>>& verdicts,
                                             const std::string& signature);

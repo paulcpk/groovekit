@@ -21,11 +21,13 @@ export interface OpenWindow {
   x: number;
   y: number;
   z: number;
+  /** Set by dragging its top or bottom edge; else as tall as it needs, up to the screen. */
+  height?: number;
 }
 
 const POSITIONS = "groovekit.windowPositions";
 
-function loadPositions(): Record<string, { x: number; y: number }> {
+function loadPositions(): Record<string, { x: number; y: number; height?: number }> {
   try {
     return JSON.parse(localStorage.getItem(POSITIONS) ?? "{}");
   } catch {
@@ -75,12 +77,24 @@ export function focusWindow(key: string) {
   });
 }
 
-export function moveWindow(key: string, x: number, y: number) {
-  useWindows.setState((s) => ({ windows: s.windows.map((w) => (w.key === key ? { ...w, x, y } : w)) }));
-  positions[key] = { x, y };
+function savePositions() {
   try {
     localStorage.setItem(POSITIONS, JSON.stringify(positions));
   } catch {
     // Positions last until the app closes.
   }
+}
+
+export function moveWindow(key: string, x: number, y: number) {
+  useWindows.setState((s) => ({ windows: s.windows.map((w) => (w.key === key ? { ...w, x, y } : w)) }));
+  positions[key] = { ...positions[key], x, y };
+  savePositions();
+}
+
+/** A window's height and top, from dragging one of its edges. */
+export function resizeWindow(key: string, y: number, height: number) {
+  useWindows.setState((s) => ({ windows: s.windows.map((w) => (w.key === key ? { ...w, y, height } : w)) }));
+  const x = useWindows.getState().windows.find((w) => w.key === key)?.x ?? 0;
+  positions[key] = { ...positions[key], x: positions[key]?.x ?? x, y, height };
+  savePositions();
 }

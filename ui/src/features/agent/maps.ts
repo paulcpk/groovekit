@@ -55,6 +55,8 @@ export interface SongMap {
   };
   /** The arrangement as the agent reads it. */
   score?: string;
+  /** The stems kept when it was heard (FLAC files by name): drums, bass, music, vocals. */
+  stems?: Record<string, string>;
 }
 
 export interface Figure {
