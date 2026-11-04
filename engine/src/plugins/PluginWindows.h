@@ -24,6 +24,9 @@ struct PluginWindowHost
     /** A key typed in a plugin's window, pressed or released, for the UI's typing keyboard: the
         window is the engine's, so the UI's own window never sees these keys. */
     std::function<void (const std::string& key, bool down)> typedKey;
+
+    /** Cmd+Up in a plugin's window: the UI's overview of every open window, as in its own. */
+    std::function<void()> overview;
 };
 
 /** Opens hosted plugins' own editors in native windows (Tracktion asks its UIBehaviour for them),

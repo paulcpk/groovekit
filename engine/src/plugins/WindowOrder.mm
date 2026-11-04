@@ -18,4 +18,17 @@ void orderFrontRegardless (void* nativeView)
     }
 }
 
+void orderOut (void* nativeView)
+{
+    if (auto* view = static_cast<NSView*> (nativeView))
+        [[view window] orderOut: nil];
+}
+
+int orderedIndex (void* nativeView)
+{
+    auto* view = static_cast<NSView*> (nativeView);
+    auto* window = view != nullptr ? [view window] : nil;
+    return window != nil && [window isVisible] ? static_cast<int> ([window orderedIndex]) : -1;
+}
+
 } // namespace gk

@@ -22,7 +22,8 @@ import { Welcome } from "@/features/shell/Welcome";
 import { EngineVersionBanner } from "@/features/shell/EngineVersionBanner";
 import { Windows } from "@/features/windows/Windows";
 import { createAutomation } from "@/features/playlist/automation";
-import { listen, useEngine } from "@/state/engine";
+import { openOverview } from "@/features/windows/overviewState";
+import { engine, listen, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
 export function App() {
@@ -106,6 +107,12 @@ function AppHooks() {
   useEffect(() => listen("createAutomation", (params) => {
     const doc = useEngine.getState().doc;
     if (doc) void createAutomation(doc, params.target, params.value);
+  }), []);
+  // Cmd+Up in a plugin's window (the engine's) opens the overview here.
+  useEffect(() => listen("windowsOverview", () => void openOverview()), []);
+  // Plugin windows the overview took off the screen come back if the UI went away meanwhile (a reload).
+  useEffect(() => useEngine.subscribe((s, previous) => {
+    if (s.status === "connected" && previous.status !== "connected") void engine.call("plugins.showWindows").catch(() => {});
   }), []);
   return null;
 }

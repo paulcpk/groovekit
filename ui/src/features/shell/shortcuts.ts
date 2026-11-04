@@ -5,11 +5,12 @@ import { redo, setPosition, stop, togglePlay, toggleLoop, undo } from "./actions
 import { browseForProject, saveProject } from "./ProjectDialog";
 import { splitAtPlayhead } from "@/features/playlist/clipOps";
 import { useVoiceRequest } from "@/features/agent/voice";
+import { overviewKey } from "@/features/windows/Overview";
 
 let lastSpace = 0;
 
-/** Global keys: F5-F9 for the views, Space to play, undo, save and the like. The playlist and
-    the piano roll have editing keys of their own. */
+/** Global keys: Cmd+Up for the overview of the open windows, F5-F9 for the views, Space to play,
+    undo, save and the like. The playlist and the piano roll have editing keys of their own. */
 export function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -79,7 +80,12 @@ export function useShortcuts() {
       }
     };
 
+    // The overview of the open windows first: its arrows mustn't move notes in the piano roll.
+    window.addEventListener("keydown", overviewKey, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", overviewKey, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, []);
 }

@@ -237,6 +237,22 @@ public:
     /** Opens or closes a hosted plugin's own window. False if the key isn't a hosted plugin. */
     bool showPluginWindow (const std::string& key, bool show);
 
+    /** A hosted plugin's window that's open, for the UI's overview of every open window. */
+    struct PluginWindowView
+    {
+        std::string key;
+        juce::Rectangle<int> bounds;    // on screen, in points from the top left of the main display
+        juce::Image picture;            // what it shows, when asked for (at most 1200 pixels across)
+    };
+
+    /** The hosted plugins' windows on screen, front to back, with pictures if asked. */
+    std::vector<PluginWindowView> listPluginWindows (bool pictures);
+
+    /** Takes the plugins' open windows off the screen while the UI shows its overview (they stay
+        open), or puts them back as they were, the one at `front` (if any) in front of the rest. */
+    void hidePluginWindows();
+    void restorePluginWindows (const std::string& front);
+
     /** The rhythm machines on the song's channels, connected to its patterns. */
     MachineBridge& getMachines()        { return *machines; }
 
@@ -244,6 +260,7 @@ private:
     EngineContext& context;
     Session& session;
     CompiledEdit compiled;
+    std::vector<std::string> hiddenWindows; // plugin windows taken off the screen for the overview, back to front
     std::shared_ptr<MidiClock> midiClock = std::make_shared<MidiClock>();
     std::map<std::string, model::Json> builtPluginRefs; // the hosted plugins the live Edit was built with
     const void* clockPlugin = nullptr;  // the live Edit's, the clock's source

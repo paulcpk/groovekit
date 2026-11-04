@@ -181,6 +181,11 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
                 if (broadcast)
                     broadcast (notification ("typingKey", { { "key", key }, { "down", down } }).dump());
             },
+            .overview = [this]
+            {
+                if (broadcast)
+                    broadcast (notification ("windowsOverview", Json::object()).dump());
+            },
         };
 
     listenerId = session.addListener ([this] (const Change& change)

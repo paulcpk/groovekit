@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronDown, Circle, Ellipsis, KeyboardMusic, Layers, ListMusic, Metronome, Minus, Pause, Piano, Play, Plus, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
+import { ChevronDown, Circle, Ellipsis, KeyboardMusic, Layers, LayoutGrid, ListMusic, Metronome, Minus, Pause, Piano, Play, Plus, Redo2, Repeat, Settings, SlidersVertical, Square, Undo2, PanelLeft } from "lucide-react";
 import { Button, DragNumber, IconButton } from "@/components/controls";
 import { Dropdown, DropdownContent, DropdownItem, DropdownLabel, DropdownSeparator, DropdownSub, DropdownTrigger } from "@/components/menu";
 import { cn } from "@/lib/cn";
@@ -14,6 +14,7 @@ import { browseForProject, openProject, recentProjects, saveProject, type Recent
 import { ProjectName } from "./ProjectName";
 import { collectSamples, importAudio } from "./importFiles";
 import { shiftTypingOctave } from "./liveInput";
+import { toggleOverview } from "@/features/windows/overviewState";
 
 export const snaps: { label: string; ticks: number }[] = [
   { label: "Bar", ticks: 0 }, // resolved against the time signature
@@ -217,6 +218,7 @@ function PanelToggles() {
       <IconButton title="Channel rack (F6)" active={bottomOpen && bottomPanel === "rack"} onClick={() => show("rack")}><Layers size={15} /></IconButton>
       <IconButton title="Piano roll (F7)" active={bottomOpen && bottomPanel === "piano"} onClick={() => show("piano")}><Piano size={15} /></IconButton>
       <IconButton title="Mixer (F9)" active={bottomOpen && bottomPanel === "mixer"} onClick={() => show("mixer")}><SlidersVertical size={15} /></IconButton>
+      <IconButton title="All open windows side by side (⌘↑)" onClick={toggleOverview}><LayoutGrid size={14} /></IconButton>
     </div>
   );
 }

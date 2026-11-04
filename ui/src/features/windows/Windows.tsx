@@ -7,6 +7,7 @@ import { SamplerWindow } from "@/features/sampler/SamplerWindow";
 import { useEngine } from "@/state/engine";
 import { closeWindow, useWindows } from "@/state/windows";
 import { useEffect } from "react";
+import { Overview } from "./Overview";
 
 /** The open floating windows. A window whose channel or effect is gone closes. */
 export function Windows() {
@@ -33,6 +34,11 @@ export function Windows() {
     if (doc) windows.forEach((w, i) => !found[i] && closeWindow(w.key));
   });
 
-  // Above the app, below menus and dialogs.
-  return <div className="pointer-events-none fixed inset-0 isolate z-30">{found}</div>;
+  // Above the app, below menus and dialogs; the overview of the open windows under them.
+  return (
+    <div className="pointer-events-none fixed inset-0 isolate z-30">
+      <Overview />
+      {found}
+    </div>
+  );
 }

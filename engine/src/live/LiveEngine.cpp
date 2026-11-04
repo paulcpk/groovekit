@@ -6,6 +6,7 @@
 #include "live/MidiClockPlugin.h"
 #include "plugins/MachineBridge.h"
 #include "plugins/PluginWindows.h"
+#include "plugins/WindowOrder.h"
 #include "mixer/EffectMix.h"
 #include "mixer/FaderPlugin.h"
 #include "analysis/Analysis.h"
@@ -802,6 +803,8 @@ bool LiveEngine::showPluginWindow (const std::string& key, bool show)
     if (external == nullptr || external->getAudioPluginInstance() == nullptr)
         return false;
 
+    std::erase (hiddenWindows, key);
+
     if (show)
     {
         external->windowState->showWindowExplicitly();
@@ -814,6 +817,88 @@ bool LiveEngine::showPluginWindow (const std::string& key, bool show)
         external->windowState->closeWindowExplicitly();
 
     return true;
+}
+
+namespace
+{
+    juce::Component* openWindowOf (te::Plugin* plugin)
+    {
+        auto external = dynamic_cast<te::ExternalPlugin*> (plugin);
+        auto* window = external != nullptr ? external->windowState->pluginWindow.get() : nullptr;
+        return window != nullptr && window->getPeer() != nullptr ? window : nullptr;
+    }
+}
+
+std::vector<LiveEngine::PluginWindowView> LiveEngine::listPluginWindows (bool pictures)
+{
+    std::vector<std::pair<int, PluginWindowView>> found;
+
+    for (auto& [key, plugin] : compiled.plugins)
+    {
+        auto* window = openWindowOf (plugin);
+        const auto order = window != nullptr ? orderedIndex (window->getPeer()->getNativeHandle()) : -1;
+
+        if (order < 0)
+            continue;
+
+        PluginWindowView view { key, window->getScreenBounds(), {} };
+
+        if (pictures)
+        {
+            // Taken from the window server, so it shows what the plugin draws itself (an editor's
+            // own view isn't painted by JUCE). The engine's own windows need no permission.
+            auto picture = juce::createSnapshotOfNativeWindow (window->getPeer()->getNativeHandle());
+            const auto longest = std::max (picture.getWidth(), picture.getHeight());
+
+            if (longest > 1200)
+                picture = picture.rescaled (picture.getWidth() * 1200 / longest, picture.getHeight() * 1200 / longest, juce::Graphics::mediumResamplingQuality);
+
+            view.picture = picture;
+        }
+
+        found.push_back ({ order, std::move (view) });
+    }
+
+    std::sort (found.begin(), found.end(), [] (auto& a, auto& b) { return a.first < b.first; });
+    std::vector<PluginWindowView> views;
+
+    for (auto& [order, view] : found)
+        views.push_back (std::move (view));
+
+    return views;
+}
+
+void LiveEngine::hidePluginWindows()
+{
+    const auto views = listPluginWindows (false);
+
+    // Back to front, the order they come back in.
+    for (auto it = views.rbegin(); it != views.rend(); ++it)
+    {
+        if (std::find (hiddenWindows.begin(), hiddenWindows.end(), it->key) == hiddenWindows.end())
+            hiddenWindows.push_back (it->key);
+
+        orderOut (openWindowOf (findPlugin (it->key))->getPeer()->getNativeHandle());
+    }
+}
+
+void LiveEngine::restorePluginWindows (const std::string& front)
+{
+    auto keys = std::exchange (hiddenWindows, {});
+
+    if (! front.empty() && std::find (keys.begin(), keys.end(), front) != keys.end())
+    {
+        std::erase (keys, front);
+        keys.push_back (front);
+    }
+
+    for (auto& key : keys)
+        if (auto* window = openWindowOf (findPlugin (key)))
+            PluginWindowBehaviour::bringToFront (*window);
+
+    // The one picked takes the keyboard too, so it can be played and typed into straight away.
+    if (auto* window = openWindowOf (findPlugin (front)))
+        window->toFront (true);
 }
 
 void LiveEngine::updateNow()

@@ -10,4 +10,12 @@ namespace gk
     use, over the UI when that's full screen. */
 void orderFrontRegardless (void* nativeView);
 
+/** Takes the window holding this native view off the screen without closing it (it stays open,
+    and comes back with orderFrontRegardless). */
+void orderOut (void* nativeView);
+
+/** Where the window holding this native view is among the engine's windows, 0 in front; -1 when
+    it isn't on screen. */
+int orderedIndex (void* nativeView);
+
 } // namespace gk

@@ -3,6 +3,8 @@ import { IconButton } from "@/components/controls";
 import { startDrag } from "@/lib/drag";
 import { useRef } from "react";
 import { closeWindow, focusWindow, moveWindow, resizeWindow, type OpenWindow } from "@/state/windows";
+import { closeOverview, flyTo, overviewMs, useOverview } from "@/features/windows/overviewState";
+import { cn } from "@/lib/cn";
 
 /** A window floating over the app, moved by its title bar. */
 /** onClose: what closing it by hand (its X, Escape) does, when that means more than closing it.
@@ -13,6 +15,10 @@ export function FloatingWindow({ window: w, title, accent, extra, width, onClose
 }) {
   const close = onClose ?? (() => closeWindow(w.key));
   const box = useRef<HTMLDivElement>(null);
+  // In the overview of the open windows (Cmd+Up): moved to its place there, live, scaled down.
+  const placed = useOverview((s) => (s.phase === "open" ? s.items.find((i) => i.key === w.key) : undefined));
+  const inOverview = useOverview((s) => s.phase !== "closed");
+  const selected = useOverview((s) => s.selected === w.key);
 
   // Kept on screen, with at least the title bar reachable.
   const x = Math.min(Math.max(w.x, 8 - width + 120), innerWidth - 120);
@@ -34,8 +40,11 @@ export function FloatingWindow({ window: w, title, accent, extra, width, onClose
   return (
     <div
       ref={box}
-      className="pointer-events-auto absolute flex max-h-[calc(100vh-48px)] flex-col overflow-hidden rounded-lg border border-line bg-panel shadow-[0_18px_50px_rgb(0_0_0/0.55)]"
-      style={{ left: x, top: y, width, zIndex: w.z, height: resizable ? w.height : undefined }}
+      data-window-key={w.key}
+      className={cn("pointer-events-auto absolute flex max-h-[calc(100vh-48px)] origin-top-left flex-col overflow-hidden rounded-lg border bg-panel shadow-[0_18px_50px_rgb(0_0_0/0.55)]",
+        placed && selected ? "border-accent" : "border-line")}
+      style={{ left: x, top: y, width, zIndex: w.z, height: resizable ? w.height : undefined,
+        transform: placed ? flyTo(placed.from, placed.to) : undefined, transition: `transform ${overviewMs}ms cubic-bezier(0.2, 0.8, 0.2, 1)` }}
       onPointerDownCapture={() => focusWindow(w.key)}
       onKeyDown={(e) => e.key === "Escape" && close()}
     >
@@ -52,6 +61,11 @@ export function FloatingWindow({ window: w, title, accent, extra, width, onClose
         <IconButton size="sm" title="Close (Esc)" onClick={close}><X size={12} /></IconButton>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      {inOverview && (
+        // The window's controls rest while it's in the overview: a click anywhere picks it.
+        <div className="absolute inset-0 z-10 cursor-pointer" onClick={() => closeOverview(w.key)}
+          onPointerEnter={() => useOverview.setState({ selected: w.key })} />
+      )}
       {resizable && (
         <>
           <div className="absolute inset-x-0 top-0 h-1.5 cursor-ns-resize" onPointerDown={(e) => edge(e, "top")} title="Drag to resize" />

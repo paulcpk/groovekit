@@ -583,6 +583,48 @@ Json ApiHandler::callPlugins (const std::string& method, const Json& params, Cli
         return { { "keyNames", names } };
     }
 
+    if (method == "windows" || method == "showWindows")
+    {
+        if (live == nullptr)
+            return method == "windows" ? Json { { "windows", Json::array() } } : Json::object();
+
+        if (method == "showWindows")
+        {
+            live->restorePluginWindows (params.value ("front", std::string()));
+            return Json::object();
+        }
+
+        const auto pictures = params.value ("pictures", false);
+        auto windows = Json::array();
+
+        for (auto& view : live->listPluginWindows (pictures))
+        {
+            Json w {
+                { "key", view.key },
+                { "x", view.bounds.getX() }, { "y", view.bounds.getY() },
+                { "width", view.bounds.getWidth() }, { "height", view.bounds.getHeight() },
+            };
+
+            if (view.picture.isValid())
+            {
+                juce::MemoryOutputStream jpeg;
+                juce::JPEGImageFormat format;
+                format.setQuality (0.85f);
+
+                if (format.writeImageToStream (view.picture, jpeg))
+                    w["picture"] = "data:image/jpeg;base64," + juce::Base64::toBase64 (jpeg.getData(), jpeg.getDataSize()).toStdString();
+            }
+
+            windows.push_back (std::move (w));
+        }
+
+        // Pictures first, then off the screen: the UI shows each picture where its window was.
+        if (params.value ("hide", false))
+            live->hidePluginWindows();
+
+        return { { "windows", windows } };
+    }
+
     if (method == "captureState" || method == "openEditor" || method == "closeEditor")
     {
         if (live == nullptr)

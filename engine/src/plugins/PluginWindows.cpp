@@ -451,6 +451,12 @@ namespace
             const auto mods = key.getModifiers();
             const auto c = juce::CharacterFunctions::toLowerCase (key.getTextCharacter());
 
+            if (mods.isCommandDown() && key.getKeyCode() == juce::KeyPress::upKey && PluginWindowBehaviour::host.overview)
+            {
+                PluginWindowBehaviour::host.overview();
+                return true;
+            }
+
             if (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown() || c <= ' ' || c > '~' || ! PluginWindowBehaviour::host.typedKey)
                 return false;
 
