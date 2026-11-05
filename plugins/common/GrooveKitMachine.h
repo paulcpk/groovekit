@@ -148,9 +148,11 @@ public:
         is the machine's to copy. */
     virtual void PLUGIN_API showNotes (const Note* notes, int32 numNotes) = 0;
 
+    // Aligned as two 64-bit numbers: that's how the VST3 SDK compares ids (FUnknownPrivate::iidEqual),
+    // and a plain TUID (16 chars) can sit at any address.
     static const Steinberg::TUID& getIid()
     {
-        static const Steinberg::TUID id = INLINE_UID (0x4b1d6a03, 0x9c2e4f51, 0xa7e3b0c8, 0x5d16f2e9);
+        alignas (8) static const Steinberg::TUID id = INLINE_UID (0x4b1d6a03, 0x9c2e4f51, 0xa7e3b0c8, 0x5d16f2e9);
         return id;
     }
 };

@@ -151,13 +151,6 @@ if(GK_SANITIZERS)
         "${TRACKTION_DIR}/modules/juce/modules/juce_audio_formats/juce_audio_formats.cpp"
         APPEND PROPERTY COMPILE_OPTIONS "-fno-sanitize=pointer-overflow")
 
-    # The VST3 SDK, compiled into JUCE's plugin hosting, compares 16-byte ids as two 64-bit numbers
-    # (FUnknownPrivate::iidEqual), and a plugin's ids may sit at any address (harmless on our
-    # machines, and not ours to change): the rest of the checks stay on.
-    set_property(SOURCE
-        "${TRACKTION_DIR}/modules/juce/modules/juce_audio_processors/juce_audio_processors.mm"
-        "${TRACKTION_DIR}/modules/juce/modules/juce_audio_processors/juce_audio_processors.cpp"
-        APPEND PROPERTY COMPILE_OPTIONS "-fno-sanitize=alignment")
 endif()
 
 # Expose the module include paths and definitions without compiling the modules again in dependents.

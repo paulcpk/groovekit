@@ -39,7 +39,6 @@ set_source_files_properties(Source/Parameters.cpp Source/PluginEditor.cpp Source
 
 # Nothing of JUCE visible outside the plug-in, so it never binds to a host's own JUCE (GrooveKit's
 # engine is built with JUCE too) and the two don't mix up their objects.
-gk_vst3_wrapper_sanitizers(Triad)
 set_target_properties(Triad Triad_VST3 PROPERTIES
     C_VISIBILITY_PRESET hidden
     CXX_VISIBILITY_PRESET hidden

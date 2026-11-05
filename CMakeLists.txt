@@ -116,16 +116,6 @@ function(gk_optimise_third_party)
     endforeach()
 endfunction()
 
-# A plugin's VST3 wrapper (JUCE's, compiled into its <name>_VST3 target) compares the VST3 SDK's
-# 16-byte ids as two 64-bit numbers (FUnknownPrivate::iidEqual), and the ids may sit at any
-# address: harmless on our machines and not ours to change, so the sanitizer build doesn't check
-# the alignment there. The plugin's own code keeps every check.
-function(gk_vst3_wrapper_sanitizers name)
-    if(GK_SANITIZERS)
-        target_compile_options(${name}_VST3 PRIVATE -fno-sanitize=alignment)
-    endif()
-endfunction()
-
 if(GK_BUILD_TESTS)
     FetchContent_Declare(Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
