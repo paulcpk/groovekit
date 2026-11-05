@@ -91,10 +91,12 @@ std::optional<KickPrint> printKick (const std::vector<float>& mono, double rate,
 
     // From a little before the hit (the filters settle there) to 400 ms after, silence past its end.
     const auto length = static_cast<size_t> ((preRoll + 0.4) * rate);
+    // A hit sooner than the pre-roll starts that much later in it (silence before), so less fits after.
     std::vector<float> x (length, 0.0f);
     const auto begin = onset - pre;
-    const auto keep = std::min (length, mono.size() - begin);
-    std::copy_n (mono.begin() + static_cast<long> (begin), keep, x.begin() + static_cast<long> (static_cast<size_t> (preRoll * rate) - pre));
+    const auto at = static_cast<size_t> (preRoll * rate) - pre;
+    const auto keep = std::min (length - at, mono.size() - begin);
+    std::copy_n (mono.begin() + static_cast<long> (begin), keep, x.begin() + static_cast<long> (at));
 
     const auto t0 = preRoll;
     KickPrint p;
