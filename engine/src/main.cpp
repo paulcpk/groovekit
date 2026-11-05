@@ -11,6 +11,7 @@
 #include "listening/Voices.h"
 #include "live/LiveEngine.h"
 #include "plugins/PluginCatalog.h"
+#include "plugins/WindowOrder.h"
 #include "render/Render.h"
 #include "session/RecentProjects.h"
 
@@ -194,6 +195,7 @@ Add --verbose to see engine log messages.
                                       + " (process " + std::to_string (other->value ("pid", 0)) + ")");
 
         gk::EngineContext context ({ .outOfProcessPluginScanning = true });
+        gk::runAsAccessory();   // plugins' windows over the UI when it's full screen
         gk::PluginCatalog plugins (context.getEngine(), gk::PluginCatalog::getDefaultListFile());
         gk::library::SampleLibrary library (args.get ("--library").value_or (gk::library::SampleLibrary::getDefaultIndexFile().string()));
 

@@ -276,6 +276,13 @@ fn main() {
             app.set_menu(menu)?;
             #[cfg(target_os = "macos")]
             dock_quit::install(handle);
+            // For testing how windows behave beside a full-screen app: starts full screen.
+            if std::env::var_os("GROOVEKIT_FULLSCREEN").is_some() {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    window.set_fullscreen(true)?;
+                }
+            }
             Ok(())
         })
         .on_menu_event(|app, event| {

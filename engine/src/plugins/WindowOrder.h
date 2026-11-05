@@ -10,6 +10,12 @@ namespace gk
     use, over the UI when that's full screen. */
 void orderFrontRegardless (void* nativeView);
 
+/** Makes the engine an accessory app: no Dock icon or menu bar of its own, and its windows (the
+    plugins') may come up beside another app's full-screen window, the UI's. Run from inside the
+    app's bundle, the engine would otherwise count as an ordinary app, whose windows macOS keeps
+    off a full-screen Space that isn't its own. */
+void runAsAccessory();
+
 /** Readies a new window (before it's first shown) to come up beside a full-screen window: the UI's,
     when it's full screen. */
 void prepareForSpaces (void* nativeView);

@@ -11,6 +11,11 @@ namespace
     constexpr auto alongside = NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace;
 }
 
+void runAsAccessory()
+{
+    [[NSApplication sharedApplication] setActivationPolicy: NSApplicationActivationPolicyAccessory];
+}
+
 void prepareForSpaces (void* nativeView)
 {
     if (auto* view = static_cast<NSView*> (nativeView))
