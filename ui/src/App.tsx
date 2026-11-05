@@ -25,7 +25,6 @@ import { createAutomation } from "@/features/playlist/automation";
 import { openOverview } from "@/features/windows/overviewState";
 import { anythingInFront, bringToFront, followPluginWindows } from "@/features/windows/arrange";
 import { commitSwitcher, stepSwitcher } from "@/features/windows/switcherState";
-import { Switcher } from "@/features/windows/Switcher";
 import { listen, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
@@ -86,7 +85,6 @@ export function App() {
       </div>
       <StatusBar />
       <Windows />
-      <Switcher />
       <ControlMenu />
       <Toasts />
       <SettingsDialog />

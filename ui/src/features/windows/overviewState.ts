@@ -200,6 +200,19 @@ export function toggleOverview() {
   else closeOverview();
 }
 
+/** Steps the keys' choice to the next window (1) or the one before (-1), in the order they sit in
+    (left to right, row by row), round from the last to the first. */
+export function stepSelection(direction: 1 | -1) {
+  const { items, selected } = useOverview.getState();
+  if (!items.length) return;
+  // A row's windows share their middle (each is centred in its row's height).
+  const middle = (r: Rect) => r.y + r.height / 2;
+  const reading = [...items].sort((a, b) => Math.round((middle(a.to) - middle(b.to)) / 8) || a.to.x - b.to.x);
+  const at = reading.findIndex((i) => i.key === selected);
+  const next = at < 0 ? (direction > 0 ? 0 : reading.length - 1) : (at + direction + reading.length) % reading.length;
+  useOverview.setState({ selected: reading[next].key });
+}
+
 /** Moves the keys' choice to the next window in a direction, by where the windows sit. */
 export function moveSelection(dx: number, dy: number) {
   const { items, selected } = useOverview.getState();
