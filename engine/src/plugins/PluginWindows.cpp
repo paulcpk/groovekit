@@ -444,6 +444,16 @@ namespace
 
         bool hasEditor() const { return frame != nullptr && frame->editor != nullptr; }
 
+        // Each native window JUCE makes for it (again when its title bar or size limits change),
+        // readied before it's first shown: a window joins the Space it's first shown on.
+        void addToDesktop (int styleFlags, void* nativeWindowToAttachTo = nullptr) override
+        {
+            DocumentWindow::addToDesktop (styleFlags, nativeWindowToAttachTo);
+
+            if (auto* peer = getPeer())
+                prepareForSpaces (peer->getNativeHandle());
+        }
+
         // Keys nothing in the window used (a text field keeps its own) go to the typing keyboard,
         // which plays the selected channel as it does in the UI's window.
         bool keyPressed (const juce::KeyPress& key) override

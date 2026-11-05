@@ -10,6 +10,10 @@ namespace gk
     use, over the UI when that's full screen. */
 void orderFrontRegardless (void* nativeView);
 
+/** Readies a new window (before it's first shown) to come up beside a full-screen window: the UI's,
+    when it's full screen. */
+void prepareForSpaces (void* nativeView);
+
 /** Takes the window holding this native view off the screen without closing it (it stays open,
     and comes back with orderFrontRegardless). */
 void orderOut (void* nativeView);
