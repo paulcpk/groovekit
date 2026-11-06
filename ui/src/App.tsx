@@ -21,6 +21,8 @@ import { ReferencesPrompt } from "@/features/browser/ReferencesPrompt";
 import { Welcome } from "@/features/shell/Welcome";
 import { EngineVersionBanner } from "@/features/shell/EngineVersionBanner";
 import { Windows } from "@/features/windows/Windows";
+import { Spotlight } from "@/features/spotlight/Spotlight";
+import { releaseSpotlight, summonSpotlight } from "@/features/spotlight/spotlightState";
 import { createAutomation } from "@/features/playlist/automation";
 import { openOverview } from "@/features/windows/overviewState";
 import { anythingInFront, bringToFront, followPluginWindows } from "@/features/windows/arrange";
@@ -85,6 +87,7 @@ export function App() {
       </div>
       <StatusBar />
       <Windows />
+      <Spotlight />
       <ControlMenu />
       <Toasts />
       <SettingsDialog />
@@ -114,13 +117,15 @@ function AppHooks() {
     const doc = useEngine.getState().doc;
     if (doc) void createAutomation(doc, params.target, params.value);
   }), []);
-  // The plugins' windows (the engine's): which are open, and Cmd+Up, Cmd+Left/Right typed in them.
+  // The plugins' windows (the engine's): which are open, and Cmd+Up, Cmd+Left/Right, Cmd+K typed in them.
   useEffect(() => {
     const stops = [
       followPluginWindows(),
       listen("windowsOverview", () => void openOverview()),
       listen("windowsSwitch", ({ direction }: { direction: 1 | -1 }) => stepSwitcher(direction > 0 ? 1 : -1)),
       listen("windowsSwitchEnd", () => commitSwitcher()),
+      // Cmd+K in a plugin's window: the command box, listening while Cmd is held there.
+      listen("spotlight", ({ held }: { held: boolean }) => (held ? summonSpotlight() : releaseSpotlight())),
     ];
     return () => stops.forEach((stop) => stop());
   }, []);

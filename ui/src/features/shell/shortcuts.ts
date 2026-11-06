@@ -6,10 +6,11 @@ import { browseForProject, saveProject } from "./ProjectDialog";
 import { splitAtPlayhead } from "@/features/playlist/clipOps";
 import { useVoiceRequest } from "@/features/agent/voice";
 import { windowKeyDown, windowKeyUp, windowPointerMove } from "@/features/windows/windowKeys";
+import { spotlightKeyDown, spotlightKeyUp, spotlightPointerMove } from "@/features/spotlight/spotlightState";
 
 let lastSpace = 0;
 
-/** Global keys: Cmd+Up and Cmd+Left/Right for the windows, F5-F9 for the views, Space to play,
+/** Global keys: Cmd+K for the command box, Cmd+Up and Cmd+Left/Right for the windows, F5-F9 for the views, Space to play,
     undo, save and the like. The playlist and the piano roll have editing keys of their own. */
 export function useShortcuts() {
   useEffect(() => {
@@ -80,12 +81,19 @@ export function useShortcuts() {
       }
     };
 
-    // The windows' keys (overview, switcher) first: their arrows mustn't move notes in the piano roll.
+    // The command box's and the windows' keys (overview, switcher) first: their arrows mustn't move
+    // notes in the piano roll, and Cmd+K works in a text field too.
+    window.addEventListener("keydown", spotlightKeyDown, true);
+    window.addEventListener("keyup", spotlightKeyUp, true);
+    window.addEventListener("pointermove", spotlightPointerMove, true);
     window.addEventListener("keydown", windowKeyDown, true);
     window.addEventListener("keyup", windowKeyUp, true);
     window.addEventListener("pointermove", windowPointerMove, true);
     window.addEventListener("keydown", onKey);
     return () => {
+      window.removeEventListener("keydown", spotlightKeyDown, true);
+      window.removeEventListener("keyup", spotlightKeyUp, true);
+      window.removeEventListener("pointermove", spotlightPointerMove, true);
       window.removeEventListener("keydown", windowKeyDown, true);
       window.removeEventListener("keyup", windowKeyUp, true);
       window.removeEventListener("pointermove", windowPointerMove, true);

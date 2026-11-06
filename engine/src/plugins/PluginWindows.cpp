@@ -476,6 +476,13 @@ namespace
                 return true;
             }
 
+            if (mods.isCommandDown() && ! mods.isShiftDown() && (c == 'k' || code == 'K') && PluginWindowBehaviour::host.spotlight)
+            {
+                summoning = true;
+                PluginWindowBehaviour::host.spotlight (true);
+                return true;
+            }
+
             if (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown() || c <= ' ' || c > '~' || ! PluginWindowBehaviour::host.typedKey)
                 return false;
 
@@ -496,8 +503,9 @@ namespace
             return false;
         }
 
-        // Cmd let go of after Cmd+Left or Right picks the window chosen in the UI's switcher (if the
-        // UI's window didn't get the keyboard in time to see it itself).
+        // Cmd let go of after Cmd+Left or Right picks the window chosen in the UI's switcher, and
+        // after Cmd+K ends what the command box heard (if the UI's window didn't get the keyboard
+        // in time to see it itself).
         void modifierKeysChanged (const juce::ModifierKeys& mods) override
         {
             DocumentWindow::modifierKeysChanged (mods);
@@ -508,6 +516,14 @@ namespace
 
                 if (PluginWindowBehaviour::host.commandReleased)
                     PluginWindowBehaviour::host.commandReleased();
+            }
+
+            if (summoning && ! mods.isCommandDown())
+            {
+                summoning = false;
+
+                if (PluginWindowBehaviour::host.spotlight)
+                    PluginWindowBehaviour::host.spotlight (false);
             }
         }
 
@@ -527,6 +543,7 @@ namespace
         std::unique_ptr<Frame> frame;
         bool trackBounds = false;
         bool switching = false;     // Cmd+Left or Right was sent to the UI, Cmd not yet let go of
+        bool summoning = false;     // Cmd+K was, likewise
         std::vector<std::pair<int, std::string>> held;     // key codes typed here, and their characters
 
         void releaseKeys (bool all)

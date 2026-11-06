@@ -59,9 +59,9 @@ function toBase64Pcm(chunks: Float32Array[]) {
   return btoa(binary);
 }
 
-/** Who records: the agent's message box, or a pick window's "Other" field. Each shows (and
-    answers the keys of) its own recordings only. */
-export type RecorderOwner = "composer" | "pick";
+/** Who records: the agent's message box, a pick window's "Other" field, or the command box (⌘K).
+    Each shows (and answers the keys of) its own recordings only. */
+export type RecorderOwner = "composer" | "pick" | "spotlight";
 
 interface Recorder {
   state: RecorderState;
@@ -174,6 +174,9 @@ export function useVoiceRecorder() {
   const recorder = useRecorder();
   return { ...recorder, start: startRecording, stop: stopRecording, cancel: cancelRecording };
 }
+
+/** The same, outside React (the command box's store). */
+export const voiceRecorder = { start: startRecording, stop: stopRecording, cancel: cancelRecording };
 
 /** Whether a voice message is being recorded, for the tabs to show it. */
 export const useRecording = () => useRecorder((r) => r.state !== "idle");

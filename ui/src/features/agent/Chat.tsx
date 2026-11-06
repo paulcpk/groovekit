@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 
 import { cn } from "@/lib/cn";
 import { useEngine } from "@/state/engine";
-import { retry, send, stop, useAgent, useApiKey, type ChatItem } from "./agent";
+import { retry, send, stop, useAgent, useApiKey, useDraft, type ChatItem } from "./agent";
 import { MARKDOWN } from "./markdown";
 
 import { Composer, VOICE_SHORTCUT } from "./Composer";
@@ -40,7 +40,8 @@ export function Chat() {
   const items = useAgent((s) => s.items);
   const running = useAgent((s) => s.running);
   const connected = useEngine((s) => s.status === "connected");
-  const [draft, setDraft] = useState("");
+  const draft = useDraft((s) => s.text);
+  const setDraft = (text: string) => useDraft.setState({ text });
   const list = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const [atBottom, setAtBottom] = useState(true);

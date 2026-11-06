@@ -45,6 +45,10 @@ const newId = () => crypto.randomUUID();
 export const useAgent = create<AgentState>(() => ({ chatId: newId(), title: "", items: [], running: false, history: [] }));
 const set = useAgent.setState;
 
+/** What's typed in the message box, not sent yet: kept here so the command box (⌘K) can leave a
+    request there while the agent is still busy with the last one. */
+export const useDraft = create<{ text: string }>(() => ({ text: "" }));
+
 //==============================================================================
 export function getApiKey() {
   try {

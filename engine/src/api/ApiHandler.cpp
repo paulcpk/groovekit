@@ -214,6 +214,11 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
                 if (broadcast)
                     broadcast (notification ("windowsSwitchEnd", Json::object()).dump());
             },
+            .spotlight = [this] (bool held)
+            {
+                if (broadcast)
+                    broadcast (notification ("spotlight", { { "held", held } }).dump());
+            },
             .activated = [this] (tracktion::Plugin& plugin)
             {
                 if (const auto key = live->findPluginKey (plugin); ! key.empty() && broadcast)

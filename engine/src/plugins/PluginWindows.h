@@ -32,6 +32,10 @@ struct PluginWindowHost
     std::function<void (int direction)> switcher;
     std::function<void()> commandReleased;
 
+    /** Cmd+K there (held true), then Cmd let go of after it (false): the UI's command box, which
+        listens while Cmd is held. */
+    std::function<void (bool held)> spotlight;
+
     /** A plugin's window became the active one (clicked, or brought forward with the keyboard). */
     std::function<void (tracktion::Plugin&)> activated;
 };
