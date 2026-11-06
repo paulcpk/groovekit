@@ -18,6 +18,9 @@
         { "$ref": "#/$defs/AddSamplerLayer" },
         { "$ref": "#/$defs/UpdateSamplerLayer" },
         { "$ref": "#/$defs/RemoveSamplerLayer" },
+        { "$ref": "#/$defs/AddStackLayer" },
+        { "$ref": "#/$defs/UpdateStackLayer" },
+        { "$ref": "#/$defs/RemoveStackLayer" },
         { "$ref": "#/$defs/AddPattern" },
         { "$ref": "#/$defs/UpdatePattern" },
         { "$ref": "#/$defs/RemovePattern" },
@@ -158,19 +161,21 @@
       "properties": {
         "type": { "const": "addSamplerLayer" },
         "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "stackLayer": { "description": "In a multi-sampler: the layer whose sampler this changes.", "$ref": "project.schema.json#/$defs/Id" },
         "layer": { "$ref": "project.schema.json#/$defs/SamplerLayer" },
         "index": { "$ref": "#/$defs/Index" }
       }
     },
 
     "UpdateInstrument": {
-      "description": "Changes a sampler's polyphony, filter and modulation (each replaced whole). Its layers have their own commands.",
+      "description": "Changes a sampler's polyphony, filter and modulation (each replaced whole), or a multi-sampler's mode and drive (with stackLayer: the polyphony, filter and modulation of that layer's sampler). Layers have their own commands.",
       "type": "object",
       "required": ["type", "channel", "changes"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "updateInstrument" },
         "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "stackLayer": { "description": "In a multi-sampler: the layer whose sampler this changes.", "$ref": "project.schema.json#/$defs/Id" },
         "changes": { "$ref": "#/$defs/Changes" }
       }
     },
@@ -182,6 +187,7 @@
       "properties": {
         "type": { "const": "updateSamplerLayer" },
         "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "stackLayer": { "description": "In a multi-sampler: the layer whose sampler this changes.", "$ref": "project.schema.json#/$defs/Id" },
         "layer": { "$ref": "project.schema.json#/$defs/Id" },
         "changes": { "$ref": "#/$defs/Changes" }
       }
@@ -193,6 +199,43 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "removeSamplerLayer" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "stackLayer": { "description": "In a multi-sampler: the layer whose sampler this changes.", "$ref": "project.schema.json#/$defs/Id" },
+        "layer": { "$ref": "project.schema.json#/$defs/Id" }
+      }
+    },
+
+    "AddStackLayer": {
+      "type": "object",
+      "required": ["type", "channel", "layer"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "addStackLayer" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "layer": { "$ref": "project.schema.json#/$defs/StackLayer" },
+        "index": { "$ref": "#/$defs/Index" }
+      }
+    },
+
+    "UpdateStackLayer": {
+      "description": "Changes a multi-sampler layer's name, mix, mute, solo, offsetMs, speed or master (or its whole sampler). Making one the master makes it the only one.",
+      "type": "object",
+      "required": ["type", "channel", "layer", "changes"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "updateStackLayer" },
+        "channel": { "$ref": "project.schema.json#/$defs/Id" },
+        "layer": { "$ref": "project.schema.json#/$defs/Id" },
+        "changes": { "$ref": "#/$defs/Changes" }
+      }
+    },
+
+    "RemoveStackLayer": {
+      "type": "object",
+      "required": ["type", "channel", "layer"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "removeStackLayer" },
         "channel": { "$ref": "project.schema.json#/$defs/Id" },
         "layer": { "$ref": "project.schema.json#/$defs/Id" }
       }

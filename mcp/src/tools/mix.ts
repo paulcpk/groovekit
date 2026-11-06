@@ -6,6 +6,8 @@ import { attempt, defined, longRunning, noteSchema, partEnum, type Extra, type T
 /** What the engine says about an offer once the user has answered it (picks.get, or the picks notification). */
 interface PickResult {
   choice?: number;
+  /** Several picked at once. */
+  choices?: number[];
   note?: string;
   more?: boolean;
   closed?: boolean;
@@ -128,7 +130,7 @@ export function registerMixTools({ server, engine, groups, barRange }: Tools) {
   server.registerTool(
     "offer_choice",
     {
-      description: "Puts sounds to the user to pick by ear (A, B, C...): five unless they've set another number or ask for more (two to twenty). A window shows each with a play button, next to the reference when there is one, and this waits (up to ten minutes) for their pick; closing the window means not this sound here, for now. Give each candidate the path (or an instrument with the notes it plays), the audition file from match_sound or audition_in_song when there is one, and a short label; candidates without one are tried in the song here, in channel's place when you give one, else in a slot of their own over startBar-endBar (default the first 8 bars). Returns the chosen candidate, or what the user answered instead (none of them, another round, or a note in their own words) with what to do next.",
+      description: "Puts sounds to the user to pick by ear (A, B, C...): five unless they've set another number or ask for more (two to twenty). A window shows each with a play button, next to the reference when there is one, and this waits (up to ten minutes) for their pick; closing the window means not this sound here, for now. Give each candidate the path (or an instrument with the notes it plays), the audition file from match_sound or audition_in_song when there is one, and a short label; candidates without one are tried in the song here, in channel's place when you give one, else in a slot of their own over startBar-endBar (default the first 8 bars). The user can pick several at once: then all of them go in the song (choices and chosen list them). Returns the chosen candidate, or what the user answered instead (none of them, another round, or a note in their own words) with what to do next.",
       inputSchema: {
         title: z.string().describe("What's being chosen: \"Which kick for the groove?\""),
         style: z.string().optional().describe("The style the pick is for (the song's)"),
@@ -186,6 +188,14 @@ export function registerMixTools({ server, engine, groups, barRange }: Tools) {
                   };
                 }
                 if (answer.note) return { choice: -1, chosen: "other", note: answer.note, next: "None of these was what the user wants: do what their note says and offer again." };
+                // Several picked: all of them, as complementary parts.
+                if (answer.choices && answer.choices.length > 1) {
+                  shownForPart.delete(key);
+                  return {
+                    choice: answer.choices[0], choices: answer.choices, chosen: answer.choices.map((c) => candidates[c]),
+                    next: `The user picked ${answer.choices.length} of these: put every one of them in the song, each on a channel of its own, as parts that complement each other (layered together or one after another, as this track needs; they may take some out later). Don't put them in a multi-sampler unless the user asks for one.`,
+                  };
+                }
                 const chosen = answer.choice !== undefined && answer.choice >= 0 ? candidates[answer.choice] : undefined;
                 if (chosen) {
                   shownForPart.delete(key);

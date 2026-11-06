@@ -8,6 +8,7 @@
 #include "render/Stretch.h"
 #include "sampler/AudioChannelPlugin.h"
 #include "sampler/SamplerPlugin.h"
+#include "sampler/Stack.h"
 
 #include <fstream>
 
@@ -76,7 +77,11 @@ namespace
             Id insert;
             sampler::AudioChannelPlugin* shaper;
             std::vector<sampler::AudioChannelPlugin::Clip> clips;
+            const SamplerInstrument* sampler = nullptr;     // what shapes it: the channel's, or a multi-sampler layer's
         };
+
+        /** Each multi-sampler's mix, worked out once. */
+        std::map<Id, sampler::StackMix> stackMixes;
 
         std::map<std::pair<Row, Id>, AudioClipTrack> audioClipTracks;
 
@@ -322,6 +327,38 @@ namespace
                     insertPlugin (track, plugin);
                     result.plugins["channel:" + channel.id] = plugin.get();
                 }
+                else if (auto stack = std::get_if<StackInstrument> (&channel.instrument))
+                {
+                    // The bus every layer feeds; layers that play notes have a track each.
+                    auto& mix = stackMixes[channel.id] = sampler::mixStack (*stack, options.projectDir, project.tempo);
+                    auto& output = addPlugin<sampler::StackOutputPlugin> (track);
+                    output.setMix (mix.trimDb, mix.peak, stack->drive);
+                    result.stackOutputs[channel.id] = &output;
+
+                    if (stack->mode == StackInstrumentMode::hits)
+                        for (auto& layer : stack->layers)
+                        {
+                            if (layer.sampler.layers.empty())
+                                continue;
+
+                            auto& layerTrack = addTrack ("stack:" + channel.id + "/" + layer.id);
+
+                            try
+                            {
+                                auto& samplerPlugin = addPlugin<sampler::SamplerPlugin> (layerTrack);
+                                samplerPlugin.setInstrument (layer.sampler, options.projectDir);
+                                result.plugins["channel:" + channel.id + "/" + layer.id] = &samplerPlugin;
+                            }
+                            catch (const std::exception& e)
+                            {
+                                throw std::runtime_error ("Channel \"" + channel.id + "\", layer \"" + layer.id + "\": " + e.what());
+                            }
+
+                            result.stackLayerFaders[channel.id][layer.id].push_back (&addFader (layerTrack, mix.layers[layer.id].gainDb, 0));
+                            result.stackLayerTracks[channel.id].push_back ({ layer.id, &layerTrack });
+                            layerTrack.getOutput().setOutputToTrack (&track);
+                        }
+                }
 
                 result.channelFaders[channel.id] = channelFaders[channel.id] = &addFader (track, channel.volumeDb, channel.pan);
                 track.setMute (! isChannelAudible (project, channel));
@@ -356,6 +393,31 @@ namespace
 
                 for (auto& channelId : channels)
                 {
+                    // A multi-sampler's notes play on each layer's track, at its offset.
+                    if (auto it = result.stackLayerTracks.find (channelId); it != result.stackLayerTracks.end())
+                    {
+                        auto& stack = std::get<StackInstrument> (findChannel (project, channelId)->instrument);
+
+                        for (auto& [layerId, layerTrack] : it->second)
+                        {
+                            auto layer = std::find_if (stack.layers.begin(), stack.layers.end(), [&] (auto& l) { return l.id == layerId; });
+                            auto midiClip = layerTrack->insertMIDIClip (pc->id + ":" + channelId + "/" + layerId,
+                                                                        { toTime (pc->start), toTime (pc->start + pc->length) }, nullptr);
+
+                            if (midiClip == nullptr)
+                                throw std::runtime_error ("Couldn't create a MIDI clip for \"" + pc->id + "\"");
+
+                            fillPatternClip (*midiClip, project, pattern, *pc, channelId, stackShift (project, *layer));
+                            midiClip->setMuted (muted);
+                            result.clips[pc->id].push_back (midiClip.get());
+                        }
+
+                        continue;
+                    }
+
+                    if (std::holds_alternative<StackInstrument> (findChannel (project, channelId)->instrument))
+                        continue;   // a multi-sampler of loops: notes don't play it
+
                     auto& track = *result.channelTracks.at (channelId);
                     auto midiClip = track.insertMIDIClip (pc->id + ":" + channelId,
                                                           { toTime (pc->start), toTime (pc->start + pc->length) },
@@ -387,7 +449,102 @@ namespace
             result.audioChannelPlugins[channel.id].push_back (&shaper);
             track.setMute (! isChannelAudible (project, channel));
             track.getOutput().setOutputToTrack (result.insertTracks.at (channel.insert));
-            return audioClipTracks[key] = { &track, channel.insert, &shaper, {} };
+            return audioClipTracks[key] = { &track, channel.insert, &shaper, {}, &std::get<SamplerInstrument> (channel.instrument) };
+        }
+
+        /** Where a multi-sampler layer's audio clips in a row play: its sampler's shaping and its
+            mix's fader, into the multi-sampler's bus. */
+        AudioClipTrack& getStackClipTrack (Row lane, const Channel& channel, const StackLayer& layer)
+        {
+            const auto key = std::make_pair (lane, channel.id + "/" + layer.id);
+
+            if (auto it = audioClipTracks.find (key); it != audioClipTracks.end())
+                return it->second;
+
+            auto& track = addTrack ("audio:" + std::to_string (lane) + ":" + channel.id + "/" + layer.id);
+            auto& shaper = addPlugin<sampler::AudioChannelPlugin> (track);
+            result.stackLayerFaders[channel.id][layer.id].push_back (&addFader (track, stackMixes[channel.id].layers[layer.id].gainDb, 0));
+            result.stackAudioPlugins[channel.id][layer.id].push_back (&shaper);
+            track.getOutput().setOutputToTrack (result.channelTracks.at (channel.id));
+            return audioClipTracks[key] = { &track, channel.insert, &shaper, {}, &layer.sampler };
+        }
+
+        te::WaveAudioClip* addWaveClip (te::AudioTrack& track, const std::string& id, const juce::File& file, te::ClipPosition position, const AudioClip& ac,
+                                        bool first, bool last)
+        {
+            auto waveClip = track.insertWaveClip (id, file, position, false);
+
+            if (waveClip == nullptr)
+                throw std::runtime_error ("Couldn't create audio clip \"" + ac.id + "\"");
+
+            // Tracktion guesses a tempo from names like "Loop 120bpm" and then syncs and resizes the
+            // clip on its own (and offline renders wait forever for the proxy). The model decides.
+            waveClip->setAutoTempo (false);
+            waveClip->setAutoPitch (false);
+            waveClip->setTimeStretchMode (te::TimeStretcher::disabled);
+            waveClip->setPosition (position);
+
+            if (first) waveClip->setFadeIn (te::TimeDuration::fromSeconds (ac.fadeIn));
+            if (last)  waveClip->setFadeOut (te::TimeDuration::fromSeconds (ac.fadeOut));
+
+            waveClip->setMuted (ac.mute || isRowMuted (ac.row));
+            result.clips[ac.id].push_back (waveClip.get());
+            return waveClip.get();
+        }
+
+        /** A multi-sampler's audio clip: every layer at once, each fitted to the song and laid back
+            to back over the clip, starting where the clip's offset (in the master's time) puts it. */
+        void createStackClip (const AudioClip& ac, const Channel& channel, const StackInstrument& stack)
+        {
+            const auto timings = sampler::loopTimings (stack, options.projectDir, project.tempo);
+            const auto* master = getStackMaster (stack);
+            const auto masterTiming = master != nullptr ? timings.find (master->id) : timings.end();
+
+            if (masterTiming == timings.end())
+                throw std::runtime_error ("Audio clip \"" + ac.id + "\": \"" + ac.channel + "\" has no loop to play");
+
+            const auto start = toTime (ac.start).inSeconds();
+            const auto end = toTime (ac.start + ac.length).inSeconds();
+            const auto stackTime = ac.offset / masterTiming->second.rate;
+
+            for (auto& layer : stack.layers)
+            {
+                const auto timing = timings.find (layer.id);
+
+                if (timing == timings.end() || layer.sampler.layers.empty())
+                    continue;
+
+                auto& sample = layer.sampler.layers.front();
+                auto file = juce::File (resolve (sample.sample).string());
+
+                if (! file.existsAsFile())
+                    throw std::runtime_error ("Audio clip \"" + ac.id + "\": file not found: " + file.getFullPathName().toStdString());
+
+                ClipSource how { .start = sample.start, .end = sample.end, .reverse = sample.reverse, .speed = timing->second.rate,
+                                 .resample = sample.resample, .semitones = sample.transpose + sample.fineTune / 100.0 };
+                file = juce::File (getClipFile (file.getFullPathName().toStdString(), how, options.cacheDir).string());
+
+                auto& target = getStackClipTrack (ac.row, channel, layer);
+                const auto cycle = timing->second.cycle;
+                auto phase = std::fmod (std::fmod (stackTime - layer.offsetMs / 1000.0, cycle) + cycle, cycle);
+                int piece = 0;
+
+                for (auto t = start; t < end - 1.0e-6; ++piece)
+                {
+                    const auto length = std::min (cycle - phase, end - t);
+                    const te::ClipPosition position { { te::TimePosition::fromSeconds (t), te::TimePosition::fromSeconds (t + length) },
+                                                      te::TimeDuration::fromSeconds (phase) };
+                    addWaveClip (*target.track, ac.id + "/" + layer.id + "/" + std::to_string (piece), file, position, ac,
+                                 piece == 0, t + length >= end - 1.0e-6);
+                    t += length;
+                    phase = 0;
+
+                    if (piece > 4096)
+                        break;
+                }
+
+                target.clips.push_back ({ start, end });
+            }
         }
 
         void createAudioClips()
@@ -400,6 +557,13 @@ namespace
                     continue;
 
                 auto channel = findChannel (project, ac->channel);
+
+                if (auto stack = channel != nullptr ? std::get_if<StackInstrument> (&channel->instrument) : nullptr)
+                {
+                    createStackClip (*ac, *channel, *stack);
+                    continue;
+                }
+
                 auto layer = channel != nullptr ? getClipLayer (*channel) : nullptr;
 
                 if (layer == nullptr)
@@ -424,30 +588,14 @@ namespace
                 te::ClipPosition position { { toTime (ac->start), toTime (ac->start + ac->length) },
                                             te::TimeDuration::fromSeconds (ac->offset / speed) };
 
-                auto waveClip = target.track->insertWaveClip (ac->id, file, position, false);
-
-                if (waveClip == nullptr)
-                    throw std::runtime_error ("Couldn't create audio clip \"" + ac->id + "\"");
-
-                // Tracktion guesses a tempo from names like "Loop 120bpm" and then syncs and resizes the
-                // clip on its own (and offline renders wait forever for the proxy). The model decides.
-                waveClip->setAutoTempo (false);
-                waveClip->setAutoPitch (false);
-                waveClip->setTimeStretchMode (te::TimeStretcher::disabled);
-                waveClip->setPosition (position);
-
-                waveClip->setFadeIn (te::TimeDuration::fromSeconds (ac->fadeIn));
-                waveClip->setFadeOut (te::TimeDuration::fromSeconds (ac->fadeOut));
-                waveClip->setMuted (ac->mute || isRowMuted (ac->row));
-                result.clips[ac->id].push_back (waveClip.get());
+                addWaveClip (*target.track, ac->id, file, position, *ac, true, true);
                 target.clips.push_back ({ position.getStart().inSeconds(), position.getEnd().inSeconds() });
             }
 
             for (auto& [key, target] : audioClipTracks)
             {
                 std::sort (target.clips.begin(), target.clips.end(), [] (auto& a, auto& b) { return a.start < b.start; });
-                const auto& channel = *findChannel (project, key.second);
-                target.shaper->setSettings (std::get<SamplerInstrument> (channel.instrument), target.clips);
+                target.shaper->setSettings (*target.sampler, target.clips);
             }
         }
 
@@ -535,6 +683,19 @@ namespace
                     return { params, identity, mixer::FaderPlugin::minDb, mixer::FaderPlugin::maxDb };
 
                 return { params, identity, -1, 1 };
+            }
+
+            // A multi-sampler layer's mix (0-1), as its faders' gain at equal loudness.
+            if (target.param.starts_with ("mix:") && stackMixes.contains (id))
+            {
+                const auto layerId = target.param.substr (4);
+                std::vector<te::AutomatableParameter::Ptr> params;
+
+                for (auto fader : result.stackLayerFaders[id][layerId])
+                    params.push_back (fader->volumeParam);
+
+                const auto layer = stackMixes[id].layers[layerId];
+                return { params, [layer] (double v) { return static_cast<float> (sampler::stackLayerDb (layer, v)); }, 0, 1 };
             }
 
             if (std::holds_alternative<SamplerInstrument> (findChannel (project, id)->instrument))
@@ -932,7 +1093,12 @@ Ticks swungStart (const Project& project, Ticks start)
     return start + static_cast<Ticks> (std::llround (project.swing * sixteenth / 2));
 }
 
-void fillPatternClip (te::MidiClip& midiClip, const Project& project, const Pattern& pattern, const PatternClip& pc, const Id& channel)
+Ticks stackShift (const Project& project, const StackLayer& layer)
+{
+    return static_cast<Ticks> (std::llround (layer.offsetMs / 1000.0 * project.tempo / 60.0 * ticksPerQuarter));
+}
+
+void fillPatternClip (te::MidiClip& midiClip, const Project& project, const Pattern& pattern, const PatternClip& pc, const Id& channel, Ticks shift)
 {
     const auto loopLength = getPatternLength (pattern, project.timeSignature);
     const auto toBeats = [] (Ticks ticks) { return te::BeatPosition::fromBeats (static_cast<double> (ticks) / ticksPerQuarter); };
@@ -948,7 +1114,7 @@ void fillPatternClip (te::MidiClip& midiClip, const Project& project, const Patt
             if (note.channel != channel)
                 continue;
 
-            const auto start = base + swungStart (project, note.start);
+            const auto start = base + swungStart (project, note.start) + shift;
 
             if (start < 0 || start >= pc.length)
                 continue;

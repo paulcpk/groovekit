@@ -82,7 +82,7 @@
     },
 
     "Instrument": {
-      "oneOf": [{ "$ref": "#/$defs/SamplerInstrument" }, { "$ref": "#/$defs/PluginInstrument" }],
+      "oneOf": [{ "$ref": "#/$defs/SamplerInstrument" }, { "$ref": "#/$defs/StackInstrument" }, { "$ref": "#/$defs/PluginInstrument" }],
       "discriminator": { "propertyName": "type" }
     },
 
@@ -286,6 +286,37 @@
       }
     },
 
+    "StackInstrument": {
+      "description": "The multi-sampler: several samplers (its layers) played as one instrument, each with every control a sampler has, blended by their mix at equal loudness (every layer at 1 is as loud as the others) and summed through an output that stays no louder than its loudest layer alone (drive saturates it on purpose). hits: pattern notes play every layer (layered kicks, claps, one-shots). loops: an audio clip of the channel plays every layer at once, each fitted to the song's tempo by its first sample layer's sourceTempo (at its speed) and looping on its own over the clip; a layer without a sourceTempo lasts as long as the master layer.",
+      "type": "object",
+      "required": ["type", "mode", "layers"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "stack" },
+        "mode": { "type": "string", "enum": ["hits", "loops"], "default": "hits" },
+        "drive": { "description": "Saturation of the summed layers: 0 clean, 1 hard. The output stays as loud.", "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "layers": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/StackLayer" } }
+      }
+    },
+
+    "StackLayer": {
+      "description": "One sampler of a multi-sampler.",
+      "type": "object",
+      "required": ["id", "sampler"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string" },
+        "mix": { "description": "Its share of the output, 0-1 (shown as 0-100%), at equal loudness: 1 is as loud as any other layer at 1. Automation param \"mix:<layer id>\".", "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+        "mute": { "type": "boolean", "default": false },
+        "solo": { "type": "boolean", "default": false },
+        "offsetMs": { "description": "Plays this much later (negative: earlier), to line its hits up with the others'.", "type": "number", "minimum": -250, "maximum": 250, "default": 0 },
+        "speed": { "description": "loops: 2 plays it twice as fast (half as long), 0.5 half as fast (twice as long).", "type": "number", "minimum": 0.25, "maximum": 4, "default": 1 },
+        "master": { "description": "loops: the layer the stack is fitted to. Its length is the stack's cycle (an audio clip's natural length), and layers without a tempo of their own last as long as it.", "type": "boolean", "default": false },
+        "sampler": { "$ref": "#/$defs/SamplerInstrument" }
+      }
+    },
+
     "PluginInstrument": {
       "type": "object",
       "required": ["type", "plugin"],
@@ -424,7 +455,7 @@
     },
 
     "AutomationTarget": {
-      "description": "What an automation clip drives. channel: param is volume or pan; for samplers also filterCutoff (Hz), filterResonance (0..1) or filterEnvelopeAmount (octaves); for plugin instruments also a parameter id or name (normalized 0..1). insert: volume or pan. effect: the effect's parameter id or mix (for plugins: id or name, normalized 0..1). send: level.",
+      "description": "What an automation clip drives. channel: param is volume or pan; for samplers also filterCutoff (Hz), filterResonance (0..1) or filterEnvelopeAmount (octaves); for multi-samplers also mix:<layer id> (0..1); for plugin instruments also a parameter id or name (normalized 0..1). insert: volume or pan. effect: the effect's parameter id or mix (for plugins: id or name, normalized 0..1). send: level.",
       "type": "object",
       "required": ["scope", "param"],
       "additionalProperties": false,

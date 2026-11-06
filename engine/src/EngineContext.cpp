@@ -14,6 +14,7 @@
 #include "plugins/PluginWindows.h"
 #include "sampler/AudioChannelPlugin.h"
 #include "sampler/SamplerPlugin.h"
+#include "sampler/Stack.h"
 
 #include <tracktion_engine/tracktion_engine.h>
 
@@ -96,6 +97,7 @@ EngineContext::EngineContext (Options options) : impl (std::make_unique<Impl> (o
     auto& plugins = impl->engine.getPluginManager();
     plugins.createBuiltInType<sampler::SamplerPlugin>();
     plugins.createBuiltInType<sampler::AudioChannelPlugin>();
+    plugins.createBuiltInType<sampler::StackOutputPlugin>();
     plugins.createBuiltInType<mixer::FaderPlugin>();
     plugins.createBuiltInType<effects::EqPlugin>();
     plugins.createBuiltInType<effects::DelayPlugin>();

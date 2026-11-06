@@ -181,12 +181,11 @@ Json ApiHandler::suggestionsJson (bool full, const std::string& which, int limit
     const auto dir = projectDirOf (session);
 
     for (auto& c : session.getProject().channels)
-        if (auto* sampler = std::get_if<model::SamplerInstrument> (&c.instrument))
-            for (auto& l : sampler->layers)
-            {
-                std::filesystem::path p = l.sample;
-                used.insert ((p.is_relative() ? dir / p : p).lexically_normal().string());
-            }
+        for (auto* l : model::getSampleLayers (c))
+        {
+            std::filesystem::path p = l->sample;
+            used.insert ((p.is_relative() ? dir / p : p).lexically_normal().string());
+        }
 
     auto lists = Json::array();
     const auto wanted = mixer::partFromName (which);
@@ -371,16 +370,15 @@ void ApiHandler::startSuggestions()
     {
         std::optional<library::SampleEntry> entry;
 
-        if (auto* sampler = std::get_if<model::SamplerInstrument> (&c.instrument))
-            for (auto& l : sampler->layers)
-            {
-                std::filesystem::path p = l.sample;
-                p = (p.is_relative() ? dir / p : p).lexically_normal();
-                used.insert (p.string());
+        for (auto* l : model::getSampleLayers (c))
+        {
+            std::filesystem::path p = l->sample;
+            p = (p.is_relative() ? dir / p : p).lexically_normal();
+            used.insert (p.string());
 
-                if (! entry && ! c.part)
-                    try { entry = entryFor (p); } catch (const std::exception&) {}
-            }
+            if (! entry && ! c.part)
+                try { entry = entryFor (p); } catch (const std::exception&) {}
+        }
 
         parts.insert (c.part ? *c.part
                              : mixer::guessPart (c.name, entry ? entry->classification.category : "", entry && entry->classification.loop,

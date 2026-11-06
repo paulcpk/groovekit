@@ -270,10 +270,12 @@ inline Json toJson (const RemoveChannel& v)
     return j;
 }
 
-/** Changes a sampler's polyphony, filter and modulation (each replaced whole). Its layers have their own commands. */
+/** Changes a sampler's polyphony, filter and modulation (each replaced whole), or a multi-sampler's mode and drive (with stackLayer: the polyphony, filter and modulation of that layer's sampler). Layers have their own commands. */
 struct UpdateInstrument
 {
     Id channel;
+    /** In a multi-sampler: the layer whose sampler this changes. */
+    std::optional<Id> stackLayer;
     Changes changes;
 
     bool operator== (const UpdateInstrument&) const = default;
@@ -281,10 +283,11 @@ struct UpdateInstrument
 
 inline void readValue (Reader& r, const Json& j, UpdateInstrument& out)
 {
-    r.expectObject (j, { "type", "channel", "changes" });
+    r.expectObject (j, { "type", "channel", "stackLayer", "changes" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "updateInstrument"); });
     r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.optional (j, "stackLayer", [&] (const Json& v) { readValue (r, v, out.stackLayer.emplace()); r.checkPattern (*out.stackLayer, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "changes", [&] (const Json& v) { readValue (r, v, out.changes); });
 }
 
@@ -293,6 +296,10 @@ inline Json toJson (const UpdateInstrument& v)
     auto j = Json::object();
     j["type"] = "updateInstrument";
     j["channel"] = toJson (v.channel);
+
+    if (v.stackLayer)
+        j["stackLayer"] = toJson (*v.stackLayer);
+
     j["changes"] = toJson (v.changes);
     return j;
 }
@@ -300,6 +307,8 @@ inline Json toJson (const UpdateInstrument& v)
 struct AddSamplerLayer
 {
     Id channel;
+    /** In a multi-sampler: the layer whose sampler this changes. */
+    std::optional<Id> stackLayer;
     SamplerLayer layer;
     std::optional<Index> index;
 
@@ -308,10 +317,11 @@ struct AddSamplerLayer
 
 inline void readValue (Reader& r, const Json& j, AddSamplerLayer& out)
 {
-    r.expectObject (j, { "type", "channel", "layer", "index" });
+    r.expectObject (j, { "type", "channel", "stackLayer", "layer", "index" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "addSamplerLayer"); });
     r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.optional (j, "stackLayer", [&] (const Json& v) { readValue (r, v, out.stackLayer.emplace()); r.checkPattern (*out.stackLayer, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "layer", [&] (const Json& v) { readValue (r, v, out.layer); });
     r.optional (j, "index", [&] (const Json& v) { readValue (r, v, out.index.emplace()); r.checkMin (*out.index, 0); r.checkMax (*out.index, 1000000); });
 }
@@ -321,6 +331,10 @@ inline Json toJson (const AddSamplerLayer& v)
     auto j = Json::object();
     j["type"] = "addSamplerLayer";
     j["channel"] = toJson (v.channel);
+
+    if (v.stackLayer)
+        j["stackLayer"] = toJson (*v.stackLayer);
+
     j["layer"] = toJson (v.layer);
 
     if (v.index)
@@ -331,6 +345,8 @@ inline Json toJson (const AddSamplerLayer& v)
 struct UpdateSamplerLayer
 {
     Id channel;
+    /** In a multi-sampler: the layer whose sampler this changes. */
+    std::optional<Id> stackLayer;
     Id layer;
     Changes changes;
 
@@ -339,10 +355,11 @@ struct UpdateSamplerLayer
 
 inline void readValue (Reader& r, const Json& j, UpdateSamplerLayer& out)
 {
-    r.expectObject (j, { "type", "channel", "layer", "changes" });
+    r.expectObject (j, { "type", "channel", "stackLayer", "layer", "changes" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "updateSamplerLayer"); });
     r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.optional (j, "stackLayer", [&] (const Json& v) { readValue (r, v, out.stackLayer.emplace()); r.checkPattern (*out.stackLayer, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "layer", [&] (const Json& v) { readValue (r, v, out.layer); r.checkPattern (out.layer, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "changes", [&] (const Json& v) { readValue (r, v, out.changes); });
 }
@@ -352,6 +369,10 @@ inline Json toJson (const UpdateSamplerLayer& v)
     auto j = Json::object();
     j["type"] = "updateSamplerLayer";
     j["channel"] = toJson (v.channel);
+
+    if (v.stackLayer)
+        j["stackLayer"] = toJson (*v.stackLayer);
+
     j["layer"] = toJson (v.layer);
     j["changes"] = toJson (v.changes);
     return j;
@@ -360,6 +381,8 @@ inline Json toJson (const UpdateSamplerLayer& v)
 struct RemoveSamplerLayer
 {
     Id channel;
+    /** In a multi-sampler: the layer whose sampler this changes. */
+    std::optional<Id> stackLayer;
     Id layer;
 
     bool operator== (const RemoveSamplerLayer&) const = default;
@@ -367,10 +390,11 @@ struct RemoveSamplerLayer
 
 inline void readValue (Reader& r, const Json& j, RemoveSamplerLayer& out)
 {
-    r.expectObject (j, { "type", "channel", "layer" });
+    r.expectObject (j, { "type", "channel", "stackLayer", "layer" });
 
     r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "removeSamplerLayer"); });
     r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.optional (j, "stackLayer", [&] (const Json& v) { readValue (r, v, out.stackLayer.emplace()); r.checkPattern (*out.stackLayer, "^[A-Za-z0-9_.-]{1,64}$"); });
     r.required (j, "layer", [&] (const Json& v) { readValue (r, v, out.layer); r.checkPattern (out.layer, "^[A-Za-z0-9_.-]{1,64}$"); });
 }
 
@@ -378,6 +402,97 @@ inline Json toJson (const RemoveSamplerLayer& v)
 {
     auto j = Json::object();
     j["type"] = "removeSamplerLayer";
+    j["channel"] = toJson (v.channel);
+
+    if (v.stackLayer)
+        j["stackLayer"] = toJson (*v.stackLayer);
+
+    j["layer"] = toJson (v.layer);
+    return j;
+}
+
+struct AddStackLayer
+{
+    Id channel;
+    StackLayer layer;
+    std::optional<Index> index;
+
+    bool operator== (const AddStackLayer&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, AddStackLayer& out)
+{
+    r.expectObject (j, { "type", "channel", "layer", "index" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "addStackLayer"); });
+    r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "layer", [&] (const Json& v) { readValue (r, v, out.layer); });
+    r.optional (j, "index", [&] (const Json& v) { readValue (r, v, out.index.emplace()); r.checkMin (*out.index, 0); r.checkMax (*out.index, 1000000); });
+}
+
+inline Json toJson (const AddStackLayer& v)
+{
+    auto j = Json::object();
+    j["type"] = "addStackLayer";
+    j["channel"] = toJson (v.channel);
+    j["layer"] = toJson (v.layer);
+
+    if (v.index)
+        j["index"] = toJson (*v.index);
+    return j;
+}
+
+/** Changes a multi-sampler layer's name, mix, mute, solo, offsetMs, speed or master (or its whole sampler). Making one the master makes it the only one. */
+struct UpdateStackLayer
+{
+    Id channel;
+    Id layer;
+    Changes changes;
+
+    bool operator== (const UpdateStackLayer&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, UpdateStackLayer& out)
+{
+    r.expectObject (j, { "type", "channel", "layer", "changes" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "updateStackLayer"); });
+    r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "layer", [&] (const Json& v) { readValue (r, v, out.layer); r.checkPattern (out.layer, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "changes", [&] (const Json& v) { readValue (r, v, out.changes); });
+}
+
+inline Json toJson (const UpdateStackLayer& v)
+{
+    auto j = Json::object();
+    j["type"] = "updateStackLayer";
+    j["channel"] = toJson (v.channel);
+    j["layer"] = toJson (v.layer);
+    j["changes"] = toJson (v.changes);
+    return j;
+}
+
+struct RemoveStackLayer
+{
+    Id channel;
+    Id layer;
+
+    bool operator== (const RemoveStackLayer&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, RemoveStackLayer& out)
+{
+    r.expectObject (j, { "type", "channel", "layer" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "removeStackLayer"); });
+    r.required (j, "channel", [&] (const Json& v) { readValue (r, v, out.channel); r.checkPattern (out.channel, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.required (j, "layer", [&] (const Json& v) { readValue (r, v, out.layer); r.checkPattern (out.layer, "^[A-Za-z0-9_.-]{1,64}$"); });
+}
+
+inline Json toJson (const RemoveStackLayer& v)
+{
+    auto j = Json::object();
+    j["type"] = "removeStackLayer";
     j["channel"] = toJson (v.channel);
     j["layer"] = toJson (v.layer);
     return j;
@@ -1074,7 +1189,7 @@ inline Json toJson (const Patch& v)
     return j;
 }
 
-using Command = std::variant<SetTempo, SetKey, SetStyle, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertRow, UpdateRow, RemoveRow, MoveRows, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
+using Command = std::variant<SetTempo, SetKey, SetStyle, SetTimeSignature, SetSwing, RenameProject, AddChannel, UpdateChannel, RemoveChannel, UpdateInstrument, AddSamplerLayer, UpdateSamplerLayer, RemoveSamplerLayer, AddStackLayer, UpdateStackLayer, RemoveStackLayer, AddPattern, UpdatePattern, RemovePattern, AddNotes, RemoveNotes, SetNotes, InsertRow, UpdateRow, RemoveRow, MoveRows, AddClip, UpdateClip, RemoveClip, AddInsert, UpdateInsert, RemoveInsert, AddEffect, UpdateEffect, RemoveEffect, MoveEffect, AddSend, UpdateSend, RemoveSend, Patch>;
 
 inline void readValue (Reader& r, const Json& j, Command& out)
 {
@@ -1097,6 +1212,9 @@ inline void readValue (Reader& r, const Json& j, Command& out)
     if (tag == "addSamplerLayer") { readValue (r, j, out.emplace<AddSamplerLayer>()); return; }
     if (tag == "updateSamplerLayer") { readValue (r, j, out.emplace<UpdateSamplerLayer>()); return; }
     if (tag == "removeSamplerLayer") { readValue (r, j, out.emplace<RemoveSamplerLayer>()); return; }
+    if (tag == "addStackLayer") { readValue (r, j, out.emplace<AddStackLayer>()); return; }
+    if (tag == "updateStackLayer") { readValue (r, j, out.emplace<UpdateStackLayer>()); return; }
+    if (tag == "removeStackLayer") { readValue (r, j, out.emplace<RemoveStackLayer>()); return; }
     if (tag == "addPattern") { readValue (r, j, out.emplace<AddPattern>()); return; }
     if (tag == "updatePattern") { readValue (r, j, out.emplace<UpdatePattern>()); return; }
     if (tag == "removePattern") { readValue (r, j, out.emplace<RemovePattern>()); return; }

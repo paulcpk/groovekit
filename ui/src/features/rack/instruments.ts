@@ -5,13 +5,22 @@ import { execute, toast } from "@/state/engine";
 import { setUi } from "@/state/ui";
 import type { PluginInfo } from "./PluginPicker";
 
-/** An instrument to put on a channel: the built-in sampler or a plugin. */
-export type InstrumentChoice = { kind: "sampler" } | { kind: "plugin"; plugin: PluginInfo };
+/** An instrument to put on a channel: the built-in sampler, the multi-sampler or a plugin. */
+export type InstrumentChoice = { kind: "sampler" } | { kind: "stack" } | { kind: "plugin"; plugin: PluginInfo };
 
 export const SAMPLER: InstrumentChoice = { kind: "sampler" };
+export const STACK: InstrumentChoice = { kind: "stack" };
+
+/** GrooveKit's built-in instruments, before any plugin. */
+export const BUILT_IN: InstrumentChoice[] = [SAMPLER, STACK];
 
 export function instrumentName(choice: InstrumentChoice) {
-  return choice.kind === "sampler" ? "Sampler" : choice.plugin.name;
+  return choice.kind === "sampler" ? "Sampler" : choice.kind === "stack" ? "Multi-sampler" : choice.plugin.name;
+}
+
+/** What a built-in instrument is for, in a few words. */
+export function builtInAbout(choice: InstrumentChoice) {
+  return choice.kind === "sampler" ? "samples, one-shots, loops" : choice.kind === "stack" ? "layers samples as one" : undefined;
 }
 
 /** GrooveKit's own instruments have a picture of their panel; others are drawn as a card. */
@@ -24,14 +33,15 @@ export function pictureOf(choice: InstrumentChoice): string | undefined {
 
 function instrumentOf(choice: InstrumentChoice): Instrument {
   if (choice.kind === "sampler") return { type: "sampler", layers: [] };
+  if (choice.kind === "stack") return { type: "stack", mode: "hits", layers: [] };
   const { format, uid, name, manufacturer } = choice.plugin;
   return { type: "plugin", plugin: { format, uid, name, manufacturer } };
 }
 
 /** A new channel playing the instrument, selected. */
 export async function addInstrument(doc: Project, choice: InstrumentChoice) {
-  const name = choice.kind === "sampler" ? `Sampler ${doc.channels.length + 1}` : choice.plugin.name;
-  const id = uniqueId(choice.kind === "sampler" ? "sampler" : choice.plugin.name, doc.channels);
+  const name = choice.kind === "plugin" ? choice.plugin.name : `${instrumentName(choice)} ${doc.channels.length + 1}`;
+  const id = uniqueId(choice.kind === "plugin" ? choice.plugin.name : choice.kind === "stack" ? "multi" : "sampler", doc.channels);
   await execute({ type: "addChannel", channel: { id, name, instrument: instrumentOf(choice) } }, { label: `Add ${instrumentName(choice)}` });
   setUi({ selectedChannel: id });
 }
@@ -42,7 +52,7 @@ export async function addInstrument(doc: Project, choice: InstrumentChoice) {
 export async function replaceInstrument(doc: Project, channel: Channel, choice: InstrumentChoice) {
   const own = doc.playlist.clips.filter((c) => c.type === "automation" && c.target.scope === "channel" && c.target.channel === channel.id
     && c.target.param !== "volume" && c.target.param !== "pan");
-  const old = channel.instrument.type === "plugin" ? channel.instrument.plugin.name : "Sampler";
+  const old = channel.instrument.type === "plugin" ? channel.instrument.plugin.name : channel.instrument.type === "stack" ? "Multi-sampler" : "Sampler";
   const name = instrumentName(choice);
   const commands: Command[] = [
     ...own.map((c) => ({ type: "removeClip" as const, clip: c.id })),

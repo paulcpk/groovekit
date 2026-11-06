@@ -4,6 +4,7 @@ import { PickWindow } from "@/features/agent/PickWindow";
 import { EffectWindow } from "@/features/mixer/EffectWindow";
 import { MasterWindow } from "@/features/mixer/MasterWindow";
 import { SamplerWindow } from "@/features/sampler/SamplerWindow";
+import { StackWindow } from "@/features/sampler/StackWindow";
 import { useEngine } from "@/state/engine";
 import { closeWindow, useWindows } from "@/state/windows";
 import { useEffect } from "react";
@@ -24,6 +25,11 @@ export function Windows() {
     if (spec.kind === "channel") {
       const channel = doc?.channels.find((c) => c.id === spec.channel);
       if (channel?.instrument.type === "sampler") return <SamplerWindow key={w.key} window={w} channel={channel} sampler={channel.instrument} />;
+      if (channel?.instrument.type === "stack") {
+        if (!spec.layer) return <StackWindow key={w.key} window={w} channel={channel} stack={channel.instrument} />;
+        const layer = channel.instrument.layers.find((l) => l.id === spec.layer);
+        return layer ? <SamplerWindow key={w.key} window={w} channel={channel} sampler={layer.sampler} stackLayer={layer} stack={channel.instrument} /> : null;
+      }
       return null;
     }
     const insert = doc?.mixer.inserts.find((i) => i.id === spec.insert);

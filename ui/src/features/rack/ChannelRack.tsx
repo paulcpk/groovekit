@@ -1,4 +1,5 @@
 import type { Channel, Note, Pattern, Project } from "@groovekit/schema/project";
+import { addLayers } from "@/features/sampler/StackWindow";
 import type { Command } from "@groovekit/schema/protocol";
 import { AudioLines, ChevronDown, Copy, Plus, Trash2, Volume2 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,7 +15,7 @@ import { useAutomated } from "@/lib/automation";
 import { useLiveControl } from "@/lib/liveControl";
 import { useLivePosition } from "@/lib/playhead";
 import { ColorSwatch } from "@/components/color";
-import { colorFor, formatDb, formatPan, palette, patternLength, patternLoop, STEP, ticksPerBar, uniqueId } from "@/lib/model";
+import { colorFor, formatDb, formatPan, palette, patternLength, patternLoop, STEP, ticksPerBar, uniqueId, clipLayer } from "@/lib/model";
 import { drawPeaks, usePeaks } from "@/lib/peaks";
 import { call, execute, useEngine } from "@/state/engine";
 import { setUi, useUi, type RackView } from "@/state/ui";
@@ -189,7 +190,7 @@ function ChannelMenu({ channelId, onReplace }: { channelId: string; onReplace: (
       <ContextMenuItem onSelect={() => update({ mute: !channel.mute }, channel.mute ? "Unmute channel" : "Mute channel")}>{channel.mute ? "Unmute" : "Mute"}</ContextMenuItem>
       <ContextMenuItem onSelect={() => update({ solo: !channel.solo }, channel.solo ? "Unsolo channel" : "Solo channel")}>{channel.solo ? "Unsolo" : "Solo"}</ContextMenuItem>
       <ContextMenuItem onSelect={() => openChannel(channel)}>
-        {channel.instrument.type === "plugin" ? "Open the plugin's window" : "Open the sampler"}
+        {channel.instrument.type === "plugin" ? "Open the plugin's window" : channel.instrument.type === "stack" ? "Open the multi-sampler" : "Open the sampler"}
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => setUi({ selectedChannel: channel.id, bottomPanel: "piano" })}>Open in piano roll</ContextMenuItem>
       <ContextMenuItem onSelect={() => void routeToNewInsert(song(), channel)}>Route to a new insert</ContextMenuItem>
@@ -410,7 +411,7 @@ const ChannelRow = memo(function ChannelRow({ channel, pattern, steps, selected,
   const arrangement = channel.group === "arrangement";
   const update = (changes: Record<string, unknown>, label: string) => void execute({ type: "updateChannel", channel: channel.id, changes }, { label });
 
-  const previewPath = channel.instrument.type === "sampler" ? channel.instrument.layers[0]?.sample : undefined;
+  const previewPath = clipLayer(channel)?.sample;
   const preview = () => previewPath && void call("preview.play", { path: previewPath });
 
   return (
@@ -452,6 +453,16 @@ const ChannelRow = memo(function ChannelRow({ channel, pattern, steps, selected,
               if (channel.instrument.type === "plugin") return;
               e.stopPropagation();
               e.preventDefault();
+              // On a multi-sampler, samples become layers.
+              if (channel.instrument.type === "stack") {
+                const stack = channel.instrument;
+                if (isFileDrag(e)) void importDroppedFiles(e).then((samples) => addLayers(channel, stack, samples));
+                else {
+                  const sample = droppedSample(e);
+                  if (sample) void addLayers(channel, stack, [sample]);
+                }
+                return;
+              }
               const replace = (path: string) => void replaceSample(channel, path);
               if (isFileDrag(e)) void importDroppedFiles(e).then((samples) => samples[0] && replace(samples[0].path));
               else if (droppedSample(e)) replace(droppedSample(e)!.path);
@@ -516,7 +527,7 @@ const ChannelRow = memo(function ChannelRow({ channel, pattern, steps, selected,
     its row shows the sample and how many clips play it. "Move to the rack" gives it steps. */
 function ArrangementRowInfo({ channel, color, width }: { channel: Channel; color: string; width: number }) {
   const clips = useEngine((s) => s.doc?.playlist.clips.filter((c) => c.type === "audio" && c.channel === channel.id).length ?? 0);
-  const layer = channel.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
+  const layer = clipLayer(channel);
   const peaks = usePeaks(layer?.sample);
   const canvas = useRef<HTMLCanvasElement>(null);
   const w = Math.max(120, Math.min(width, 420));

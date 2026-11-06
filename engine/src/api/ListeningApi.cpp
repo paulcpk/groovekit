@@ -916,6 +916,9 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             if (it->second.choice)
                 j["choice"] = *it->second.choice;
 
+            if (it->second.choices.size() > 1)
+                j["choices"] = it->second.choices;
+
             if (! it->second.note.empty())
                 j["note"] = it->second.note;
 
@@ -930,8 +933,19 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
 
         if (method == "picks.choose")
         {
-            const auto choice = static_cast<int> (optionalNumber (params, "choice").value_or (-1));
             const auto& candidates = it->second.offer["candidates"];
+
+            // Several picked at once: all of them go in the song, as parts that complement each other.
+            std::vector<int> choices;
+
+            if (params.contains ("choices"))
+                for (auto& c : readParam<std::vector<int>> (params, "choices"))
+                    if (c < 0 || c >= static_cast<int> (candidates.size()))
+                        throw RpcError (invalidParams, "choices: indexes into the candidates");
+                    else if (std::find (choices.begin(), choices.end(), c) == choices.end())
+                        choices.push_back (c);
+
+            const auto choice = choices.empty() ? static_cast<int> (optionalNumber (params, "choice").value_or (-1)) : choices.front();
             const auto note = juce::String (params.value ("note", std::string())).trim().substring (0, 2000).toStdString();
             // "Another round": none of these, and the user wants to hear as many again.
             const bool more = params.value ("more", false);
@@ -955,6 +969,7 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
                 return { { "id", id }, { "choice", *it->second.choice } };
 
             it->second.choice = choice;
+            it->second.choices = choices;
             it->second.note = note;
             it->second.more = more;
             it->second.closed = closed;
@@ -982,7 +997,7 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
 
                     const auto& key = known->path;
 
-                    if (choice == i)
+                    if (choice == i || std::find (choices.begin(), choices.end(), i) != choices.end())
                         listening->getTaste().rate (key, style, true);
                     else if (choice < 0)
                         listening->getTaste().rate (key, style, false);
@@ -1026,6 +1041,9 @@ Json ApiHandler::callMatch (const std::string& method, const Json& params)
             }
 
             Json chosen { { "id", id }, { "choice", choice } };
+
+            if (choices.size() > 1)
+                chosen["choices"] = choices;
 
             if (! note.empty())
                 chosen["note"] = note;
@@ -1269,9 +1287,9 @@ Json ApiHandler::compareToStyle (const Json& params)
     // on the comparison, which hears the mix itself split into parts.
     auto partOf = [&] (const model::Channel& c)
     {
-        if (auto* sampler = std::get_if<model::SamplerInstrument> (&c.instrument); sampler != nullptr && ! sampler->layers.empty())
+        if (auto* layer = model::getClipLayer (c))
         {
-            std::filesystem::path sample = sampler->layers.front().sample;
+            std::filesystem::path sample = layer->sample;
 
             if (sample.is_relative())
                 sample = projectDir / sample;

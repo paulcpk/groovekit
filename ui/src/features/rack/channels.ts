@@ -13,6 +13,7 @@ export function stepKey(channel: Channel | undefined) {
   const named = channel && namedStepKey(channel);
   if (named !== undefined) return named;
   if (channel?.instrument.type === "sampler") return channel.instrument.layers[0]?.rootKey ?? 60;
+  if (channel?.instrument.type === "stack") return channel.instrument.layers[0]?.sampler.layers[0]?.rootKey ?? 60;
   return 60;
 }
 

@@ -1,4 +1,4 @@
-import { ArrowUp, Check, Loader2, Mic, Play, Square, X } from "lucide-react";
+import { ArrowUp, Check, Loader2, Mic, Play, Plus, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/controls";
 import { FloatingWindow } from "@/components/window";
@@ -168,6 +168,14 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
   };
   const sendOther = () => note.trim() && choose(-1, note.trim());
 
+  // Several ticked: all of them go into the song, as parts that go together.
+  const [ticked, setTicked] = useState<number[]>([]);
+  const tick = (i: number) => setTicked((t) => (t.includes(i) ? t.filter((x) => x !== i) : [...t, i].sort((a, b) => a - b)));
+  const chooseTicked = () => {
+    void stopPreview();
+    void call("picks.choose", { id, choice: ticked[0], choices: ticked }).then(() => closeWindow(w.key), () => {});
+  };
+
   // Closed by hand (its X, Escape): not this sound here, for now. The agent goes on without it.
   const voice = useVoiceRecorder();
   const dismiss = () => {
@@ -241,8 +249,12 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
       const next = selected < 0 ? (move > 0 ? 0 : count - 1) : (selected + move + count) % count;
       if (next !== selected || previewing !== fileOf(offer.candidates[next])) playCandidate(next);
       rows.current[next]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && ticked.length > 1) {
+      chooseTicked();
     } else if (e.key === "Enter" && selected >= 0) {
       choose(selected);
+    } else if (e.key.toLowerCase() === "x" && selected >= 0) {
+      tick(selected);
     } else if (e.key === " ") {
       playCandidate(selected < 0 ? 0 : selected);
     } else {
@@ -289,6 +301,11 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
                   {c.label && c.path && <div className="truncate text-2xs text-faint">{name(c.path)}</div>}
                   {c.notes && c.notes.length > 0 && <NoteStrip notes={c.notes} ticks={ticks} />}
                 </div>
+                <button type="button" title="Pick this one too: the ones ticked all go into the song together (X)" onClick={() => tick(i)}
+                  className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] ring-1",
+                    ticked.includes(i) ? "bg-agent text-black ring-agent" : "text-faint ring-line hover:text-fg hover:ring-dim")}>
+                  {ticked.includes(i) ? <Check size={12} /> : <Plus size={12} />}
+                </button>
                 <button type="button" onClick={() => choose(i)} className="h-6 shrink-0 rounded-[4px] bg-agent px-2.5 text-xs text-black hover:brightness-110">Pick</button>
               </div>
             );
@@ -338,11 +355,25 @@ export function PickWindow({ window: w, id }: { window: OpenWindow; id: number }
             </div>
           ) : (
             <div className="flex items-center gap-1 pt-1">
-              <span className="min-w-0 flex-1 truncate text-2xs text-faint" title={`Your pick counts as fitting ${offer.style ?? "the style"} from now on`}>↑↓ to listen, Enter to pick</span>
-              <button type="button" onClick={() => setOther(true)} className="h-6 shrink-0 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Other…</button>
-              <button type="button" onClick={() => choose(-1)} className="h-6 shrink-0 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">None of these</button>
-              <button type="button" title={`None of these: hear ${another} new sounds for this part`} onClick={() => choose(-1, undefined, true)}
-                className="h-6 shrink-0 rounded-[4px] bg-control px-2 text-xs text-fg hover:bg-hover">Another {another}</button>
+              {ticked.length > 1 ? (
+                <>
+                  <span className="min-w-0 flex-1 truncate text-2xs text-faint" title="The agent puts every one in the song, each as a part of its own, layered or one after another as the track needs">
+                    {ticked.map((i) => LETTERS[i]).join(", ")} go in together
+                  </span>
+                  <button type="button" onClick={() => setTicked([])} className="h-6 shrink-0 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Clear</button>
+                  <button type="button" onClick={chooseTicked} className="h-6 shrink-0 rounded-[4px] bg-agent px-2.5 text-xs text-black hover:brightness-110">Use these {ticked.length}</button>
+                </>
+              ) : (
+              <span className="min-w-0 flex-1 truncate text-2xs text-faint" title={`Your pick counts as fitting ${offer.style ?? "the style"} from now on`}>↑↓ to listen, Enter to pick, + for several</span>
+              )}
+              {ticked.length < 2 && (
+                <>
+                  <button type="button" onClick={() => setOther(true)} className="h-6 shrink-0 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">Other…</button>
+                  <button type="button" onClick={() => choose(-1)} className="h-6 shrink-0 rounded-[4px] px-2 text-xs text-dim hover:bg-control hover:text-fg">None of these</button>
+                  <button type="button" title={`None of these: hear ${another} new sounds for this part`} onClick={() => choose(-1, undefined, true)}
+                    className="h-6 shrink-0 rounded-[4px] bg-control px-2 text-xs text-fg hover:bg-hover">Another {another}</button>
+                </>
+              )}
             </div>
           )}
         </div>

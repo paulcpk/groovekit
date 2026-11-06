@@ -11,6 +11,7 @@ target_sources(gk_engine PRIVATE
     src/api/LibraryApi.cpp
     src/api/ListeningApi.cpp
     src/api/SuggestionsApi.cpp
+    src/api/StackApi.cpp
     src/api/LiveApi.cpp
     src/api/MelodyApi.cpp
     src/api/MixApi.cpp
@@ -78,6 +79,7 @@ target_sources(gk_engine PRIVATE
     src/sampler/Modulation.cpp
     src/sampler/SamplerEngine.cpp
     src/sampler/SamplerPlugin.cpp
+    src/sampler/Stack.cpp
     src/session/AgentNotes.cpp
     src/session/Chats.cpp
     src/session/Commands.cpp

@@ -115,6 +115,7 @@ private:
     {
         model::Json offer;
         std::optional<int> choice;
+        std::vector<int> choices;       // several picked: all of them, the first as choice
         std::string note;               // "Other": what the user wants instead, in their words
         bool more = false;              // "Another round": none of these, and as many new ones again
         bool closed = false;            // The window closed without a choice: not this part, for now
@@ -177,6 +178,7 @@ private:
     model::Json callChats (const std::string& method, const model::Json& params);
     model::Json callNotes (const std::string& method, const model::Json& params);
     model::Json callGuides (const std::string& method, const model::Json& params);
+    model::Json callStack (const std::string& method, const model::Json& params);
 
     // Sounds suggested for the song, picked out and tried in the background (SuggestionsApi.cpp).
     struct Suggestions;

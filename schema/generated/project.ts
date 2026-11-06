@@ -9,6 +9,7 @@ export type SamplerLayerMode = "oneShot" | "gate";
 export type SamplerLayerLoop = "off" | "forward" | "pingPong";
 export type SampleProcessingReverbSize = "small" | "large";
 export type GrainsShape = "smooth" | "flat" | "pluck";
+export type StackInstrumentMode = "hits" | "loops";
 export type PluginRefFormat = "VST3" | "AU";
 export type AutomationTargetScope = "channel" | "insert" | "effect" | "send";
 export type BuiltinEffectKind = "eq" | "compressor" | "multiband" | "limiter" | "reverb" | "delay" | "phaser" | "chorus" | "distortion" | "exciter" | "bitcrusher" | "stereo" | "duck" | "clipper" | "lowpass" | "highpass";
@@ -235,6 +236,32 @@ export interface SamplerInstrument {
   layers: SamplerLayer[];
 }
 
+/** One sampler of a multi-sampler. */
+export interface StackLayer {
+  id: Id;
+  name?: string;
+  /** Its share of the output, 0-1 (shown as 0-100%), at equal loudness: 1 is as loud as any other layer at 1. Automation param "mix:<layer id>". */
+  mix?: number;
+  mute?: boolean;
+  solo?: boolean;
+  /** Plays this much later (negative: earlier), to line its hits up with the others'. */
+  offsetMs?: number;
+  /** loops: 2 plays it twice as fast (half as long), 0.5 half as fast (twice as long). */
+  speed?: number;
+  /** loops: the layer the stack is fitted to. Its length is the stack's cycle (an audio clip's natural length), and layers without a tempo of their own last as long as it. */
+  master?: boolean;
+  sampler: SamplerInstrument;
+}
+
+/** The multi-sampler: several samplers (its layers) played as one instrument, each with every control a sampler has, blended by their mix at equal loudness (every layer at 1 is as loud as the others) and summed through an output that stays no louder than its loudest layer alone (drive saturates it on purpose). hits: pattern notes play every layer (layered kicks, claps, one-shots). loops: an audio clip of the channel plays every layer at once, each fitted to the song's tempo by its first sample layer's sourceTempo (at its speed) and looping on its own over the clip; a layer without a sourceTempo lasts as long as the master layer. */
+export interface StackInstrument {
+  type: "stack";
+  mode: StackInstrumentMode;
+  /** Saturation of the summed layers: 0 clean, 1 hard. The output stays as loud. */
+  drive?: number;
+  layers: StackLayer[];
+}
+
 /** A hosted VST3 or AU plugin. */
 export interface PluginRef {
   format: PluginRefFormat;
@@ -255,7 +282,7 @@ export interface PluginInstrument {
   plugin: PluginRef;
 }
 
-export type Instrument = SamplerInstrument | PluginInstrument;
+export type Instrument = SamplerInstrument | StackInstrument | PluginInstrument;
 
 /** A channel-rack entry: one instrument whose output feeds a mixer insert. */
 export interface Channel {
@@ -335,7 +362,7 @@ export interface AudioClip {
   fadeOut?: number;
 }
 
-/** What an automation clip drives. channel: param is volume or pan; for samplers also filterCutoff (Hz), filterResonance (0..1) or filterEnvelopeAmount (octaves); for plugin instruments also a parameter id or name (normalized 0..1). insert: volume or pan. effect: the effect's parameter id or mix (for plugins: id or name, normalized 0..1). send: level. */
+/** What an automation clip drives. channel: param is volume or pan; for samplers also filterCutoff (Hz), filterResonance (0..1) or filterEnvelopeAmount (octaves); for multi-samplers also mix:<layer id> (0..1); for plugin instruments also a parameter id or name (normalized 0..1). insert: volume or pan. effect: the effect's parameter id or mix (for plugins: id or name, normalized 0..1). send: level. */
 export interface AutomationTarget {
   scope: AutomationTargetScope;
   channel?: Id;

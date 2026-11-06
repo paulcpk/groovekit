@@ -1,6 +1,6 @@
-import type { Channel, Envelope, ModulationTarget, SamplerFilter, SamplerInstrument, SamplerLayer, SamplerModulation } from "@groovekit/schema/project";
+import type { Channel, Envelope, ModulationTarget, SamplerFilter, SamplerInstrument, SamplerLayer, SamplerModulation, StackInstrument, StackLayer } from "@groovekit/schema/project";
 import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { DragNumber, IconButton, Knob, Tabs, ToggleChip } from "@/components/controls";
 import { FloatingWindow } from "@/components/window";
 import { PresetMenu } from "@/features/effects/PresetMenu";
@@ -35,12 +35,38 @@ const TARGETS: { value: Target; label: string; color: string }[] = [
   { value: "pitch", label: "Pitch", color: "#c47ef0" },
 ];
 
+/** In a multi-sampler layer's window: the layer whose sampler every change is for. */
+const StackLayerContext = createContext<string | undefined>(undefined);
+
+/** Where a sampler command goes: the channel, and in a multi-sampler, the layer. */
+function useAt(channel: Channel) {
+  const stackLayer = useContext(StackLayerContext);
+  return stackLayer ? { channel: channel.id, stackLayer } : { channel: channel.id };
+}
+
 /** A channel's window, for the samples in the rack and those dropped onto the playlist alike:
     the sample and what's done to it, the envelopes and LFOs that move its volume, cutoff,
     resonance, pan and pitch over each note, and the filter. Audio clips in the playlist play the
     first layer. */
-export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWindow; channel: Channel; sampler: SamplerInstrument }) {
+export function SamplerWindow({ window: w, channel, sampler, stackLayer, stack }: {
+  window: OpenWindow; channel: Channel; sampler: SamplerInstrument;
+  /** A multi-sampler layer's sampler: the window changes that layer's. */
+  stackLayer?: StackLayer; stack?: StackInstrument;
+}) {
+  return (
+    <StackLayerContext.Provider value={stackLayer?.id}>
+      <SamplerWindowBody window={w} channel={channel} sampler={sampler} stackLayer={stackLayer} stack={stack} />
+    </StackLayerContext.Provider>
+  );
+}
+
+function SamplerWindowBody({ window: w, channel, sampler, stackLayer, stack }: {
+  window: OpenWindow; channel: Channel; sampler: SamplerInstrument; stackLayer?: StackLayer; stack?: StackInstrument;
+}) {
   const doc = useEngine((s) => s.doc)!;
+  const at = useAt(channel);
+  const layerName = stackLayer ? stackLayer.name || fileName(stackLayer.sampler.layers[0]?.sample ?? stackLayer.id) : undefined;
+  const windowName = layerName ? `${channel.name || channel.id} · ${layerName}` : channel.name || channel.id;
   const [tab, setTab] = useState<Tab>("sample");
   const [target, setTarget] = useState<Target>("volume");
   const [layerId, setLayerId] = useState<string>();
@@ -48,6 +74,8 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
   const saved = sampler.layers.find((l) => l.id === layerId) ?? sampler.layers[0];
   const color = colorFor(channel.id, channel.color);
   const clips = doc.playlist.clips.filter((c) => c.type === "audio" && c.channel === channel.id).length;
+  // In a multi-sampler of loops, every layer is fitted to the song on its own.
+  const loopLayer = stack?.mode === "loops";
 
   const addLayers = (paths: string[]) => {
     const ids = sampler.layers.map((l) => ({ id: l.id }));
@@ -56,24 +84,24 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
       ids.push({ id });
       return { id, sample: path, pitchTracking: sampler.layers[0]?.pitchTracking ?? true };
     });
-    void execute(layers.map((l) => ({ type: "addSamplerLayer" as const, channel: channel.id, layer: l })),
+    void execute(layers.map((l) => ({ type: "addSamplerLayer" as const, ...at, layer: l })),
       { label: paths.length === 1 ? `Add layer ${fileName(paths[0])}` : `Add ${paths.length} layers` }).then(() => setLayerId(layers[0]?.id));
   };
 
   return (
-    <FloatingWindow window={w} name={channel.name || channel.id} width={680} accent={color}
+    <FloatingWindow window={w} name={windowName} width={680} accent={color}
       extra={
         <PresetMenu kind="sampler"
           current={() => ({ filter: sampler.filter ?? { type: "off" }, envelope: saved?.envelope ?? DEFAULT_ENVELOPE, modulation: sampler.modulation ?? {} })}
           apply={(preset) => void execute([
             ...(preset.filter || preset.modulation ? [{
-              type: "updateInstrument" as const, channel: channel.id,
+              type: "updateInstrument" as const, ...at,
               changes: { ...(preset.filter ? { filter: preset.filter } : {}), ...(preset.modulation ? { modulation: preset.modulation } : {}) },
             }] : []),
-            ...(preset.envelope ? sampler.layers.map((l) => ({ type: "updateSamplerLayer" as const, channel: channel.id, layer: l.id, changes: { envelope: preset.envelope } })) : []),
+            ...(preset.envelope ? sampler.layers.map((l) => ({ type: "updateSamplerLayer" as const, ...at, layer: l.id, changes: { envelope: preset.envelope } })) : []),
           ], { label: `Sampler preset: ${preset.name}` })} />
       }
-      title={<><span className="h-3 w-1 shrink-0 rounded-sm" style={{ background: color }} /><span className="truncate">{channel.name || channel.id}</span><span className="text-2xs font-normal text-faint">Sampler</span></>}>
+      title={<><span className="h-3 w-1 shrink-0 rounded-sm" style={{ background: color }} /><span className="truncate">{windowName}</span><span className="text-2xs font-normal text-faint">{stackLayer ? "Multi-sampler layer" : "Sampler"}</span></>}>
       <div
         className={cn("flex flex-col gap-3 p-3", over && "bg-accent/5")}
         // The keyboards play the channel whose window was touched last.
@@ -122,7 +150,8 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
         {!saved ? (
           <div className="rounded-md border border-dashed border-line p-8 text-center text-xs text-faint">Drop a sample here</div>
         ) : tab === "sample" ? (
-          <SampleTab channel={channel} sampler={sampler} saved={saved} color={color} first={saved === sampler.layers[0]} clips={clips} />
+          <SampleTab channel={channel} sampler={sampler} saved={saved} color={color} first={saved === sampler.layers[0]} clips={clips}
+            fitHere={loopLayer && stackLayer ? { stackLayer: stackLayer.id, sampler } : undefined} />
         ) : tab === "grains" ? (
           <GrainsTab channel={channel} saved={saved} color={color} />
         ) : tab === "envelopes" ? (
@@ -131,7 +160,7 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
         ) : (
           <FilterTab channel={channel} filter={sampler.filter} color={color} showEnvelope={() => { setTarget("cutoff"); setTab("envelopes"); }} />
         )}
-        {saved && tab === "sample" && <div className="text-center text-2xs text-faint">Drop more samples to stack layers</div>}
+        {saved && tab === "sample" && !stackLayer && <div className="text-center text-2xs text-faint">Drop more samples to stack layers</div>}
       </div>
     </FloatingWindow>
   );
@@ -141,12 +170,13 @@ export function SamplerWindow({ window: w, channel, sampler }: { window: OpenWin
     or at once with a label. */
 function useLayer(channel: Channel, saved: SamplerLayer) {
   const [layer, hold] = useHeld(saved, saved.id);
-  const live = useLiveControl<Partial<SamplerLayer>>((changes) => ({ type: "updateSamplerLayer", channel: channel.id, layer: saved.id, changes }), "Sampler layer");
+  const at = useAt(channel);
+  const live = useLiveControl<Partial<SamplerLayer>>((changes) => ({ type: "updateSamplerLayer", ...at, layer: saved.id, changes }), "Sampler layer");
   return {
     layer,
     change(changes: Partial<SamplerLayer>, commit = true, label?: string) {
       hold({ ...layer, ...changes });
-      if (label) void execute({ type: "updateSamplerLayer", channel: channel.id, layer: saved.id, changes }, { label });
+      if (label) void execute({ type: "updateSamplerLayer", ...at, layer: saved.id, changes }, { label });
       else (commit ? live.onCommit : live.onChange)(changes);
     },
   };
@@ -170,7 +200,7 @@ function GrainsTab({ channel, saved, color }: { channel: Channel; saved: Sampler
 
 /** How the sample fits the song in the arrangement: as recorded, stretched (pitch kept) or
     resampled (pitch follows) to fill a number of bars, which it keeps filling at any tempo. */
-function FitToSong({ channel, layer }: { channel: Channel; layer: SamplerLayer }) {
+function FitToSong({ channel, layer, at }: { channel: Channel; layer: SamplerLayer; at?: { stackLayer: string; sampler: SamplerInstrument } }) {
   const doc = useEngine((s) => s.doc)!;
   const peaks = usePeaks(layer.sample);
   if (!peaks) return null;
@@ -181,7 +211,7 @@ function FitToSong({ channel, layer }: { channel: Channel; layer: SamplerLayer }
   const bars = layer.sourceTempo ? barsAt(doc, seconds, layer.sourceTempo) : suggestedBars(doc, seconds);
   const fit = (to: number, resample: boolean, label: string) => {
     const b = Math.min(range.max, Math.max(range.min, to));
-    void execute(fitCommands(doc, channel, seconds, { sourceTempo: Math.round(tempoFor(doc, seconds, b) * 1000) / 1000, resample }), { label });
+    void execute(fitCommands(doc, channel, seconds, { sourceTempo: Math.round(tempoFor(doc, seconds, b) * 1000) / 1000, resample }, at), { label });
   };
 
   return (
@@ -193,7 +223,7 @@ function FitToSong({ channel, layer }: { channel: Channel; layer: SamplerLayer }
             title={{ off: "Plays at its own speed, as recorded", stretch: "Sped up or slowed down to fill its bars, pitch kept",
               resample: "Sped up or slowed down to fill its bars, the pitch moving with it like a record" }[m]}
             onClick={() => m === "off"
-              ? void execute(fitCommands(doc, channel, seconds, { sourceTempo: null, resample: false }), { label: "Don't fit to the song" })
+              ? void execute(fitCommands(doc, channel, seconds, { sourceTempo: null, resample: false }, at), { label: "Don't fit to the song" })
               : fit(bars, m === "resample", m === "resample" ? "Resample to the song" : "Stretch to the song")} />
         ))}
       </div>
@@ -213,10 +243,15 @@ function FitToSong({ channel, layer }: { channel: Channel; layer: SamplerLayer }
   );
 }
 
-function SampleTab({ channel, sampler, saved, color, first, clips }: {
+function SampleTab({ channel, sampler, saved, color, first, clips, fitHere }: {
   channel: Channel; sampler: SamplerInstrument; saved: SamplerLayer; color: string; first: boolean; clips: number;
+  /** A multi-sampler loop layer: fitted to the song on its own. */
+  fitHere?: { stackLayer: string; sampler: SamplerInstrument };
 }) {
   const { layer, change } = useLayer(channel, saved);
+  const at = useAt(channel);
+  const inStack = !!useContext(StackLayerContext);
+  const showFit = first && (!!fitHere || (!inStack && (clips > 0 || channel.group === "arrangement")));
   const key = layer.rootKey ?? 60;
   const mode = layer.mode ?? "oneShot";
   const loop = layer.loop ?? "off";
@@ -243,7 +278,7 @@ function SampleTab({ channel, sampler, saved, color, first, clips }: {
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-1.5">
         <div className="min-w-0 flex-1 truncate text-xs text-fg" title={layer.sample}>{fileName(layer.sample)}</div>
-        <IconButton size="sm" title="Remove layer" onClick={() => void execute({ type: "removeSamplerLayer", channel: channel.id, layer: layer.id }, { label: "Remove layer" })}>
+        <IconButton size="sm" title="Remove layer" onClick={() => void execute({ type: "removeSamplerLayer", ...at, layer: layer.id }, { label: "Remove layer" })}>
           <Trash2 size={11} />
         </IconButton>
       </div>
@@ -268,9 +303,9 @@ function SampleTab({ channel, sampler, saved, color, first, clips }: {
         <ToggleChip on={mode === "gate"} tone="dim" label={mode === "gate" ? "Gate" : "One-shot"} title="One-shot plays to the end; gate stops on note-off"
           onClick={() => change({ mode: mode === "gate" ? "oneShot" : "gate" }, true, "Layer mode")} />
       </div>
-      {(first && (clips > 0 || channel.group === "arrangement")) || (layer.start ?? 0) > 0 || layer.end != null ? (
+      {showFit || (layer.start ?? 0) > 0 || layer.end != null ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          {first && (clips > 0 || channel.group === "arrangement") && <FitToSong channel={channel} layer={layer} />}
+          {showFit && <FitToSong channel={channel} layer={layer} at={fitHere} />}
           {((layer.start ?? 0) > 0 || layer.end != null) && (
             <button type="button" className="text-2xs text-faint hover:text-fg" onClick={() => change({ start: 0, end: null as never }, true, "Play the whole sample")}>Whole sample</button>
           )}
@@ -303,7 +338,7 @@ function SampleTab({ channel, sampler, saved, color, first, clips }: {
         </label>
         <label className="flex items-center gap-1">Voices
           <DragNumber value={sampler.polyphony ?? 32} min={1} max={256} className="text-fg"
-            onCommit={(v) => void execute({ type: "updateInstrument", channel: channel.id, changes: { polyphony: v } }, { label: "Sampler voices" })} />
+            onCommit={(v) => void execute({ type: "updateInstrument", ...at, changes: { polyphony: v } }, { label: "Sampler voices" })} />
         </label>
       </div>
     </div>
@@ -328,8 +363,9 @@ function EnvelopesTab({ channel, sampler, layer: savedLayer, target, setTarget, 
   const { layer, change: changeLayer } = useLayer(channel, savedLayer);
   const [modulation, holdModulation] = useHeld<SamplerModulation>(sampler.modulation ?? {}, channel.id);
   const [filter, holdFilter] = useHeld<SamplerFilter>(sampler.filter ?? {}, channel.id);
-  const liveModulation = useLiveControl<SamplerModulation>((m) => ({ type: "updateInstrument", channel: channel.id, changes: { modulation: m } }), "Modulation");
-  const liveFilter = useLiveControl<SamplerFilter>((f) => ({ type: "updateInstrument", channel: channel.id, changes: { filter: f } }), "Filter");
+  const at = useAt(channel);
+  const liveModulation = useLiveControl<SamplerModulation>((m) => ({ type: "updateInstrument", ...at, changes: { modulation: m } }), "Modulation");
+  const liveFilter = useLiveControl<SamplerFilter>((f) => ({ type: "updateInstrument", ...at, changes: { filter: f } }), "Filter");
   const { label, color } = TARGETS.find((t) => t.value === target)!;
   const filterOff = (filter.type ?? "off") === "off";
 
@@ -461,7 +497,8 @@ function formatLfoAmount(target: Target, v: number) {
 /** A sampler's filter: its type, response and knobs. Its envelope and LFO are with the others. */
 export function FilterTab({ channel, filter: saved, color, showEnvelope }: { channel: Channel; filter: SamplerFilter | undefined; color: string; showEnvelope: () => void }) {
   const [held, hold] = useHeld<SamplerFilter>(saved ?? {}, channel.id);
-  const live = useLiveControl<SamplerFilter>((f) => ({ type: "updateInstrument", channel: channel.id, changes: { filter: f } }), "Filter");
+  const at = useAt(channel);
+  const live = useLiveControl<SamplerFilter>((f) => ({ type: "updateInstrument", ...at, changes: { filter: f } }), "Filter");
   // A filter switched on here starts with a pluck: a quick fall back to the cutoff. One set up
   // elsewhere without an envelope has the engine's default.
   const envelope: Envelope = held.envelope ?? ((held.type ?? "off") === "off" ? { attack: 0, decay: 0.3, sustain: 0, release: 0.2 } : DEFAULT_ENVELOPE);

@@ -1,4 +1,4 @@
-import type { AudioClip, Clip, Insert, Pattern, Project } from "@groovekit/schema/project";
+import type { AudioClip, Channel, Clip, Insert, Pattern, Project, SamplerLayer, StackInstrument, StackLayer } from "@groovekit/schema/project";
 import { fitSpeed } from "./fit";
 
 export const PPQ = 960;
@@ -126,11 +126,24 @@ export function snapTicks(snap: number, doc: Project | undefined) {
   return snap === 0 ? ticksPerBar(doc) : snap;
 }
 
+/** A multi-sampler's master layer: the one marked so, else the first. */
+export function stackMaster(stack: StackInstrument): StackLayer | undefined {
+  return stack.layers.find((l) => l.master) ?? stack.layers[0];
+}
+
+/** The sample layer a channel's audio clips play (and show): a sampler's first, a multi-sampler's
+    master's first. */
+export function clipLayer(channel: Channel | undefined): SamplerLayer | undefined {
+  if (channel?.instrument.type === "sampler") return channel.instrument.layers[0];
+  if (channel?.instrument.type === "stack") return stackMaster(channel.instrument)?.sampler.layers[0];
+  return undefined;
+}
+
 /** What an audio clip plays: its channel's first sampler layer, the part of the file it cuts out,
     and the tempo the file plays at in the song when it's fitted to it (within the speed limit). */
 export function audioSource(doc: Project, clip: AudioClip) {
   const channel = doc.channels.find((c) => c.id === clip.channel);
-  const layer = channel?.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
+  const layer = clipLayer(channel);
   return {
     channel, layer, sample: layer?.sample, reverse: !!layer?.reverse,
     sourceTempo: layer?.sourceTempo ? doc.tempo / fitSpeed(doc, layer.sourceTempo) : undefined,

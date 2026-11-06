@@ -7,7 +7,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 namespace gk::mixer { class FaderPlugin; class EffectMixBlend; }
-namespace gk::sampler { class AudioChannelPlugin; }
+namespace gk::sampler { class AudioChannelPlugin; class StackOutputPlugin; }
 
 namespace gk
 {
@@ -26,6 +26,10 @@ namespace gk
       the first layer's gain, pan and envelope, the channel's filter and a copy of the
       channel's fader, feeding the channel's insert
     - automation clips become automation curves on the targeted parameters
+    - a multi-sampler's channel track is its bus (its output's trim, drive and ceiling, then the
+      fader); each layer plays on tracks of its own (one for notes, one per arrangement row for
+      audio clips, where a loop is laid back to back over the clip) with a fader for its mix,
+      feeding the bus
 */
 struct CompiledEdit
 {
@@ -53,7 +57,14 @@ struct CompiledEdit
     /** The Tracktion clips that play each playlist clip (a pattern clip has one per channel). */
     std::map<model::Id, std::vector<tracktion::Clip*>> clips;
 
-    /** Instruments as "channel:<id>" and effects as "effect:<insert>/<effect>". */
+    /** Multi-samplers: each one's output (trim, drive, ceiling), and each layer's tracks that play
+        notes (hits) and its faders (its mix, on every track the layer plays on), by channel and layer. */
+    std::map<model::Id, sampler::StackOutputPlugin*> stackOutputs;
+    std::map<model::Id, std::vector<std::pair<model::Id, tracktion::AudioTrack*>>> stackLayerTracks;
+    std::map<model::Id, std::map<model::Id, std::vector<mixer::FaderPlugin*>>> stackLayerFaders;
+    std::map<model::Id, std::map<model::Id, std::vector<sampler::AudioChannelPlugin*>>> stackAudioPlugins;
+
+    /** Instruments as "channel:<id>" (a multi-sampler layer's as "channel:<id>/<layer>") and effects as "effect:<insert>/<effect>". */
     std::map<std::string, tracktion::Plugin*> plugins;
 
     /** The mix stage after each effect, as "<insert>/<effect>". */
@@ -95,7 +106,12 @@ CompiledEdit compileProject (tracktion::Engine&, const model::Project&, const Co
 
 /** Fills a MIDI clip with the notes one channel plays in a pattern clip: the pattern repeated to
     fill the clip from its offset, swung by the song. Whatever the clip held is replaced. */
-void fillPatternClip (tracktion::MidiClip&, const model::Project&, const model::Pattern&, const model::PatternClip&, const model::Id& channel);
+/** shift moves every note later (earlier when negative), as a multi-sampler layer's offset does. */
+void fillPatternClip (tracktion::MidiClip&, const model::Project&, const model::Pattern&, const model::PatternClip&, const model::Id& channel,
+                      model::Ticks shift = 0);
+
+/** A multi-sampler layer's offset in ticks at the song's tempo. */
+model::Ticks stackShift (const model::Project&, const model::StackLayer&);
 
 /** The swing applied to a note's start: notes on an off-beat 16th move later by up to half a 16th. */
 model::Ticks swungStart (const model::Project&, model::Ticks start);

@@ -44,12 +44,12 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
     // What a channel's first sample is, from the library when it's there.
     auto entryOf = [&] (const model::Channel& c) -> std::optional<library::SampleEntry>
     {
-        auto* sampler = std::get_if<model::SamplerInstrument> (&c.instrument);
+        auto* layer = model::getClipLayer (c);
 
-        if (sampler == nullptr || sampler->layers.empty())
+        if (layer == nullptr)
             return {};
 
-        std::filesystem::path sample = sampler->layers.front().sample;
+        std::filesystem::path sample = layer->sample;
 
         if (sample.is_relative())
             sample = projectDir / sample;
@@ -259,7 +259,7 @@ Json ApiHandler::callMix (const std::string& method, const Json& params, Client&
             if (auto e = entryOf (c); e && e->classification.loop)
                 if (auto fit = library::SampleLibrary::fitTo (*e, *key); fit && ! fit->fits)
                 {
-                    const auto transpose = std::get<model::SamplerInstrument> (c.instrument).layers.front().transpose;
+                    const auto transpose = model::getClipLayer (c)->transpose;
 
                     if (((transpose - fit->transpose) % 12 + 12) % 12 != 0)
                         problems.push_back ({ { "severity", 6 }, { "kind", "key" }, { "channels", { c.id } },
@@ -334,12 +334,12 @@ std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool toler
 
     auto entryOf = [&] (const model::Channel& c) -> std::optional<library::SampleEntry>
     {
-        auto* sampler = std::get_if<model::SamplerInstrument> (&c.instrument);
+        auto* layer = model::getClipLayer (c);
 
-        if (sampler == nullptr || sampler->layers.empty())
+        if (layer == nullptr)
             return {};
 
-        std::filesystem::path sample = sampler->layers.front().sample;
+        std::filesystem::path sample = layer->sample;
 
         if (sample.is_relative())
             sample = projectDir / sample;
@@ -548,8 +548,8 @@ std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool toler
     {
         std::optional<std::string> currentPath;
 
-        if (auto* sampler = std::get_if<model::SamplerInstrument> (&channel->instrument); sampler != nullptr && ! sampler->layers.empty())
-            currentPath = sampler->layers.front().sample;
+        if (auto* layer = model::getClipLayer (*channel))
+            currentPath = layer->sample;
 
         result["channel"] = channel->id;
         result["part"] = model::toString (partOf (*channel));

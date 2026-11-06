@@ -1,5 +1,5 @@
 import type { Command } from "@groovekit/schema/protocol";
-import type { Channel, Project, SamplerLayer } from "@groovekit/schema/project";
+import type { Channel, Project, SamplerLayer, SamplerInstrument } from "@groovekit/schema/project";
 import { ticksPerBar } from "./model";
 
 /** The furthest a sample is sped up or slowed down to fit the song (the engine's limit). */
@@ -68,7 +68,14 @@ export function describeFit(doc: Project, sourceTempo: number, resample: boolean
 
 /** The commands that fit a channel's first layer to the song (or stop fitting it), resizing its
     clips that played the whole part to the part's new length. */
-export function fitCommands(doc: Project, channel: Channel, seconds: number, fit: { sourceTempo: number | null; resample: boolean }): Command[] {
+export function fitCommands(doc: Project, channel: Channel, seconds: number, fit: { sourceTempo: number | null; resample: boolean },
+  at?: { stackLayer: string; sampler: SamplerInstrument }): Command[] {
+  const changes = { sourceTempo: fit.sourceTempo as number, resample: fit.sourceTempo != null && fit.resample ? true : (null as never) };
+  // A multi-sampler layer: its clips are the multi-sampler's, as long as its master.
+  if (at) {
+    const first = at.sampler.layers[0];
+    return first ? [{ type: "updateSamplerLayer", channel: channel.id, stackLayer: at.stackLayer, layer: first.id, changes }] : [];
+  }
   const layer = channel.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
   if (!layer) return [];
   const ticks = (tempo: number | undefined) => (seconds * (doc.tempo / fitSpeed(doc, tempo)) * 960) / 60;

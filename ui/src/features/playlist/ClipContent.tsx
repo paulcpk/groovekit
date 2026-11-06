@@ -4,7 +4,7 @@ import { automatedEffect, bezierControl, curveThrough, rangePosition, rangeValue
 import { useCatalogue } from "@/lib/catalogue";
 import { snapTo, startDrag } from "@/lib/drag";
 import { fitSpeed } from "@/lib/fit";
-import { patternLoop, ticksPerBar } from "@/lib/model";
+import { patternLoop, ticksPerBar, clipLayer } from "@/lib/model";
 import { drawPeaks, usePeaks } from "@/lib/peaks";
 import { execute, useEngine } from "@/state/engine";
 
@@ -95,7 +95,7 @@ export const AudioContent = memo(function AudioContent({ clip, width, height, co
   // The channel's first layer, which the clip plays; the same object until it changes.
   const layer = useEngine((s) => {
     const channel = s.doc?.channels.find((c) => c.id === clip.channel);
-    return channel?.instrument.type === "sampler" ? channel.instrument.layers[0] : undefined;
+    return clipLayer(channel);
   });
   const tempo = useEngine((s) => s.doc?.tempo ?? 120);
   const sample = layer?.sample, reverse = !!layer?.reverse, partStart = layer?.start ?? 0, partEnd = layer?.end;

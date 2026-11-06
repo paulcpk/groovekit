@@ -42,6 +42,18 @@ export function registerLibraryTools({ server, engine }: Tools) {
   );
 
   server.registerTool(
+    "multi_sampler",
+    {
+      description: "A multi-sampler channel (instrument type stack): info gives each layer's loudness, the dB it's brought up to match the loudest, its gain at its mix, a loop's bars and speed, and the trim that keeps the sum no louder than the loudest layer alone; align lines up the hits (each layer's attack with the latest one's, by offsetMs) as one undo step. Build and change it with edit_project: addChannel with instrument {type: \"stack\", mode: \"hits\" or \"loops\", layers: [{id, sampler: {type: \"sampler\", layers: [{id, sample, sourceTempo for loops}]}, mix, master}]}, addStackLayer, updateStackLayer (mix, mute, solo, offsetMs, speed, master), removeStackLayer, updateInstrument (mode, drive), and the sampler commands with stackLayer for a layer's own sampler.",
+      inputSchema: {
+        action: z.enum(["info", "align"]),
+        channel: z.string(),
+      },
+    },
+    ({ action, channel }) => attempt(() => engine.call(`stack.${action}`, { channel }))
+  );
+
+  server.registerTool(
     "describe_sample",
     {
       description: "Full measurements of one audio file: duration, loudness, attack and decay, spectral centroid and band energy (sub, low, mid, high), detected pitch, onset count and tempo, plus its classification and, once GrooveKit can listen, words for what it sounds like and (with style) its fit. Works for files outside the library too.",

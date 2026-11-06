@@ -1,7 +1,7 @@
-import { AudioWaveform, ChevronRight, Folder, FolderOpen, FolderOpenDot, KeyboardMusic, Music, SlidersHorizontal, Sparkles, Waves } from "lucide-react";
+import { AudioWaveform, ChevronRight, Layers, Folder, FolderOpen, FolderOpenDot, KeyboardMusic, Music, SlidersHorizontal, Sparkles, Waves } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StarterSamples } from "./StarterSamples";
-import { addInstrument, endInstrumentDrag, instrumentName, SAMPLER, startInstrumentDrag, type InstrumentChoice } from "@/features/rack/instruments";
+import { addInstrument, BUILT_IN, builtInAbout, endInstrumentDrag, instrumentName, startInstrumentDrag, type InstrumentChoice } from "@/features/rack/instruments";
 import { OWN_PLUGINS, ownPlugins, type PluginInfo } from "@/features/rack/PluginPicker";
 import { openProject } from "@/features/shell/ProjectDialog";
 import { cn } from "@/lib/cn";
@@ -191,7 +191,7 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
     if (expanded.has("instruments")) {
       if (!instruments) out.push({ kind: "note", text: "Loading…", depth: 1 });
       const own = ownPlugins(instruments ?? []);
-      for (const choice of [SAMPLER, ...own.map((plugin) => ({ kind: "plugin" as const, plugin }))]) out.push({ kind: "instrument", choice, depth: 1 });
+      for (const choice of [...BUILT_IN, ...own.map((plugin) => ({ kind: "plugin" as const, plugin }))]) out.push({ kind: "instrument", choice, depth: 1 });
       const byMaker = new Map<string, PluginInfo[]>();
       for (const p of instruments ?? []) if (!own.includes(p)) byMaker.set(p.manufacturer || "Other", [...(byMaker.get(p.manufacturer || "Other") ?? []), p]);
       for (const [maker, list] of [...byMaker.entries()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -410,8 +410,8 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
                   row.current ? "open" : new Date(row.project.modified).toLocaleDateString(),
                   { title: `${row.project.path}\nDouble-click or Enter to open`, onDoubleClick: () => activate(row) });
               case "instrument":
-                return line(row.choice.kind === "sampler" ? <AudioWaveform size={12} className="shrink-0 text-dim" /> : <KeyboardMusic size={12} className="shrink-0 text-dim" />,
-                  <>{instrumentName(row.choice)} <span className="text-2xs text-faint">{row.choice.kind === "sampler" ? "samples, one-shots, loops" : OWN_PLUGINS[row.choice.plugin.name] ?? ""}</span></>,
+                return line(row.choice.kind === "sampler" ? <AudioWaveform size={12} className="shrink-0 text-dim" /> : row.choice.kind === "stack" ? <Layers size={12} className="shrink-0 text-dim" /> : <KeyboardMusic size={12} className="shrink-0 text-dim" />,
+                  <>{instrumentName(row.choice)} <span className="text-2xs text-faint">{row.choice.kind === "plugin" ? OWN_PLUGINS[row.choice.plugin.name] ?? "" : builtInAbout(row.choice)}</span></>,
                   row.choice.kind === "plugin" && row.choice.plugin.manufacturer !== "GrooveKit" ? row.choice.plugin.format : undefined,
                   { title: "Drag onto the channel rack for a new channel, or onto a channel's name to replace its instrument; double-click or Enter adds it",
                     onDoubleClick: () => activate(row), drag: row.choice });

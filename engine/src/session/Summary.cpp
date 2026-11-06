@@ -55,6 +55,36 @@ namespace
             return j;
         }
 
+        // A multi-sampler: each layer's sampler as above, with its mix and how it plays.
+        if (auto stack = std::get_if<StackInstrument> (&instrument))
+        {
+            auto layers = Json::array();
+
+            for (auto& l : stack->layers)
+            {
+                auto layer = describeInstrument (Instrument { l.sampler });
+                layer.erase ("type");
+                layer["id"] = l.id;
+                layer["mix"] = l.mix;
+
+                if (l.name)                 layer["name"] = *l.name;
+                if (l.mute)                 layer["mute"] = true;
+                if (l.solo)                 layer["solo"] = true;
+                if (l.offsetMs != 0)        layer["offsetMs"] = l.offsetMs;
+                if (l.speed != 1)           layer["speed"] = l.speed;
+                if (l.master)               layer["master"] = true;
+
+                layers.push_back (std::move (layer));
+            }
+
+            Json j { { "type", "stack" }, { "mode", toString (stack->mode) }, { "layers", layers } };
+
+            if (stack->drive > 0)
+                j["drive"] = stack->drive;
+
+            return j;
+        }
+
         auto& plugin = std::get<PluginInstrument> (instrument).plugin;
         return { { "type", "plugin" }, { "name", plugin.name } };
     }

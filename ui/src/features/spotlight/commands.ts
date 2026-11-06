@@ -9,7 +9,7 @@ import {
   MessageSquare, Piano, Play, Redo2, Repeat, Save, Settings, SkipBack, SlidersHorizontal, Sparkles, Square, StickyNote, Undo2, Upload,
 } from "lucide-react";
 
-import { addInstrument, SAMPLER, type InstrumentChoice } from "@/features/rack/instruments";
+import { addInstrument, BUILT_IN, instrumentName, type InstrumentChoice } from "@/features/rack/instruments";
 import type { PluginInfo } from "@/features/rack/PluginPicker";
 import type { Sample } from "@/features/browser/SampleRow";
 import { addChannel } from "@/features/browser/SampleRow";
@@ -123,7 +123,7 @@ function startsWords(name: string, words: string) {
 }
 
 function instrumentChoices(instruments: PluginInfo[]): InstrumentChoice[] {
-  return [SAMPLER, ...instruments.map((plugin) => ({ kind: "plugin" as const, plugin }))];
+  return [...BUILT_IN, ...instruments.map((plugin) => ({ kind: "plugin" as const, plugin }))];
 }
 
 /** The box's list for the words: what they name exactly first, else the agent, then what they
@@ -156,9 +156,9 @@ export function itemsFor(text: string, known: Known): Item[] {
 
   if (doc) {
     for (const choice of instrumentChoices(known.instruments)) {
-      const name = choice.kind === "sampler" ? "Sampler" : choice.plugin.name;
+      const name = instrumentName(choice);
       const item: Item = {
-        id: `instrument:${choice.kind === "sampler" ? "sampler" : choice.plugin.uid}`, kind: "instrument", label: `Add ${name}`,
+        id: `instrument:${choice.kind === "plugin" ? choice.plugin.uid : choice.kind}`, kind: "instrument", label: `Add ${name}`,
         detail: choice.kind === "plugin" ? `a new channel · ${choice.plugin.manufacturer}` : "a new channel", icon: KeyboardMusic,
         run: () => void addInstrument(doc, choice), keepsWindows: true,
       };

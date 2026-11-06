@@ -64,7 +64,14 @@ bool isClipMuted (const Clip&);
 
 const Id& getEffectId (const Effect&);
 
-/** The layer an audio clip on this channel plays: a sampler's first, or nullptr. */
+/** The layer an audio clip on this channel plays: a sampler's first (a multi-sampler's: its
+    master layer's first), or nullptr. */
 const SamplerLayer* getClipLayer (const Channel&);
+
+/** A multi-sampler's master layer: the one marked so, else the first; nullptr without layers. */
+const StackLayer* getStackMaster (const StackInstrument&);
+
+/** Every sample a channel plays: its sampler's layers, or every multi-sampler layer's. */
+std::vector<const SamplerLayer*> getSampleLayers (const Channel&);
 
 } // namespace gk::model

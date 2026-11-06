@@ -83,6 +83,7 @@ export interface SlotInfo {
 export interface Pick {
   status: "waiting" | "chosen";
   choice?: number;
+  choices?: number[];
   note?: string;
   more?: boolean;
 }
@@ -175,7 +176,7 @@ export interface Methods {
   "picks.offer": { params: Params; result: { id: number } };
   "picks.get": { params: { id: number }; result: Pick };
   "picks.list": { params: Params; result: { offers: { id: number }[] } };
-  "picks.choose": { params: { id: number; choice: number; note?: string; more?: boolean }; result: unknown };
+  "picks.choose": { params: { id: number; choice: number; choices?: number[]; note?: string; more?: boolean }; result: unknown };
   "mix.slots": { params: Params; result: { channels: SlotInfo[]; applied?: unknown; style?: string } };
   "mix.setSlot": { params: Params; result: unknown };
   "mix.check": { params: Params; result: Record<string, unknown> };

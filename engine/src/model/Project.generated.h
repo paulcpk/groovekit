@@ -346,6 +346,36 @@ inline void readValue (Reader& r, const Json& j, GrainsShape& out)
     r.fail ("unknown value \"" + s + "\"");
 }
 
+enum class StackInstrumentMode
+{
+    hits,
+    loops
+};
+
+inline const char* toString (StackInstrumentMode v)
+{
+    switch (v)
+    {
+        case StackInstrumentMode::hits: return "hits";
+        case StackInstrumentMode::loops: return "loops";
+    }
+
+    return "";
+}
+
+inline Json toJson (StackInstrumentMode v) { return toString (v); }
+
+inline void readValue (Reader& r, const Json& j, StackInstrumentMode& out)
+{
+    std::string s;
+    readValue (r, j, s);
+
+    if (s == "hits") { out = StackInstrumentMode::hits; return; }
+    if (s == "loops") { out = StackInstrumentMode::loops; return; }
+
+    r.fail ("unknown value \"" + s + "\"");
+}
+
 enum class PluginRefFormat
 {
     VST3,
@@ -1101,6 +1131,90 @@ inline Json toJson (const SamplerInstrument& v)
     return j;
 }
 
+/** One sampler of a multi-sampler. */
+struct StackLayer
+{
+    Id id;
+    std::optional<std::string> name;
+    /** Its share of the output, 0-1 (shown as 0-100%), at equal loudness: 1 is as loud as any other layer at 1. Automation param "mix:<layer id>". */
+    double mix = 1;
+    bool mute = false;
+    bool solo = false;
+    /** Plays this much later (negative: earlier), to line its hits up with the others'. */
+    double offsetMs = 0;
+    /** loops: 2 plays it twice as fast (half as long), 0.5 half as fast (twice as long). */
+    double speed = 1;
+    /** loops: the layer the stack is fitted to. Its length is the stack's cycle (an audio clip's natural length), and layers without a tempo of their own last as long as it. */
+    bool master = false;
+    SamplerInstrument sampler;
+
+    bool operator== (const StackLayer&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, StackLayer& out)
+{
+    r.expectObject (j, { "id", "name", "mix", "mute", "solo", "offsetMs", "speed", "master", "sampler" });
+
+    r.required (j, "id", [&] (const Json& v) { readValue (r, v, out.id); r.checkPattern (out.id, "^[A-Za-z0-9_.-]{1,64}$"); });
+    r.optional (j, "name", [&] (const Json& v) { readValue (r, v, out.name.emplace()); });
+    r.optional (j, "mix", [&] (const Json& v) { readValue (r, v, out.mix); r.checkMin (out.mix, 0); r.checkMax (out.mix, 1); });
+    r.optional (j, "mute", [&] (const Json& v) { readValue (r, v, out.mute); });
+    r.optional (j, "solo", [&] (const Json& v) { readValue (r, v, out.solo); });
+    r.optional (j, "offsetMs", [&] (const Json& v) { readValue (r, v, out.offsetMs); r.checkMin (out.offsetMs, -250); r.checkMax (out.offsetMs, 250); });
+    r.optional (j, "speed", [&] (const Json& v) { readValue (r, v, out.speed); r.checkMin (out.speed, 0.25); r.checkMax (out.speed, 4); });
+    r.optional (j, "master", [&] (const Json& v) { readValue (r, v, out.master); });
+    r.required (j, "sampler", [&] (const Json& v) { readValue (r, v, out.sampler); });
+}
+
+inline Json toJson (const StackLayer& v)
+{
+    auto j = Json::object();
+    j["id"] = toJson (v.id);
+
+    if (v.name)
+        j["name"] = toJson (*v.name);
+
+    j["mix"] = toJson (v.mix);
+    j["mute"] = toJson (v.mute);
+    j["solo"] = toJson (v.solo);
+    j["offsetMs"] = toJson (v.offsetMs);
+    j["speed"] = toJson (v.speed);
+    j["master"] = toJson (v.master);
+    j["sampler"] = toJson (v.sampler);
+    return j;
+}
+
+/** The multi-sampler: several samplers (its layers) played as one instrument, each with every control a sampler has, blended by their mix at equal loudness (every layer at 1 is as loud as the others) and summed through an output that stays no louder than its loudest layer alone (drive saturates it on purpose). hits: pattern notes play every layer (layered kicks, claps, one-shots). loops: an audio clip of the channel plays every layer at once, each fitted to the song's tempo by its first sample layer's sourceTempo (at its speed) and looping on its own over the clip; a layer without a sourceTempo lasts as long as the master layer. */
+struct StackInstrument
+{
+    StackInstrumentMode mode = StackInstrumentMode::hits;
+    /** Saturation of the summed layers: 0 clean, 1 hard. The output stays as loud. */
+    double drive = 0;
+    std::vector<StackLayer> layers;
+
+    bool operator== (const StackInstrument&) const = default;
+};
+
+inline void readValue (Reader& r, const Json& j, StackInstrument& out)
+{
+    r.expectObject (j, { "type", "mode", "drive", "layers" });
+
+    r.required (j, "type", [&] (const Json& v) { r.checkConst (v, "stack"); });
+    r.required (j, "mode", [&] (const Json& v) { readValue (r, v, out.mode); });
+    r.optional (j, "drive", [&] (const Json& v) { readValue (r, v, out.drive); r.checkMin (out.drive, 0); r.checkMax (out.drive, 1); });
+    r.required (j, "layers", [&] (const Json& v) { readValue (r, v, out.layers); });
+}
+
+inline Json toJson (const StackInstrument& v)
+{
+    auto j = Json::object();
+    j["type"] = "stack";
+    j["mode"] = toJson (v.mode);
+    j["drive"] = toJson (v.drive);
+    j["layers"] = toJson (v.layers);
+    return j;
+}
+
 /** A hosted VST3 or AU plugin. */
 struct PluginRef
 {
@@ -1175,7 +1289,7 @@ inline Json toJson (const PluginInstrument& v)
     return j;
 }
 
-using Instrument = std::variant<SamplerInstrument, PluginInstrument>;
+using Instrument = std::variant<SamplerInstrument, StackInstrument, PluginInstrument>;
 
 inline void readValue (Reader& r, const Json& j, Instrument& out)
 {
@@ -1186,6 +1300,7 @@ inline void readValue (Reader& r, const Json& j, Instrument& out)
     r.required (j, "type", [&] (const Json& v) { readValue (r, v, tag); });
 
     if (tag == "sampler") { readValue (r, j, out.emplace<SamplerInstrument>()); return; }
+    if (tag == "stack") { readValue (r, j, out.emplace<StackInstrument>()); return; }
     if (tag == "plugin") { readValue (r, j, out.emplace<PluginInstrument>()); return; }
 
     r.fail ("unknown type \"" + tag + "\"");
@@ -1464,7 +1579,7 @@ inline Json toJson (const AudioClip& v)
     return j;
 }
 
-/** What an automation clip drives. channel: param is volume or pan; for samplers also filterCutoff (Hz), filterResonance (0..1) or filterEnvelopeAmount (octaves); for plugin instruments also a parameter id or name (normalized 0..1). insert: volume or pan. effect: the effect's parameter id or mix (for plugins: id or name, normalized 0..1). send: level. */
+/** What an automation clip drives. channel: param is volume or pan; for samplers also filterCutoff (Hz), filterResonance (0..1) or filterEnvelopeAmount (octaves); for multi-samplers also mix:<layer id> (0..1); for plugin instruments also a parameter id or name (normalized 0..1). insert: volume or pan. effect: the effect's parameter id or mix (for plugins: id or name, normalized 0..1). send: level. */
 struct AutomationTarget
 {
     AutomationTargetScope scope;

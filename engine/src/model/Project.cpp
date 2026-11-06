@@ -714,14 +714,14 @@ namespace
 
                 checkInsertRef (channel.insert, path + "/insert");
 
-                if (auto sampler = std::get_if<SamplerInstrument> (&channel.instrument))
+                auto checkSampler = [&] (const SamplerInstrument& sampler, const std::string& samplerPath)
                 {
-                    checkUnique (sampler->layers, path + "/instrument/layers");
+                    checkUnique (sampler.layers, samplerPath + "/layers");
 
-                    for (size_t l = 0; l < sampler->layers.size(); ++l)
+                    for (size_t l = 0; l < sampler.layers.size(); ++l)
                     {
-                        auto& layer = sampler->layers[l];
-                        auto layerPath = at (path + "/instrument/layers", l);
+                        auto& layer = sampler.layers[l];
+                        auto layerPath = at (samplerPath + "/layers", l);
 
                         if (layer.keyRange.low > layer.keyRange.high)
                             issue (layerPath + "/keyRange", "low is above high");
@@ -729,6 +729,20 @@ namespace
                         if (layer.velocityRange.low > layer.velocityRange.high)
                             issue (layerPath + "/velocityRange", "low is above high");
                     }
+                };
+
+                if (auto sampler = std::get_if<SamplerInstrument> (&channel.instrument))
+                    checkSampler (*sampler, path + "/instrument");
+
+                if (auto stack = std::get_if<StackInstrument> (&channel.instrument))
+                {
+                    checkUnique (stack->layers, path + "/instrument/layers");
+
+                    if (std::count_if (stack->layers.begin(), stack->layers.end(), [] (auto& l) { return l.master; }) > 1)
+                        issue (path + "/instrument/layers", "only one layer can be the master");
+
+                    for (size_t l = 0; l < stack->layers.size(); ++l)
+                        checkSampler (stack->layers[l].sampler, at (path + "/instrument/layers", l) + "/sampler");
                 }
             }
         }
@@ -770,8 +784,10 @@ namespace
 
                     if (channel == nullptr)
                         issue (path + "/channel", "no channel \"" + ac->channel + "\"");
-                    else if (! std::holds_alternative<SamplerInstrument> (channel->instrument))
+                    else if (std::holds_alternative<PluginInstrument> (channel->instrument))
                         issue (path + "/channel", "\"" + ac->channel + "\" plays a plugin; audio clips play sampler channels");
+                    else if (auto stack = std::get_if<StackInstrument> (&channel->instrument); stack != nullptr && stack->mode != StackInstrumentMode::loops)
+                        issue (path + "/channel", "\"" + ac->channel + "\" is a multi-sampler of hits, played by notes; audio clips play one of loops");
                     else if (getClipLayer (*channel) == nullptr)
                         issue (path + "/channel", "\"" + ac->channel + "\" has no sample layer to play");
                 }
@@ -814,8 +830,17 @@ namespace
                     if (target.channel && channel == nullptr)
                         issue (path + "/channel", "no channel \"" + *target.channel + "\"");
 
-                    // A plugin instrument's parameters are checked when the plugin loads.
-                    if (channel == nullptr || ! std::holds_alternative<PluginInstrument> (channel->instrument))
+                    // A plugin instrument's parameters are checked when the plugin loads; a
+                    // multi-sampler has volume, pan and each layer's mix ("mix:<layer>").
+                    if (auto stack = channel != nullptr ? std::get_if<StackInstrument> (&channel->instrument) : nullptr)
+                    {
+                        const auto layer = target.param.starts_with ("mix:") ? target.param.substr (4) : std::string();
+                        const auto known = std::any_of (stack->layers.begin(), stack->layers.end(), [&] (auto& l) { return l.id == layer; });
+
+                        if (! known)
+                            requireParam ({ "volume", "pan" });
+                    }
+                    else if (channel == nullptr || ! std::holds_alternative<PluginInstrument> (channel->instrument))
                         requireParam ({ "volume", "pan", "filterCutoff", "filterResonance", "filterEnvelopeAmount" });
 
                     break;
@@ -1061,7 +1086,37 @@ const Id& getEffectId (const Effect& e)         { return std::visit ([] (auto& x
 const SamplerLayer* getClipLayer (const Channel& channel)
 {
     auto sampler = std::get_if<SamplerInstrument> (&channel.instrument);
+
+    if (auto stack = std::get_if<StackInstrument> (&channel.instrument))
+        if (auto master = getStackMaster (*stack))
+            sampler = &master->sampler;
+
     return sampler != nullptr && ! sampler->layers.empty() ? &sampler->layers.front() : nullptr;
+}
+
+const StackLayer* getStackMaster (const StackInstrument& stack)
+{
+    for (auto& l : stack.layers)
+        if (l.master)
+            return &l;
+
+    return stack.layers.empty() ? nullptr : &stack.layers.front();
+}
+
+std::vector<const SamplerLayer*> getSampleLayers (const Channel& channel)
+{
+    std::vector<const SamplerLayer*> layers;
+
+    if (auto sampler = std::get_if<SamplerInstrument> (&channel.instrument))
+        for (auto& l : sampler->layers)
+            layers.push_back (&l);
+
+    if (auto stack = std::get_if<StackInstrument> (&channel.instrument))
+        for (auto& s : stack->layers)
+            for (auto& l : s.sampler.layers)
+                layers.push_back (&l);
+
+    return layers;
 }
 
 } // namespace gk::model

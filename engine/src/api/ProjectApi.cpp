@@ -289,10 +289,18 @@ Json ApiHandler::importIntoProject (const std::string& method, const Json& param
     };
 
     for (auto& channel : project.channels)
+    {
         if (auto sampler = std::get_if<model::SamplerInstrument> (&channel.instrument))
             for (auto& layer : sampler->layers)
                 if (auto path = collect (layer.sample))
-                    commands.push_back (model::UpdateSamplerLayer { channel.id, layer.id, Json { { "sample", *path } } });
+                    commands.push_back (model::UpdateSamplerLayer { channel.id, {}, layer.id, Json { { "sample", *path } } });
+
+        if (auto stack = std::get_if<model::StackInstrument> (&channel.instrument))
+            for (auto& s : stack->layers)
+                for (auto& layer : s.sampler.layers)
+                    if (auto path = collect (layer.sample))
+                        commands.push_back (model::UpdateSamplerLayer { channel.id, s.id, layer.id, Json { { "sample", *path } } });
+    }
 
     if (! commands.empty())
         session.execute (commands, { "ui", {}, "Collect samples into the project" });

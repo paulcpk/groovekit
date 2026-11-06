@@ -15,6 +15,7 @@
 #include "effects/EffectPlugin.h"
 #include "sampler/AudioChannelPlugin.h"
 #include "sampler/SamplerPlugin.h"
+#include "sampler/Stack.h"
 
 #include <fstream>
 
@@ -486,6 +487,56 @@ bool LiveEngine::applyToLiveEdit (const Change& change)
             || (keys.size() == 3 && keys[0] == "playlist" && keys[1] == "rows" && op.op == PatchOpOp::add && op.value && op.value->empty()))
             continue;
 
+        // /channels/<i>/instrument/...: a multi-sampler's drive, its layers' mix, mute and solo, and
+        // their samplers' settings change while it plays; how layers are laid out rebuilds.
+        if (keys.size() >= 4 && keys[0] == "channels" && keys[2] == "instrument" && index (keys[1]) && *index (keys[1]) < project.channels.size()
+            && std::holds_alternative<StackInstrument> (project.channels[*index (keys[1])].instrument))
+        {
+            const auto& channel = project.channels[*index (keys[1])];
+            const auto& stack = std::get<StackInstrument> (channel.instrument);
+            const auto projectDir = session.getProjectDir().value_or (std::filesystem::temp_directory_path() / "groovekit");
+            static const std::set<std::string> live { "mix", "mute", "solo", "name" };
+            static const std::set<std::string> prepared { "sample", "start", "end", "reverse", "transpose", "fineTune", "sourceTempo", "resample" };
+
+            if (keys[3] == "drive" || (keys[3] == "layers" && keys.size() >= 6 && live.contains (keys[5]))) {}
+            else if (keys[3] == "layers" && keys.size() >= 7 && keys[5] == "sampler")
+            {
+                const auto l = index (keys[4]);
+                if (! l || *l >= stack.layers.size()) return false;
+                const auto& layer = stack.layers[*l];
+
+                // Loops play a prepared copy of the sample's part: changing which part, or how it's fitted, rebuilds.
+                if (stack.mode == StackInstrumentMode::loops
+                     && (keys[6] != "layers" || keys.size() < 9 || (keys[7] == "0" && prepared.contains (keys[8]))))
+                    return false;
+
+                if (auto it = compiled.plugins.find ("channel:" + channel.id + "/" + layer.id); it != compiled.plugins.end())
+                    if (auto plugin = dynamic_cast<sampler::SamplerPlugin*> (it->second))
+                        actions.push_back ([plugin, instrument = layer.sampler, projectDir] { plugin->setInstrument (instrument, projectDir); });
+
+                if (auto it = compiled.stackAudioPlugins[channel.id].find (layer.id); it != compiled.stackAudioPlugins[channel.id].end())
+                    for (auto plugin : it->second)
+                        actions.push_back ([plugin, instrument = layer.sampler] { plugin->updateInstrument (instrument); });
+            }
+            else
+                return false;
+
+            // The levels again: each layer's fader and the output's trim.
+            actions.push_back ([this, id = channel.id, stack, projectDir, tempo = project.tempo]
+            {
+                const auto mix = sampler::mixStack (stack, projectDir, tempo);
+
+                if (auto it = compiled.stackOutputs.find (id); it != compiled.stackOutputs.end())
+                    it->second->setMix (mix.trimDb, mix.peak, stack.drive);
+
+                for (auto& [layer, faders] : compiled.stackLayerFaders[id])
+                    if (auto m = mix.layers.find (layer); m != mix.layers.end())
+                        for (auto fader : faders)
+                            fader->setVolumeDb (static_cast<float> (m->second.gainDb));
+            });
+            continue;
+        }
+
         // /channels/<i>/instrument/...: a sampler takes its new settings while it plays.
         if (keys.size() >= 4 && keys[0] == "channels" && keys[2] == "instrument")
         {
@@ -715,8 +766,15 @@ bool LiveEngine::canFillPatternClip (const PatternClip& pc) const
 
     // A channel that played no notes has no track (and its sampler isn't loaded): a rebuild.
     for (auto& note : pattern->notes)
+    {
         if (! compiled.channelTracks.contains (note.channel))
             return false;
+
+        // A multi-sampler of loops plays no notes: they'd go nowhere either way.
+        if (auto channel = findChannel (session.getProject(), note.channel))
+            if (auto stack = std::get_if<StackInstrument> (&channel->instrument); stack != nullptr && stack->mode == StackInstrumentMode::loops)
+                return false;
+    }
 
     return true;
 }
@@ -732,14 +790,36 @@ void LiveEngine::fillPatternClip (const PatternClip& pc)
         for (auto& note : pattern->notes)
             channels.insert (note.channel);
 
-    // The clip for each channel is named "<clip>:<channel>" (ids hold no colons).
-    const auto channelOf = [&] (const te::Clip& c) { return c.getName().toStdString().substr (pc.id.size() + 1); };
+    // The clip for each channel is named "<clip>:<channel>" (ids hold no colons), a multi-sampler
+    // layer's "<clip>:<channel>/<layer>".
+    const auto nameOf = [&] (const te::Clip& c) { return c.getName().toStdString().substr (pc.id.size() + 1); };
+    const auto channelOf = [&] (const std::string& name) { return name.substr (0, name.find ('/')); };
     const te::ClipPosition position { { toTime (pc.start), toTime (pc.start + pc.length) }, {} };
+
+    // A multi-sampler layer's notes play at its offset.
+    const auto shiftOf = [&] (const std::string& name) -> Ticks
+    {
+        const auto slash = name.find ('/');
+
+        if (slash == std::string::npos)
+            return 0;
+
+        if (auto channel = findChannel (project, name.substr (0, slash)))
+            if (auto stack = std::get_if<StackInstrument> (&channel->instrument))
+                for (auto& l : stack->layers)
+                    if (l.id == name.substr (slash + 1))
+                        return stackShift (project, l);
+
+        return 0;
+    };
+
+    std::set<Id> filled;
 
     for (auto it = clips.begin(); it != clips.end();)
     {
         auto* clip = *it;
-        const auto channel = channelOf (*clip);
+        const auto name = nameOf (*clip);
+        const auto channel = channelOf (name);
 
         if (! channels.contains (channel))
         {
@@ -751,28 +831,38 @@ void LiveEngine::fillPatternClip (const PatternClip& pc)
         if (auto midiClip = dynamic_cast<te::MidiClip*> (clip))
         {
             midiClip->setPosition (position);
-            gk::fillPatternClip (*midiClip, project, *pattern, pc, channel);
+            gk::fillPatternClip (*midiClip, project, *pattern, pc, channel, shiftOf (name));
         }
 
-        channels.erase (channel);
+        filled.insert (channel);
         ++it;
     }
 
     for (auto& channel : channels)
     {
-        auto track = compiled.channelTracks.find (channel);
-
-        if (track == compiled.channelTracks.end())
+        if (filled.contains (channel))
             continue;
 
-        auto midiClip = track->second->insertMIDIClip (pc.id + ":" + channel, position.time, nullptr);
+        // A channel's own track, or each multi-sampler layer's.
+        std::vector<std::pair<std::string, te::AudioTrack*>> tracks;
 
-        if (midiClip == nullptr)
-            continue;
+        if (auto layers = compiled.stackLayerTracks.find (channel); layers != compiled.stackLayerTracks.end())
+            for (auto& [layer, track] : layers->second)
+                tracks.push_back ({ channel + "/" + layer, track });
+        else if (auto track = compiled.channelTracks.find (channel); track != compiled.channelTracks.end())
+            tracks.push_back ({ channel, track->second });
 
-        gk::fillPatternClip (*midiClip, project, *pattern, pc, channel);
-        midiClip->setMuted (! isClipAudible (project, Clip { pc }));
-        clips.push_back (midiClip.get());
+        for (auto& [name, track] : tracks)
+        {
+            auto midiClip = track->insertMIDIClip (pc.id + ":" + name, position.time, nullptr);
+
+            if (midiClip == nullptr)
+                continue;
+
+            gk::fillPatternClip (*midiClip, project, *pattern, pc, channel, shiftOf (name));
+            midiClip->setMuted (! isClipAudible (project, Clip { pc }));
+            clips.push_back (midiClip.get());
+        }
     }
 }
 
@@ -1799,10 +1889,21 @@ void LiveEngine::routeLiveInput()
         return;
 
     te::AudioTrack* target = nullptr;
+    std::vector<te::AudioTrack*> targets;
 
     if (liveChannel)
+    {
         if (auto it = compiled.channelTracks.find (*liveChannel); it != compiled.channelTracks.end())
             target = it->second;
+
+        // A multi-sampler is played on every layer.
+        if (auto it = compiled.stackLayerTracks.find (*liveChannel); it != compiled.stackLayerTracks.end())
+            for (auto& [layer, track] : it->second)
+                targets.push_back (track);
+
+        if (targets.empty() && target != nullptr)
+            targets.push_back (target);
+    }
 
     bool keyboardRouted = false;
 
@@ -1820,8 +1921,9 @@ void LiveEngine::routeLiveInput()
         if (target == nullptr || ! device.isEnabled())
             continue;
 
-        if (auto destination = instance->setTarget (target->itemID, false, nullptr))
-            (*destination)->recordEnabled = false;
+        for (auto* t : targets)
+            if (auto destination = instance->setTarget (t->itemID, false, nullptr))
+                (*destination)->recordEnabled = false;
 
         device.setMonitorMode (te::InputDevice::MonitorMode::on);
         instance->addConsumer (&capture);

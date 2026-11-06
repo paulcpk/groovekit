@@ -76,14 +76,55 @@ namespace
             return join (base, indexOf (base, send, "send"));
         }
 
-        std::string layerPath (const Id& channel, const Id& layer) const
+        /** A multi-sampler's layer. */
+        std::string stackLayerPath (const Id& channel, const Id& layer) const
         {
-            auto base = channelPath (channel) + "/instrument/layers";
+            auto base = channelPath (channel) + "/instrument";
+
+            if (at (base).value ("type", "") != "stack")
+                throw CommandError ("channel \"" + channel + "\" isn't a multi-sampler");
+
+            return join (base + "/layers", indexOf (base + "/layers", layer, "multi-sampler layer"));
+        }
+
+        /** The sampler a sampler command changes: the channel's, or with stackLayer, that
+            multi-sampler layer's. */
+        std::string samplerPath (const Id& channel, const std::optional<Id>& stackLayer) const
+        {
+            if (stackLayer)
+                return stackLayerPath (channel, *stackLayer) + "/sampler";
+
+            auto base = channelPath (channel) + "/instrument";
+            const auto type = at (base).value ("type", "");
+
+            if (type == "stack")
+                throw CommandError ("channel \"" + channel + "\" is a multi-sampler: name the layer (stackLayer)");
+
+            if (type != "sampler")
+                throw CommandError ("channel \"" + channel + "\" isn't a sampler");
+
+            return base;
+        }
+
+        std::string layerPath (const Id& channel, const Id& layer, const std::optional<Id>& stackLayer = {}) const
+        {
+            auto base = samplerPath (channel, stackLayer) + "/layers";
 
             if (! has (base))
                 throw CommandError ("channel \"" + channel + "\" isn't a sampler");
 
             return join (base, indexOf (base, layer, "sampler layer"));
+        }
+
+        /** Makes the layer at path the multi-sampler's only master. */
+        void onlyMaster (const std::string& layerPath)
+        {
+            const auto base = layerPath.substr (0, layerPath.rfind ('/'));
+            auto& layers = array (base);
+
+            for (size_t i = 0; i < layers.size(); ++i)
+                if (join (base, i) != layerPath && layers[i].value ("master", false))
+                    tx.add (join (join (base, i), "master"), false);
         }
 
         void ensureUnique (const std::string& arrayPath, const Json& item, const char* what) const
@@ -262,7 +303,7 @@ namespace
 
         void operator() (const UpdateInstrument& c)
         {
-            auto base = e.channelPath (c.channel) + "/instrument";
+            auto base = c.stackLayer ? e.samplerPath (c.channel, c.stackLayer) : e.channelPath (c.channel) + "/instrument";
 
             if (e.at (base).value ("type", "") == "plugin")
                 throw CommandError ("channel \"" + c.channel + "\" plays a plugin: its settings are the plugin's");
@@ -272,18 +313,57 @@ namespace
 
         void operator() (const AddSamplerLayer& c)
         {
-            auto base = e.channelPath (c.channel) + "/instrument";
-
-            if (e.at (base).value ("type", "") != "sampler")
-                throw CommandError ("channel \"" + c.channel + "\" isn't a sampler");
-
+            auto base = e.samplerPath (c.channel, c.stackLayer);
             auto item = toJson (c.layer);
             e.ensureUnique (base + "/layers", item, "sampler layer");
             e.insertAt (base + "/layers", std::move (item), c.index);
         }
 
-        void operator() (const UpdateSamplerLayer& c)   { e.applyChanges (e.layerPath (c.channel, c.layer), c.changes); }
-        void operator() (const RemoveSamplerLayer& c)   { e.tx.remove (e.layerPath (c.channel, c.layer)); }
+        void operator() (const UpdateSamplerLayer& c)   { e.applyChanges (e.layerPath (c.channel, c.layer, c.stackLayer), c.changes); }
+        void operator() (const RemoveSamplerLayer& c)   { e.tx.remove (e.layerPath (c.channel, c.layer, c.stackLayer)); }
+
+        void operator() (const AddStackLayer& c)
+        {
+            auto base = e.channelPath (c.channel) + "/instrument";
+
+            if (e.at (base).value ("type", "") != "stack")
+                throw CommandError ("channel \"" + c.channel + "\" isn't a multi-sampler");
+
+            auto item = toJson (c.layer);
+            e.ensureUnique (base + "/layers", item, "multi-sampler layer");
+            e.insertAt (base + "/layers", std::move (item), c.index);
+
+            if (c.layer.master)
+            {
+                auto& layers = e.array (base + "/layers");
+
+                for (size_t i = 0; i < layers.size(); ++i)
+                    if (layers[i].value ("id", "") != c.layer.id && layers[i].value ("master", false))
+                        e.tx.add (join (join (base + "/layers", i), "master"), false);
+            }
+        }
+
+        void operator() (const UpdateStackLayer& c)
+        {
+            const auto path = e.stackLayerPath (c.channel, c.layer);
+            e.applyChanges (path, c.changes, { "id" });
+
+            if (c.changes.value ("master", false))
+                e.onlyMaster (path);
+        }
+
+        void operator() (const RemoveStackLayer& c)
+        {
+            const auto path = e.stackLayerPath (c.channel, c.layer);
+
+            // Its mix's automation goes with it.
+            e.removeAutomation ([&] (const Json& t)
+            {
+                return t.value ("scope", "") == "channel" && t.value ("channel", "") == c.channel && t.value ("param", "") == "mix:" + c.layer;
+            });
+
+            e.tx.remove (path);
+        }
 
         void operator() (const AddPattern& c)
         {
@@ -597,6 +677,9 @@ std::string describeCommand (const Command& command)
         else if constexpr (std::is_same_v<T, AddSamplerLayer>)  return "Add layer " + c.layer.id + " to " + c.channel;
         else if constexpr (std::is_same_v<T, UpdateSamplerLayer>) return "Update layer " + c.layer + " of " + c.channel;
         else if constexpr (std::is_same_v<T, RemoveSamplerLayer>) return "Remove layer " + c.layer + " from " + c.channel;
+        else if constexpr (std::is_same_v<T, AddStackLayer>)    return "Add " + c.layer.id + " to " + c.channel;
+        else if constexpr (std::is_same_v<T, UpdateStackLayer>) return "Update " + c.layer + " of " + c.channel;
+        else if constexpr (std::is_same_v<T, RemoveStackLayer>) return "Remove " + c.layer + " from " + c.channel;
         else if constexpr (std::is_same_v<T, AddPattern>)       return "Add pattern " + c.pattern.id;
         else if constexpr (std::is_same_v<T, UpdatePattern>)    return "Update pattern " + c.pattern;
         else if constexpr (std::is_same_v<T, RemovePattern>)    return "Remove pattern " + c.pattern;

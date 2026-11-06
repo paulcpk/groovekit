@@ -6,7 +6,8 @@
 import { create } from "zustand";
 
 export type WindowSpec =
-  | { kind: "channel"; channel: string }
+  /** A channel's sampler or multi-sampler; with layer, that multi-sampler layer's sampler. */
+  | { kind: "channel"; channel: string; layer?: string }
   | { kind: "effect"; insert: string; effect: string }
   /** A style guide by id; "" for a new one. */
   | { kind: "guide"; guide: string }
@@ -70,7 +71,8 @@ export function windowKey(spec: WindowSpec) {
   if (spec.kind === "map") return `map:${spec.id}`;
   if (spec.kind === "pick") return `pick:${spec.id}`;
   if (spec.kind === "master") return "master";
-  return spec.kind === "channel" ? `channel:${spec.channel}` : `effect:${spec.insert}/${spec.effect}`;
+  if (spec.kind === "channel") return spec.layer ? `channel:${spec.channel}/${spec.layer}` : `channel:${spec.channel}`;
+  return `effect:${spec.insert}/${spec.effect}`;
 }
 
 export function openWindow(spec: WindowSpec) {

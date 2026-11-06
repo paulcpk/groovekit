@@ -417,6 +417,7 @@ Json ApiHandler::dispatch (const std::string& method, const Json& params, Client
         { "notes.",      [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callNotes (m, p); } },
         { "guides.",     [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callGuides (m, p); } },
         { "suggestions.", [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callSuggestions (m, p); } },
+        { "stack.",      [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { auto q = p; q["origin"] = c.origin; return h.callStack (m, q); } },
         { "presets.",    [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callPresets (m, p); } },
         { "library.",    [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callLibrary (m.substr (8), p); } },
         { "plugins.",    [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callPlugins (m.substr (8), p, c); } },
