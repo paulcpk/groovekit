@@ -181,7 +181,7 @@ export interface Methods {
   "mix.check": { params: Params; result: Record<string, unknown> };
   "mix.audition": { params: Params; result: { candidates: Record<string, unknown>[] } & Record<string, unknown> };
   "suggestions.get": { params: { part?: string; limit?: number; full?: boolean }; result: Suggestions };
-  "suggestions.configure": { params: { enabled?: boolean; tries?: number }; result: Suggestions };
+  "suggestions.configure": { params: { enabled?: boolean; choices?: number }; result: Suggestions };
   "suggestions.refresh": { params: Params; result: Suggestions };
 }
 
@@ -190,8 +190,8 @@ export interface Suggestions {
   enabled: boolean;
   /** Whether the setting was ever made (the app turns it on when it wasn't). */
   chosen: boolean;
-  /** How many of each list are tried in the song. */
-  tries: number;
+  /** Sounds the user picks from at once: each list holds two rounds of them, all tried in the song. */
+  choices: number;
   state: "off" | "waiting" | "finding" | "trying" | "ready";
   reason?: string;
   style?: string;

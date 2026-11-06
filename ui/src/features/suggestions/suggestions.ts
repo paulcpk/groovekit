@@ -1,7 +1,7 @@
 // Sounds the engine picks out for the song in the background (suggestions.*): what's ready, for the
 // browser's "For this song" folder, the settings and the agent's view of the app. On by default:
-// the first time an engine says the setting was never made, the app turns it on. The number tried
-// in the song per list follows the number of sounds the agent offers to pick from.
+// the first time an engine says the setting was never made, the app turns it on. Each list holds two
+// rounds of the number of sounds the agent offers to pick from.
 
 import type { Suggestions } from "@groovekit/mcp/src/engine.ts";
 import { create } from "zustand";
@@ -27,8 +27,8 @@ async function refresh() {
     const { wantFull } = useSuggestions.getState();
     const result = await engine.call("suggestions.get", wantFull ? { full: true } : {});
     if (!result.chosen) {
-      // Never set on this Mac: on, trying as many per list as the agent offers.
-      const configured = await engine.call("suggestions.configure", { enabled: true, tries: useAgentChoices.getState().choices });
+      // Never set on this Mac: on, with two rounds of as many as the agent offers.
+      const configured = await engine.call("suggestions.configure", { enabled: true, choices: useAgentChoices.getState().choices });
       useSuggestions.setState({ status: configured });
     } else {
       useSuggestions.setState(wantFull ? { status: result, full: result } : { status: result });
@@ -47,7 +47,7 @@ async function refresh() {
 
 /** Turns the background work on or off. */
 export async function setSuggestionsEnabled(enabled: boolean) {
-  const status = await engine.call("suggestions.configure", { enabled, tries: useAgentChoices.getState().choices });
+  const status = await engine.call("suggestions.configure", { enabled, choices: useAgentChoices.getState().choices });
   useSuggestions.setState({ status });
   void refresh();
 }
@@ -75,7 +75,7 @@ export function syncSuggestions() {
     }),
     useAgentChoices.subscribe((s, before) => {
       if (s.choices !== before.choices && useSuggestions.getState().status?.enabled) {
-        void engine.call("suggestions.configure", { tries: s.choices }).then(() => soon(), () => {});
+        void engine.call("suggestions.configure", { choices: s.choices }).then(() => soon(), () => {});
       }
     }),
   ];

@@ -291,7 +291,7 @@ function AgentSettings() {
   );
 }
 
-/** Sounds picked out for the song in the background: on or off, and how far along it is. */
+/** Proactive Sound Suggestion: sounds picked out for the song in the background, on or off, and how far along it is. */
 function SuggestionSettings() {
   const status = useSuggestions((s) => s.status);
   if (!status) return null;
@@ -309,14 +309,13 @@ function SuggestionSettings() {
       <label className="flex items-center gap-2">
         <input type="checkbox" checked={status.enabled} className="accent-[var(--color-accent)]"
           onChange={(e) => void setSuggestionsEnabled(e.target.checked)} />
-        <span className="text-fg">Have sounds ready for the song</span>
+        <span className="text-fg">Proactive Sound Suggestion</span>
       </label>
-      {now && <div className="text-2xs text-dim">{now}</div>}
       <div className="text-2xs text-faint">
-        While you work, GrooveKit ranks your library for every part the song could use next (hats, claps, percussion, bass, synths…) by your style and taste,
-        and tries the best {status.tries} of each in the song, so the agent can offer them at once instead of searching first. They're in the Browser under
-        For this song. It works for a little while after each change; turn it off if your Mac needs the power for something else.
+        While you work, GrooveKit picks out {status.choices * 2} sounds for each part your song could use next (two rounds of {status.choices}) and tries them
+        in the song, so the agent offers them at once. Uses some processing power after each change.
       </div>
+      {now && <div className="text-2xs text-dim">{now}</div>}
     </div>
   );
 }

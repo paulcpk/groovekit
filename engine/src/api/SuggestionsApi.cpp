@@ -2,8 +2,10 @@
 // stood still for a few seconds, the library is ranked for every part it could use next (hat loops,
 // claps, percussion, bass and synth loops...) by how well each sample fits the song's style and the
 // user's taste, at the song's tempo and in its key, leaving out what the song already uses; then the
-// first few of each list are tried in the song (rendered with its busiest bars, as mix.audition
-// does), so the agent can put them to the user at once instead of searching and rendering first.
+// list is tried in the song (rendered with its busiest bars, as mix.audition does), so the agent can
+// put them to the user at once instead of searching and rendering first. A list holds two rounds of
+// choices (twice the sounds the user picks from at once): the first round of every list is tried
+// first, then the second, and the agent searches only once both are turned down.
 //
 // Off unless the user turns it on (the app does, by default); kept in <app data>/suggestions.json.
 // Only an engine serving the app works in the background (backgroundSuggestions).
@@ -66,7 +68,7 @@ namespace
         return specs;
     }
 
-    constexpr int listLength = 24;
+    constexpr int roundsPerList = 2;
     constexpr int quietMs = 5000;           // how long the song stands still before the lists are made again
     constexpr int barsTried = 8;
 
@@ -89,7 +91,7 @@ struct ApiHandler::Suggestions
     bool loaded = false;
     bool enabled = false;
     bool chosen = false;                // the setting was ever made: the app turns it on otherwise
-    int tries = 5;                      // tried in the song per list
+    int choices = 5;                    // sounds the user picks from at once: a list holds two rounds of them
 
     int64_t edits = 0;                  // changes to the song so far
     std::shared_ptr<std::atomic<bool>> round;   // the running round's: false once another starts
@@ -127,7 +129,7 @@ ApiHandler::Suggestions& ApiHandler::getSuggestions()
             {
                 const auto j = Json::parse (in);
                 s.enabled = j.value ("enabled", false);
-                s.tries = std::clamp (j.value ("tries", 5), 0, 20);
+                s.choices = std::clamp (j.value ("choices", 5), 2, 20);
                 s.chosen = true;
             }
         }
@@ -168,7 +170,7 @@ void ApiHandler::notifySuggestions()
 Json ApiHandler::suggestionsJson (bool full, const std::string& which, int limit)
 {
     auto& s = getSuggestions();
-    Json result { { "enabled", s.enabled }, { "chosen", s.chosen }, { "tries", s.tries }, { "state", s.state } };
+    Json result { { "enabled", s.enabled }, { "chosen", s.chosen }, { "choices", s.choices }, { "state", s.state } };
 
     if (! s.reason.empty())     result["reason"] = s.reason;
     if (! s.style.empty())      result["style"] = s.style;
@@ -196,8 +198,6 @@ Json ApiHandler::suggestionsJson (bool full, const std::string& which, int limit
         if (! matches)
             continue;
 
-        // Tries stand while the song hasn't changed since they were made.
-        const auto fresh = list.value ("triedAt", int64_t (-1)) == s.edits;
         auto samples = Json::array();
         int tried = 0;
 
@@ -210,8 +210,12 @@ Json ApiHandler::suggestionsJson (bool full, const std::string& which, int limit
 
             if (j.contains ("tried"))
             {
-                if (fresh && ! j["tried"].contains ("error"))
+                // A try stands while the song hasn't changed since it was made.
+                if (j["tried"].value ("at", int64_t (-1)) == s.edits && ! j["tried"].contains ("error"))
+                {
+                    j["tried"].erase ("at");
                     ++tried;
+                }
                 else
                     j.erase ("tried");
             }
@@ -258,13 +262,13 @@ Json ApiHandler::callSuggestions (const std::string& method, const Json& params)
             && std::none_of (listSpecs().begin(), listSpecs().end(), [&] (auto& spec) { return which == spec.id; }))
             throw RpcError (invalidParams, "part: a part (hats, percussion, clap, drums, bass, synth, vocal, fx, kick) or a list's id");
 
-        return suggestionsJson (params.value ("full", false) || ! which.empty(), which, params.value ("limit", listLength));
+        return suggestionsJson (params.value ("full", false) || ! which.empty(), which, params.value ("limit", 0));
     }
 
     if (method == "suggestions.configure")
     {
         if (params.contains ("enabled"))   s.enabled = readParam<bool> (params, "enabled");
-        if (params.contains ("tries"))     s.tries = std::clamp (readParam<int> (params, "tries"), 0, 20);
+        if (params.contains ("choices"))   s.choices = std::clamp (readParam<int> (params, "choices"), 2, 20);
 
         s.chosen = true;
 
@@ -272,7 +276,7 @@ Json ApiHandler::callSuggestions (const std::string& method, const Json& params)
         {
             const auto file = suggestionsSettingsFile();
             std::filesystem::create_directories (file.parent_path());
-            std::ofstream (file) << Json { { "enabled", s.enabled }, { "tries", s.tries } }.dump (2);
+            std::ofstream (file) << Json { { "enabled", s.enabled }, { "choices", s.choices } }.dump (2);
         }
         catch (const std::exception&)
         {
@@ -280,14 +284,7 @@ Json ApiHandler::callSuggestions (const std::string& method, const Json& params)
         }
 
         if (s.enabled)
-        {
-            // Tried again with the new number, the lists kept.
-            if (params.contains ("tries"))
-                for (auto& list : s.lists)
-                    list.erase ("triedAt");
-
-            startSuggestions();
-        }
+            startSuggestions();     // with another number of choices, the lists are made again
         else
         {
             if (s.round)
@@ -400,7 +397,8 @@ void ApiHandler::startSuggestions()
     // The parts the song doesn't have first: they're what it's most likely to want next.
     std::stable_sort (specs.begin(), specs.end(), [&] (auto& a, auto& b) { return ! parts.contains (a.part) && parts.contains (b.part); });
 
-    std::string signature = profile->name + "|" + std::to_string (project.tempo) + "|" + project.key.value_or ("") + "|";
+    const auto length = roundsPerList * s.choices;
+    std::string signature = std::to_string (length) + "|" + profile->name + "|" + std::to_string (project.tempo) + "|" + project.key.value_or ("") + "|";
 
     for (auto& u : used)
         signature += u + "\n";
@@ -457,7 +455,7 @@ void ApiHandler::startSuggestions()
         s.state = "finding";
         notifySuggestions();
 
-        steps->pooled ([listening = listening, specs, style = profile->name, tempo = project.tempo, songKey, used, parts, found]
+        steps->pooled ([listening = listening, specs, style = profile->name, tempo = project.tempo, songKey, used, parts, found, length]
         {
             for (auto& spec : specs)
             {
@@ -466,7 +464,7 @@ void ApiHandler::startSuggestions()
                     library::SampleQuery q;
                     q.category = spec.category;
                     q.loop = spec.loop;
-                    q.limit = listLength + static_cast<int> (used.size());
+                    q.limit = length + static_cast<int> (used.size());
 
                     if (strict && spec.atTempo)             q.tempo = tempo;
                     if (strict && spec.inKey && songKey)    q.fitsKey = songKey;
@@ -480,7 +478,7 @@ void ApiHandler::startSuggestions()
 
                     for (auto& r : results["results"])
                         if (! used.contains (std::filesystem::path (r["path"].get<std::string>()).lexically_normal().string())
-                            && r.value ("rating", std::string()) != "doesn't fit" && samples.size() < listLength)
+                            && r.value ("rating", std::string()) != "doesn't fit" && static_cast<int> (samples.size()) < length)
                             samples.push_back (brief (r));
 
                     return samples;
@@ -493,9 +491,9 @@ void ApiHandler::startSuggestions()
                     samples = find (true);
 
                     // Few at the song's tempo or in its key: the closest of the rest after them.
-                    if (samples.size() < 8 && (spec.atTempo || (spec.inKey && songKey)))
+                    if (static_cast<int> (samples.size()) < length / 2 && (spec.atTempo || (spec.inKey && songKey)))
                         for (auto& more : find (false))
-                            if (samples.size() < listLength
+                            if (static_cast<int> (samples.size()) < length
                                 && std::none_of (samples.begin(), samples.end(), [&] (auto& x) { return x["path"] == more["path"]; }))
                                 samples.push_back (more);
                 }
@@ -538,20 +536,26 @@ void ApiHandler::startSuggestions()
 
     steps->here ([this, round, rest, dir]
     {
-        if (! *round || suggestions->tries == 0)
+        if (! *round)
             return;
 
         suggestions->state = "trying";
         notifySuggestions();
 
         // Tries of earlier rounds (a pick window may still play one from the last half hour), and
-        // the song as rendered for them (each try links it in beside itself).
+        // the song as rendered for them (each try links it in beside itself), unless a round that
+        // was just called off may still be rendering it.
         std::error_code ec;
-        const auto cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::minutes (30);
+        const auto now = std::filesystem::file_time_type::clock::now();
 
         for (auto& f : std::filesystem::directory_iterator (getDefaultCacheDir() / "auditions" / "suggested", ec))
-            if (f.is_regular_file (ec) && (f.path().filename().string().starts_with ("song-") || f.last_write_time (ec) < cutoff))
+        {
+            const auto age = now - f.last_write_time (ec);
+            const auto song = f.path().filename().string().starts_with ("song-");
+
+            if (! ec && f.is_regular_file (ec) && age > (song ? std::chrono::minutes (10) : std::chrono::minutes (30)))
                 std::filesystem::remove (f.path(), ec);
+        }
 
         rest->edit.emplace (compileProject (context.getEngine(), rest->project, { dir, tracktion::Edit::forRendering }));
     });
@@ -578,7 +582,7 @@ void ApiHandler::startSuggestions()
         if (! *round)
             return;
 
-        if (error || suggestions->tries == 0 || suggestions->rest.empty())
+        if (error || suggestions->rest.empty())
         {
             suggestions->state = "ready";
             notifySuggestions();
@@ -586,32 +590,43 @@ void ApiHandler::startSuggestions()
         }
 
         notifySuggestions();
-        trySuggestions (round, edit, 0);
+        trySuggestions (round, edit, 1, 0);
     });
 }
 
-void ApiHandler::trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64_t edit, size_t next)
+void ApiHandler::trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64_t edit, int pass, size_t next)
 {
     auto& s = *suggestions;
+    auto fresh = [edit] (const Json& x) { return x.contains ("tried") && x["tried"].value ("at", int64_t (-1)) == edit; };
 
-    // The next list not tried for this song yet.
-    while (next < s.lists.size() && s.lists[next].value ("triedAt", int64_t (-1)) == edit)
-        ++next;
+    // The next list with sounds of this round (the first choices, then the second) not tried in the
+    // song as it is: every list's first round before any second.
+    auto paths = Json::array();
+
+    for (; next < s.lists.size(); ++next)
+    {
+        auto& samples = s.lists[next]["samples"];
+        auto tried = static_cast<int> (std::count_if (samples.begin(), samples.end(), fresh));
+
+        for (auto& sample : samples)
+            if (tried + static_cast<int> (paths.size()) < pass * s.choices && ! fresh (sample))
+                paths.push_back (sample["path"]);
+
+        if (! paths.empty())
+            break;
+    }
 
     if (next >= s.lists.size())
     {
+        if (pass < roundsPerList)
+            return trySuggestions (round, edit, pass + 1, 0);
+
         s.state = "ready";
         notifySuggestions();
         return;
     }
 
     auto& list = s.lists[next];
-    auto paths = Json::array();
-
-    for (auto& sample : list["samples"])
-        if (static_cast<int> (paths.size()) < s.tries)
-            paths.push_back (sample["path"]);
-
     const auto bar = model::ticksPerBar (session.getProject().timeSignature);
     const auto from = (s.bars[0].get<int64_t>() - 1) * bar;
     const Json params { { "paths", paths }, { "part", list["part"] }, { "start", from }, { "end", from + barsTried * bar } };
@@ -630,11 +645,15 @@ void ApiHandler::trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64
 
     if (steps == nullptr)
     {
-        list["triedAt"] = edit;
-        return trySuggestions (round, edit, next + 1);
+        // Not tried: noted so, for this song, so the round goes on.
+        for (auto& sample : list["samples"])
+            if (std::find (paths.begin(), paths.end(), sample["path"]) != paths.end())
+                sample["tried"] = { { "error", "couldn't be tried" }, { "at", edit } };
+
+        return trySuggestions (round, edit, pass, next + 1);
     }
 
-    steps->runLater (context, round, [this, steps, round, edit, next, id] (std::exception_ptr error)
+    steps->runLater (context, round, [this, steps, round, edit, pass, next, id, paths] (std::exception_ptr error)
     {
         if (! *round)
             return;
@@ -645,6 +664,11 @@ void ApiHandler::trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64
         {
             auto& list = s.lists[next];
 
+            // Anything not tried (the whole try failed) counts as tried for this song, so it's not tried again.
+            for (auto& sample : list["samples"])
+                if (std::find (paths.begin(), paths.end(), sample["path"]) != paths.end())
+                    sample["tried"] = { { "error", "couldn't be tried" }, { "at", edit } };
+
             if (! error && steps->result.contains ("candidates"))
             {
                 // Each try onto its sample: the audition file, how much room it has in the mix
@@ -654,16 +678,18 @@ void ApiHandler::trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64
                         if (sample["path"] == t.value ("path", Json()))
                         {
                             if (t.contains ("error"))
-                                sample["tried"] = { { "error", t["error"] } };
+                                sample["tried"] = { { "error", t["error"] }, { "at", edit } };
                             else
                                 sample["tried"] = { { "audition", t.value ("file", "") }, { "room", t.value ("fit", 0) },
-                                                    { "covers", t.value ("covers", Json::array()) }, { "levelDb", t.value ("levelDb", 0.0) } };
+                                                    { "covers", t.value ("covers", Json::array()) }, { "levelDb", t.value ("levelDb", 0.0) },
+                                                    { "at", edit } };
                         }
 
-                // Those tried first, by how they fit the style and sit in the song together.
-                auto score = [] (const Json& x)
+                // Those tried first, by how they fit the style and sit in the song together: the
+                // first round is the best of what's been tried.
+                auto score = [edit] (const Json& x)
                 {
-                    if (! x.contains ("tried") || x["tried"].contains ("error"))
+                    if (! x.contains ("tried") || x["tried"].value ("at", int64_t (-1)) != edit || x["tried"].contains ("error"))
                         return -1.0;
 
                     return 0.65 * std::clamp (x.value ("fit", 0.0), 0.0, 100.0) + 0.35 * x["tried"].value ("room", 0.0);
@@ -673,11 +699,10 @@ void ApiHandler::trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64
                 std::stable_sort (samples.begin(), samples.end(), [&] (const Json& a, const Json& b) { return score (a) > score (b); });
             }
 
-            list["triedAt"] = edit;
             notifySuggestions();
         }
 
-        trySuggestions (round, edit, next + 1);
+        trySuggestions (round, edit, pass, next + 1);
     });
 }
 

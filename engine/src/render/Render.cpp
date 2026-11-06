@@ -11,7 +11,13 @@ namespace
     void trimStart (const juce::File& source, const juce::File& dest, double seconds, int bitDepth)
     {
         juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatReader> reader (wav.createReaderFor (source.createInputStream().release(), true));
+        auto stream = source.createInputStream();
+
+        // Gone (removed while it was being rendered): a reader of nothing would crash.
+        if (stream == nullptr)
+            throw std::runtime_error ("Render failed: can't read " + source.getFullPathName().toStdString());
+
+        std::unique_ptr<juce::AudioFormatReader> reader (wav.createReaderFor (stream.release(), true));
 
         if (reader == nullptr)
             throw std::runtime_error ("Render failed: can't read " + source.getFullPathName().toStdString());

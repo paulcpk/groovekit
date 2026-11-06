@@ -198,8 +198,8 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     expect(off.value).toMatchObject({ enabled: false, chosen: false, state: "off", lists: [] });
 
     // On, it waits for what it needs: here the listening models.
-    const on = await engine.call("suggestions.configure", { enabled: true, tries: 3 });
-    expect(on).toMatchObject({ enabled: true, chosen: true, tries: 3, state: "waiting" });
+    const on = await engine.call("suggestions.configure", { enabled: true, choices: 3 });
+    expect(on).toMatchObject({ enabled: true, chosen: true, choices: 3, state: "waiting" });
     expect(on.reason).toContain("hear the sample library");
     expect((await call("suggested_sounds", { part: "hats" })).value.lists).toEqual([]);
     expect((await call("suggested_sounds", { part: "bongos" })).error).toContain("part:");

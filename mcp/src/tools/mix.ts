@@ -196,7 +196,7 @@ export function registerMixTools({ server, engine, groups, barRange }: Tools) {
                     choice: -1, chosen: "another round", shown,
                     next: shown >= SHOWN_CEILING
                       ? `None of ${shown} sounds fit this part. Don't offer more of the same: tell the user how many you've been through and ask which way to go instead (other words for the sound, another kind of sound or instrument, another part, or leave it out), then wait for their answer.`
-                      : `None of these: offer ${candidates.length} more for the same part, different from every sound offered for it so far (${shown} by now), with again: true.`,
+                      : `None of these: offer ${candidates.length} more for the same part, different from every sound offered for it so far (${shown} by now), with again: true. Take them from suggested_sounds' list for the part while it has sounds not offered yet (its second round, already tried in the song); search only once the list's two rounds are turned down.`,
                   };
                 }
                 // None of them: one more round of different sounds, then on without the part.
@@ -204,7 +204,7 @@ export function registerMixTools({ server, engine, groups, barRange }: Tools) {
                   choice: -1, chosen: "none of them",
                   next: again
                     ? "None fit a second time: go on without this part (add no sound for it). When the rest is done, tell the user it's left out and that they can ask for it again."
-                    : "None of these fit: search once more for the same part with different sounds (other words, folders or fit; none of the ones just offered), then offer_choice again with again: true.",
+                    : "None of these fit: offer the next ones for the same part (none of the ones just offered), with again: true: from suggested_sounds' list for the part while it has sounds not offered yet (its second round), else search once more with different sounds (other words, folders or fit).",
                 };
               }
               // Until the engine says, or a while has passed (in case a notification was missed).

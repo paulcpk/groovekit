@@ -188,7 +188,7 @@ private:
     model::Json suggestionsJson (bool full, const std::string& which, int limit);
     void songChangedForSuggestions();
     void startSuggestions();
-    void trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64_t edit, size_t next);
+    void trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64_t edit, int pass, size_t next);
     void stopSuggestions();
     void notifySuggestions();
 
