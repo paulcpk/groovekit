@@ -1,4 +1,4 @@
-import { AudioWaveform, ChevronRight, Folder, FolderOpen, FolderOpenDot, KeyboardMusic, Music, SlidersHorizontal, Waves } from "lucide-react";
+import { AudioWaveform, ChevronRight, Folder, FolderOpen, FolderOpenDot, KeyboardMusic, Music, SlidersHorizontal, Sparkles, Waves } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StarterSamples } from "./StarterSamples";
 import { addInstrument, endInstrumentDrag, instrumentName, SAMPLER, startInstrumentDrag, type InstrumentChoice } from "@/features/rack/instruments";
@@ -10,6 +10,7 @@ import { uniqueId } from "@/lib/model";
 import { engine, execute, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { ROW_H, Sample, SampleRow } from "./SampleRow";
+import { useSuggestions, wantFullSuggestions } from "@/features/suggestions/suggestions";
 
 export interface Listing {
   folders: { path: string; name: string; samples: number }[];
@@ -21,11 +22,11 @@ interface EffectPreset { name: string; params: Record<string, number>; mix?: num
 
 /** One line of the tree. Keys name what's expanded; sample folders use their path. */
 export type Row =
-  | { kind: "root"; key: "projects" | "instruments" | "presets" | "samples"; name: string; depth: 0 }
+  | { kind: "root"; key: "suggested" | "projects" | "instruments" | "presets" | "samples"; name: string; depth: 0; right?: string }
   | { kind: "instrument"; choice: InstrumentChoice; depth: number }
   | { kind: "project"; project: ProjectEntry; current: boolean; depth: number }
   | { kind: "plugin"; plugin: PluginInfo; key: string; depth: number }
-  | { kind: "category"; key: string; name: string; depth: number }
+  | { kind: "category"; key: string; name: string; depth: number; right?: string }
   | { kind: "pluginPreset"; plugin: PluginInfo; preset: string; depth: number }
   | { kind: "effectKind"; key: string; effect: string; name: string; depth: number }
   | { kind: "effectPreset"; effect: string; preset: EffectPreset; user: boolean; depth: number }
@@ -68,6 +69,15 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
   const [height, setHeight] = useState(400);
   const box = useRef<HTMLDivElement>(null);
   const loading = useRef(new Set<string>());
+  const suggested = useSuggestions((s) => s.status);
+  const suggestedLists = useSuggestions((s) => s.full?.lists);
+
+  // The suggestions in full only while their folder is open.
+  const showSuggested = !!suggested?.enabled && expanded.has("suggested");
+  useEffect(() => {
+    wantFullSuggestions(showSuggested);
+    return () => wantFullSuggestions(false);
+  }, [showSuggested]);
 
   const once = useCallback((key: string, run: () => Promise<void>) => {
     if (loading.current.has(key)) return;
@@ -143,7 +153,7 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
         const kind = key.slice(7);
         if (!effectPresets.has(kind)) once(key, () => engine.call<{ factory: EffectPreset[]; user: EffectPreset[] }>("presets.list", { kind })
           .then((r) => setEffectPresets((m) => new Map(m).set(kind, r))));
-      } else if (!key.includes(":") && !["projects", "instruments", "presets", "samples", "effects"].includes(key) && !listings.has(key)) {
+      } else if (!key.includes(":") && !["suggested", "projects", "instruments", "presets", "samples", "effects"].includes(key) && !listings.has(key)) {
         load(key);
       }
     }
@@ -151,6 +161,22 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
 
   const rows = useMemo(() => {
     const out: Row[] = [];
+
+    // What the engine picked out for the song in the background, list by list.
+    if (suggested?.enabled) {
+      const working = suggested.state === "finding" || suggested.state === "trying";
+      out.push({ kind: "root", key: "suggested", name: "For this song", depth: 0, right: working ? "working…" : undefined });
+      if (expanded.has("suggested")) {
+        const lists = (suggestedLists ?? []).filter((l) => l.count > 0);
+        if (suggested.state === "waiting") out.push({ kind: "note", text: `Waiting: ${suggested.reason ?? "for the song"}`, depth: 1 });
+        else if (!lists.length) out.push({ kind: "note", text: working ? "Finding sounds…" : "Nothing yet", depth: 1 });
+        for (const list of lists) {
+          const key = `suggested:${list.id}`;
+          out.push({ kind: "category", key, name: list.label, depth: 1, right: list.tried ? `${list.count} · ${list.tried} tried` : String(list.count) });
+          if (expanded.has(key)) for (const sample of (list.samples ?? []) as Sample[]) out.push({ kind: "sample", sample, depth: 1, parent: key });
+        }
+      }
+    }
 
     out.push({ kind: "root", key: "projects", name: "Projects", depth: 0 });
     if (expanded.has("projects")) {
@@ -224,7 +250,7 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
     }
 
     return out;
-  }, [listings, expanded, projects, project, plugins, instruments, pluginPresets, effectPresets]);
+  }, [listings, expanded, projects, project, plugins, instruments, pluginPresets, effectPresets, suggested, suggestedLists]);
 
   useEffect(() => {
     const el = box.current;
@@ -341,7 +367,7 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
 
             if (row.kind === "sample") {
               return (
-                <SampleRow key={row.sample.path} sample={row.sample} depth={row.depth + 1} selected={selected} playing={playing === row.sample.path}
+                <SampleRow key={`${row.parent}|${row.sample.path}`} sample={row.sample} depth={row.depth + 1} selected={selected} playing={playing === row.sample.path}
                   onClick={() => {
                     select();
                     preview(row.sample);
@@ -372,10 +398,12 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
 
             switch (row.kind) {
               case "root": {
-                const icon = row.key === "projects" ? <FolderOpenDot size={12} className="shrink-0 text-accent" />
+                const icon = row.key === "suggested" ? <Sparkles size={12} className="shrink-0 text-agent" />
+                  : row.key === "projects" ? <FolderOpenDot size={12} className="shrink-0 text-accent" />
                   : row.key === "instruments" ? <KeyboardMusic size={12} className="shrink-0 text-accent" /> : row.key === "presets"
                   ? <SlidersHorizontal size={12} className="shrink-0 text-accent" /> : <Waves size={12} className="shrink-0 text-accent" />;
-                return line(icon, <span className="font-semibold">{row.name}</span>);
+                return line(icon, <span className="font-semibold">{row.name}</span>, row.right,
+                  row.key === "suggested" ? { title: "Sounds GrooveKit picked out for this song in the background: for each part it could use next, ranked by your style and taste, the first few tried in the song. The agent takes from these first." } : undefined);
               }
               case "project":
                 return line(<Music size={12} className={cn("shrink-0", row.current ? "text-accent" : "text-dim")} />, row.project.name,
@@ -392,7 +420,8 @@ export function BrowserTree({ playing, preview, autoPlay }: { playing?: string; 
                   <>{row.plugin.name} <span className="text-2xs text-faint">{OWN_PLUGINS[row.plugin.name]}</span></>);
               case "category":
               case "effectKind":
-                return line(open ? <FolderOpen size={12} className="shrink-0 text-accent" /> : <Folder size={12} className="shrink-0 text-dim" />, row.name);
+                return line(open ? <FolderOpen size={12} className="shrink-0 text-accent" /> : <Folder size={12} className="shrink-0 text-dim" />, row.name,
+                  row.kind === "category" ? row.right : undefined);
               case "pluginPreset":
                 return line(<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-agent" />, presetName(row.preset), undefined,
                   { title: row.plugin.instrument ? "Double-click or Enter: a new channel with this sound" : "Double-click or Enter: onto the selected insert", onDoubleClick: () => activate(row) });

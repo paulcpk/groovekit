@@ -29,6 +29,19 @@ export function registerLibraryTools({ server, engine }: Tools) {
   );
 
   server.registerTool(
+    "suggested_sounds",
+    {
+      description: "Sounds GrooveKit has already picked out for this song in the background (when the user has that on in Settings), instant: for each part the song could use next (hat loops and one-shots, tops, percussion loops and hits, claps, snares, cymbals, bass, synth loops and one-shots, vocals, fx, and kicks while it has none) up to 24 samples ranked by fit to the song's style and the user's taste, at the song's tempo and in its key, leaving out what the song already uses; lists for parts the song doesn't have yet come first (inSong false). The first few of each list are already tried in the song over its busiest bars (bars): tried gives the audition file to hand to offer_choice as is, room (0-100: how much of the bands it plays are free in the mix) and covers (bands where it would cover what's there); those tried come first, by fit and room together. Without part: what's ready (each list's id, part, count, how many tried, the first few names) and state (finding or trying while it's still working: the lists may change, call again; waiting with a reason; off when the user has it off). With part (a part such as hats, percussion, clap, bass, synth, or a list's id such as hatLoops): its lists in full. Use it first when adding or replacing a part, and search_samples only for what the lists don't have (a sound the user describes, other folders, more than they hold).",
+      inputSchema: {
+        part: z.string().optional().describe("A part (kick, drums, percussion, clap, hats, bass, synth, vocal, fx) or a list's id (hatLoops, hats, topLoops, percLoops, perc, claps, snares, cymbals, bassLoops, synthLoops, synths, vocals, fx, kicks, kickLoops)"),
+        limit: z.number().int().min(1).max(24).optional().describe("Samples per list, default all (24)"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ part, limit }) => attempt(() => engine.call("suggestions.get", defined({ part, limit })))
+  );
+
+  server.registerTool(
     "describe_sample",
     {
       description: "Full measurements of one audio file: duration, loudness, attack and decay, spectral centroid and band energy (sub, low, mid, high), detected pitch, onset count and tempo, plus its classification and, once GrooveKit can listen, words for what it sounds like and (with style) its fit. Works for files outside the library too.",

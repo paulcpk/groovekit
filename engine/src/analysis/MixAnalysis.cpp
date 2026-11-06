@@ -714,7 +714,8 @@ Json checkArrangement (const Project& project, const std::map<std::string, Chann
 }
 
 std::shared_ptr<Placement> preparePlacement (tracktion::Engine& engine, const Project& project, const Id& channel,
-                                             const CompileOptions& compileOptions, const std::filesystem::path& file)
+                                             const CompileOptions& compileOptions, const std::filesystem::path& file,
+                                             const std::filesystem::path& sharedRest)
 {
     std::filesystem::create_directories (file.parent_path());
     auto placement = std::make_shared<Placement>();
@@ -757,8 +758,12 @@ std::shared_ptr<Placement> preparePlacement (tracktion::Engine& engine, const Pr
 
     placement->aloneFile = sibling ("-alone");
     placement->restFile = sibling ("-rest");
+    placement->sharedRest = sharedRest;
     placement->aloneEdit.emplace (compileProject (engine, alone, compileOptions));
-    placement->restEdit.emplace (compileProject (engine, rest, compileOptions));
+
+    if (sharedRest.empty())
+        placement->restEdit.emplace (compileProject (engine, rest, compileOptions));
+
     return placement;
 }
 
@@ -768,7 +773,19 @@ Json renderPlacement (Placement& placement, const RenderOptions& renderOptions)
     const auto& aloneFile = placement.aloneFile;
     const auto& restFile = placement.restFile;
     renderToWav (*placement.aloneEdit, placement.alone, aloneFile, renderOptions);
-    renderToWav (*placement.restEdit, placement.rest, restFile, renderOptions);
+
+    if (placement.sharedRest.empty())
+        renderToWav (*placement.restEdit, placement.rest, restFile, renderOptions);
+    else
+    {
+        // The rest rendered once for every candidate: linked in beside this one's, as its own would be.
+        std::error_code ec;
+        std::filesystem::remove (restFile, ec);
+        std::filesystem::create_hard_link (placement.sharedRest, restFile, ec);
+
+        if (ec)
+            std::filesystem::copy_file (placement.sharedRest, restFile, std::filesystem::copy_options::overwrite_existing);
+    }
 
     const auto own = loadAudio (aloneFile);
     const auto others = loadAudio (restFile);

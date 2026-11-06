@@ -8,6 +8,7 @@ import { setAgentChoices, setApiKey, useAgentChoices, useApiKey } from "@/featur
 import { call, engine, toast, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 import { startTour } from "@/features/shell/Welcome";
+import { setSuggestionsEnabled, useSuggestions } from "@/features/suggestions/suggestions";
 import { ChevronDown } from "lucide-react";
 
 interface AudioDevices {
@@ -284,8 +285,39 @@ function AgentSettings() {
           More choices find the right sound sooner; fewer are quicker to listen through. "Another {choices}" in the pick window asks for as many again. The agent in the sidebar uses Claude with this key; use is billed to your Anthropic account. What you ask, and what the agent
           reads of the song to do it (names, notes, mix settings, sample file paths), is sent to Anthropic.
         </div>
+        <SuggestionSettings />
       </div>
     </Section>
+  );
+}
+
+/** Sounds picked out for the song in the background: on or off, and how far along it is. */
+function SuggestionSettings() {
+  const status = useSuggestions((s) => s.status);
+  if (!status) return null;
+  const lists = status.lists.filter((l) => l.count > 0);
+  const tried = lists.reduce((n, l) => n + l.tried, 0);
+  const now = !status.enabled ? undefined
+    : status.state === "waiting" ? `Waiting: ${status.reason ?? "for the song"}.`
+    : status.state === "finding" ? "Finding sounds for the song…"
+    : status.state === "trying" ? `Trying sounds in the song… ${tried} so far, in ${lists.length} lists.`
+    : status.state === "ready" ? `Ready: ${lists.length} lists, ${tried} sounds tried in the song${status.bars ? ` (bars ${status.bars[0]}-${status.bars[1] - 1})` : ""}.`
+    : undefined;
+
+  return (
+    <div className="flex flex-col gap-1 pt-1">
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={status.enabled} className="accent-[var(--color-accent)]"
+          onChange={(e) => void setSuggestionsEnabled(e.target.checked)} />
+        <span className="text-fg">Have sounds ready for the song</span>
+      </label>
+      {now && <div className="text-2xs text-dim">{now}</div>}
+      <div className="text-2xs text-faint">
+        While you work, GrooveKit ranks your library for every part the song could use next (hats, claps, percussion, bass, synths…) by your style and taste,
+        and tries the best {status.tries} of each in the song, so the agent can offer them at once instead of searching first. They're in the Browser under
+        For this song. It works for a little while after each change; turn it off if your Mac needs the power for something else.
+      </div>
+    </div>
   );
 }
 

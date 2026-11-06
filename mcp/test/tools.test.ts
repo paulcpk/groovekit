@@ -192,6 +192,20 @@ describe.skipIf(!existsSync(enginePath))("MCP tools against a running engine", (
     expect(described.value.features.pitch.key).toBe(45);
   });
 
+  it("says what suggested sounds are ready, and why none are yet", async () => {
+    // Off until the user (or the app) turns it on.
+    const off = await call("suggested_sounds");
+    expect(off.value).toMatchObject({ enabled: false, chosen: false, state: "off", lists: [] });
+
+    // On, it waits for what it needs: here the listening models.
+    const on = await engine.call("suggestions.configure", { enabled: true, tries: 3 });
+    expect(on).toMatchObject({ enabled: true, chosen: true, tries: 3, state: "waiting" });
+    expect(on.reason).toContain("hear the sample library");
+    expect((await call("suggested_sounds", { part: "hats" })).value.lists).toEqual([]);
+    expect((await call("suggested_sounds", { part: "bongos" })).error).toContain("part:");
+    await engine.call("suggestions.configure", { enabled: false });
+  });
+
   it("serves the schema and the effect catalogue", async () => {
     const schema = await client.callTool({ name: "get_schema", arguments: {} });
     expect((schema as any).content[0].text).toContain("export interface Channel");

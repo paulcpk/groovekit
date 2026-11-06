@@ -327,7 +327,7 @@ std::shared_ptr<const listening::StyleProfile> ApiHandler::styleProfile (const J
     return nullptr;
 }
 
-std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool tolerant)
+std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool tolerant, const AuditionOptions& options)
 {
     using model::ChannelPart;
     const auto projectDir = projectDirOf (session);
@@ -452,7 +452,21 @@ std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool toler
     render.start = static_cast<model::Ticks> (optionalNumber (params, "start").value_or (0));
     render.end = static_cast<model::Ticks> (optionalNumber (params, "end").value_or (static_cast<double> (*render.start + 8 * bar)));
 
-    const auto folder = getDefaultCacheDir() / "auditions" / "in-song";
+    const auto folder = options.folder.empty() ? getDefaultCacheDir() / "auditions" / "in-song" : options.folder;
+    const auto sharedRest = options.rest;
+
+    // With the song rendered already, a candidate in a slot of its own plays in a project of only
+    // itself: the song's settings and master, none of its channels, patterns, clips or other inserts.
+    auto lean = project;
+
+    if (! sharedRest.empty())
+    {
+        lean.channels.clear();
+        lean.patterns.clear();
+        lean.playlist = {};
+        std::erase_if (lean.mixer.inserts, [] (const model::Insert& i) { return i.id != "master"; });
+    }
+
     const CompileOptions compile { projectDir, tracktion::Edit::forRendering };
     auto fileFor = [&] (const std::string& what) { return folder / (std::to_string (std::hash<std::string> {} (what)) + ".wav"); };
     const auto key = project.key ? music::parseKey (*project.key) : std::nullopt;
@@ -476,15 +490,15 @@ std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool toler
     // One try: the Edits made here, the renders pooled, then what it measured taken up; with
     // tolerant, a try that fails is reported as such instead of failing the whole audition.
     auto addTry = [&, run, steps, render, tolerant] (model::Project trial, model::Id id, std::filesystem::path file,
-                                                     std::function<void (Json&)> took, Json onError)
+                                                     std::function<void (Json&)> took, Json onError, std::filesystem::path rest = {})
     {
-        steps->here ([run, &engine, trial = std::move (trial), id, file, compile, tolerant, onError]
+        steps->here ([run, &engine, trial = std::move (trial), id, file, compile, tolerant, onError, rest]
         {
             run->failed = false;
 
             try
             {
-                run->placement = analysis::preparePlacement (engine, trial, id, compile, file);
+                run->placement = analysis::preparePlacement (engine, trial, id, compile, file, rest);
             }
             catch (const std::exception& e)
             {
@@ -585,7 +599,8 @@ std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool toler
             switch (part)
             {
                 case ChannelPart::hats:         add (beat * 960 + 480, 120, 60); break;
-                case ChannelPart::percussion:   if (beat % 2 == 1) add (beat * 960, 240, 60); break;
+                case ChannelPart::percussion:
+                case ChannelPart::clap:         if (beat % 2 == 1) add (beat * 960, 240, 60); break;
                 case ChannelPart::bass:         add (beat * 960 + 480, 360, 36 + tonic); break;
                 case ChannelPart::synth:
                 case ChannelPart::vocal:
@@ -607,7 +622,7 @@ std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool toler
             continue;
         }
 
-        auto trial = project;
+        auto trial = channel == nullptr && ! sharedRest.empty() ? lean : project;
         model::Id id;
         auto part = ChannelPart::synth;
         model::SamplerLayer* layer = nullptr;
@@ -792,7 +807,7 @@ std::shared_ptr<Steps> ApiHandler::auditionSteps (const Json& params, bool toler
                     j["key"] = { { "fits", fit->fits }, { "transpose", fit->transpose } };
 
             run->out.push_back (std::move (j));
-        }, onError);
+        }, onError, inPlace ? std::filesystem::path() : sharedRest);
     }
 
     // Candidates that couldn't be tried were noted as the loop went: they keep their place.

@@ -70,10 +70,14 @@ struct Placement
     model::Project alone, rest;
     std::optional<CompiledEdit> aloneEdit, restEdit;
     std::filesystem::path file, aloneFile, restFile;
+    std::filesystem::path sharedRest;   // the rest already rendered (for several candidates in one song), or empty
 };
 
+/** With sharedRest, the rest isn't compiled or rendered: that file (rendered with the same options)
+    stands for it, so a project whose channel plays alone can leave the rest out altogether. */
 std::shared_ptr<Placement> preparePlacement (tracktion::Engine&, const model::Project&, const model::Id& channel,
-                                             const CompileOptions&, const std::filesystem::path& file);
+                                             const CompileOptions&, const std::filesystem::path& file,
+                                             const std::filesystem::path& sharedRest = {});
 model::Json renderPlacement (Placement&, const RenderOptions&);
 
 } // namespace gk::analysis

@@ -267,6 +267,7 @@ Add --verbose to see engine log messages.
 
             w.handler = std::make_unique<gk::ApiHandler> (*w.session, context, &library, w.live.get(), &plugins, &listening, &starter);
             w.handler->onOpenProject = openProject;
+            w.handler->enableBackgroundSuggestions();
             return w;
         };
 
@@ -354,6 +355,10 @@ Add --verbose to see engine log messages.
 
         server->stop();
         server.reset();
+
+        // Work in the background stops, and what's running ends while the message thread serves it.
+        workspace.handler->stopBackgroundWork();
+        context.finishJobs (30000);
 
         std::filesystem::remove (registration, ec);
         return 0;

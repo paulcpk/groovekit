@@ -8,6 +8,7 @@ import { engine as uiEngine, useEngine } from "@/state/engine";
 import { useUi } from "@/state/ui";
 import { guideForAgent } from "./guides";
 import { notesForAgent } from "./notes";
+import { suggestionsForAgent } from "@/features/suggestions/suggestions";
 import { createTools, instructions, type AgentTool } from "./tools";
 
 const MODEL = "claude-opus-5-5";
@@ -253,6 +254,7 @@ function appState() {
     `selected channel: ${name(doc?.channels, selectedChannel)}`,
     selectedClips.length ? `selected clips: ${selectedClips.join(", ")}` : "",
     `transport: ${transport.playing ? "playing" : "stopped"} in ${transport.mode ?? "song"} mode`,
+    suggestionsForAgent(),
   ].filter(Boolean).join("; ");
 }
 

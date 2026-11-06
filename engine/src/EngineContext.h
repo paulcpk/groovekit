@@ -44,6 +44,12 @@ public:
     using Done = std::function<void (std::shared_ptr<void> result, std::exception_ptr error)>;
     void runJob (Job work, Done done);
 
+    /** Message thread only: serves the message thread until the jobs running or queued are done
+        (or the time is up), for quitting. A render's end waits for the message thread, so a job
+        can't finish while the message thread waits for it without serving it. Returns whether
+        they're done. */
+    bool finishJobs (int timeoutMs);
+
     /** ~/Library/Application Support/GrooveKit: settings, the sample library index, the plugin list. */
     static std::filesystem::path getAppDataFolder();
 

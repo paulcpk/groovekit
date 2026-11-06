@@ -228,6 +228,8 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
 
     listenerId = session.addListener ([this] (const Change& change)
     {
+        songChangedForSuggestions();
+
         if (! broadcast)
             return;
 
@@ -249,6 +251,7 @@ ApiHandler::ApiHandler (Session& s, EngineContext& c, library::SampleLibrary* l,
 ApiHandler::~ApiHandler()
 {
     *alive = false;
+    stopSuggestions();
 
     if (live != nullptr)
     {
@@ -413,6 +416,7 @@ Json ApiHandler::dispatch (const std::string& method, const Json& params, Client
         { "chats.",      [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callChats (m, p); } },
         { "notes.",      [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callNotes (m, p); } },
         { "guides.",     [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callGuides (m, p); } },
+        { "suggestions.", [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callSuggestions (m, p); } },
         { "presets.",    [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callPresets (m, p); } },
         { "library.",    [] (ApiHandler& h, const std::string& m, const Json& p, Client&) { return h.callLibrary (m.substr (8), p); } },
         { "plugins.",    [] (ApiHandler& h, const std::string& m, const Json& p, Client& c) { return h.callPlugins (m.substr (8), p, c); } },

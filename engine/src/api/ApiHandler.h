@@ -65,6 +65,17 @@ public:
     /** Where the user's notes for the agent are kept; empty for <app data>/agent-notes.json. */
     std::filesystem::path notesFile;
 
+    /** Where the setting for sounds suggested in the background is kept; empty for
+        <app data>/suggestions.json. */
+    std::filesystem::path suggestionsFile;
+
+    /** Lets this handler pick out sounds for the song in the background when the user has that on
+        (suggestions.*): only the app's engine does, not tests or the command line. */
+    void enableBackgroundSuggestions();
+
+    /** Stops picking out sounds in the background (for quitting): what's running stops after its step. */
+    void stopBackgroundWork()       { backgroundSuggestions = false; stopSuggestions(); }
+
     /** Called for every change; the server sends the message to all clients. */
     void setBroadcast (Send);
 
@@ -139,7 +150,17 @@ private:
     /** mix.audition as steps: the trials are built and their Edits compiled on the message
         thread, rendered and measured on the pool; result is the audition's. With tolerant,
         a candidate that can't be tried is reported with an error instead of failing the whole. */
-    std::shared_ptr<Steps> auditionSteps (const model::Json& params, bool tolerant);
+    struct AuditionOptions
+    {
+        /** Where the auditions go; empty for <cache>/auditions/in-song. */
+        std::filesystem::path folder;
+        /** The song already rendered over the same bars (at 44.1 kHz), to put each candidate in
+            without rendering the song again: a candidate in a slot of its own is then rendered alone,
+            from a project of only itself (the song's tempo, key and master). */
+        std::filesystem::path rest;
+    };
+
+    std::shared_ptr<Steps> auditionSteps (const model::Json& params, bool tolerant, const AuditionOptions& = {});
     model::Json captureState (const std::string& pluginKey, const std::string& origin);
     model::Json callLibrary (const std::string& method, const model::Json& params);
     model::Json callLive (const std::string& method, const model::Json& params, Client&);
@@ -156,6 +177,20 @@ private:
     model::Json callChats (const std::string& method, const model::Json& params);
     model::Json callNotes (const std::string& method, const model::Json& params);
     model::Json callGuides (const std::string& method, const model::Json& params);
+
+    // Sounds suggested for the song, picked out and tried in the background (SuggestionsApi.cpp).
+    struct Suggestions;
+    std::shared_ptr<Suggestions> suggestions;
+    bool backgroundSuggestions = false;
+    Suggestions& getSuggestions();
+    std::filesystem::path suggestionsSettingsFile() const;
+    model::Json callSuggestions (const std::string& method, const model::Json& params);
+    model::Json suggestionsJson (bool full, const std::string& which, int limit);
+    void songChangedForSuggestions();
+    void startSuggestions();
+    void trySuggestions (std::shared_ptr<std::atomic<bool>> round, int64_t edit, size_t next);
+    void stopSuggestions();
+    void notifySuggestions();
 
     /** The guide a style or a folder of references goes with, by name, among the guides listed
         once for the request; null without one. */

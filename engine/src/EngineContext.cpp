@@ -122,6 +122,21 @@ EngineContext::~EngineContext()
     EditGraveyard::getInstance().flush();
 }
 
+bool EngineContext::finishJobs (int timeoutMs)
+{
+    const auto end = juce::Time::getMillisecondCounter() + static_cast<juce::uint32> (timeoutMs);
+
+    while (impl->jobs.getNumJobs() > 0)
+    {
+        if (juce::Time::getMillisecondCounter() > end)
+            return false;
+
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
+    }
+
+    return true;
+}
+
 void EngineContext::runJob (Job work, Done done)
 {
     impl->jobs.addJob ([work = std::move (work), done = std::move (done)]

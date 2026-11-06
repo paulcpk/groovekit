@@ -180,6 +180,50 @@ export interface Methods {
   "mix.setSlot": { params: Params; result: unknown };
   "mix.check": { params: Params; result: Record<string, unknown> };
   "mix.audition": { params: Params; result: { candidates: Record<string, unknown>[] } & Record<string, unknown> };
+  "suggestions.get": { params: { part?: string; limit?: number; full?: boolean }; result: Suggestions };
+  "suggestions.configure": { params: { enabled?: boolean; tries?: number }; result: Suggestions };
+  "suggestions.refresh": { params: Params; result: Suggestions };
+}
+
+/** Sounds the engine picked out for the song in the background, by list (suggestions.get). */
+export interface Suggestions {
+  enabled: boolean;
+  /** Whether the setting was ever made (the app turns it on when it wasn't). */
+  chosen: boolean;
+  /** How many of each list are tried in the song. */
+  tries: number;
+  state: "off" | "waiting" | "finding" | "trying" | "ready";
+  reason?: string;
+  style?: string;
+  /** The bars the tries play over: [from, to), 1-based. */
+  bars?: [number, number];
+  lists: {
+    id: string;
+    label: string;
+    part: string;
+    inSong: boolean;
+    count: number;
+    tried: number;
+    /** Without a part asked for: the first few names. */
+    top?: string[];
+    samples?: SuggestedSample[];
+  }[];
+}
+
+export interface SuggestedSample {
+  path: string;
+  description?: string;
+  sounds?: string[];
+  category?: string;
+  loop?: boolean;
+  durationSeconds?: number;
+  tempo?: number;
+  sourceTempo?: number;
+  key?: string;
+  fit?: number;
+  taste?: number;
+  /** Tried in the song as it is now. */
+  tried?: { audition: string; room: number; covers: string[]; levelDb: number };
 }
 
 type Pending = { method: string; resolve: (v: unknown) => void; reject: (e: Error) => void; done: () => void };

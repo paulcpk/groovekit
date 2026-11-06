@@ -10,6 +10,7 @@ target_sources(gk_engine PRIVATE
     src/api/ApiServer.cpp
     src/api/LibraryApi.cpp
     src/api/ListeningApi.cpp
+    src/api/SuggestionsApi.cpp
     src/api/LiveApi.cpp
     src/api/MelodyApi.cpp
     src/api/MixApi.cpp

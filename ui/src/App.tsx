@@ -27,6 +27,7 @@ import { createAutomation } from "@/features/playlist/automation";
 import { openOverview } from "@/features/windows/overviewState";
 import { anythingInFront, bringToFront, followPluginWindows } from "@/features/windows/arrange";
 import { commitSwitcher, stepSwitcher } from "@/features/windows/switcherState";
+import { syncSuggestions } from "@/features/suggestions/suggestions";
 import { listen, useEngine } from "@/state/engine";
 import { setUi, useUi } from "@/state/ui";
 
@@ -113,6 +114,8 @@ function AppHooks() {
   useTypingKeyboard();
   useQuitGuard();
   // "Automate" in the bar above a plugin's window asks the UI for an automation clip.
+  // Sounds the engine picks out for the song in the background.
+  useEffect(() => syncSuggestions(), []);
   useEffect(() => listen("createAutomation", (params) => {
     const doc = useEngine.getState().doc;
     if (doc) void createAutomation(doc, params.target, params.value);
